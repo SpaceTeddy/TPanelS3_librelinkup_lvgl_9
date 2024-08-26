@@ -1,9 +1,7 @@
 /*
  * @Description: T-Panel出厂测试程序
- * @version: V1.0.5
  * @Author: LILYGO_L
  * @Date: 2023-09-16 10:47:28
- * @LastEditors: LILYGO_L
  * @LastEditTime: 2024-04-19 11:31:07
  * @License: GPL 3.0
  */

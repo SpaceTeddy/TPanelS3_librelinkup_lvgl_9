@@ -1,9 +1,7 @@
 /*
  * @Description: T-Panel_V1.2出厂测试程序
- * @version: V1.0.2
  * @Author: LILYGO_L
  * @Date: 2023-09-16 10:47:28
- * @LastEditors: Xk_w
  * @LastEditTime: 2024-06-04 10:10:27
  * @License: GPL 3.0
  */
