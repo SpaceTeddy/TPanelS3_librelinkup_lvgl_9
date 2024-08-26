@@ -97,8 +97,8 @@ void lvgl_initialization(void)
     uint32_t screen_height = gfx->height();
 
     // 使用PSRAM分配内存
-    lv_color_t *buf_1 = (lv_color_t *)heap_caps_malloc(48 * 1024, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    lv_color_t *buf_2 = (lv_color_t *)heap_caps_malloc(48 * 1024, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    lv_color_t *buf_1 = (lv_color_t *)heap_caps_malloc(sizeof(lv_color_t) * LCD_WIDTH * 40, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    lv_color_t *buf_2 = (lv_color_t *)heap_caps_malloc(sizeof(lv_color_t) * LCD_WIDTH * 40, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
     while ((!buf_1) || (!buf_2))
     {
@@ -106,7 +106,7 @@ void lvgl_initialization(void)
         delay(1000);
     }
 
-    lv_disp_draw_buf_init(&draw_buf, buf_1, buf_2, 48 * 1024 * 2);
+    lv_disp_draw_buf_init(&draw_buf, buf_1, buf_2, LCD_WIDTH * 40);
 
     /* Initialize the display */
     lv_disp_drv_init(&disp_drv);
