@@ -297,6 +297,7 @@ T-Panel是一款拥有480x480RGB像素大屏的智能家居产品。板载高性
 * [HYNITRON-CST3240_V1.0](./information/HYNITRON-CST3240_V1.0.pdf)
 * [EBYTE-RSM485MT5V](./information/EBYTE-RSM485MT5V.pdf)
 * [ST7701S_SPEC_V1.4](./information/ST7701S_SPEC_V1.4.pdf)
+* [TD501MCANFD_MORNSUN](./information/TD501MCANFD_MORNSUN.pdf)
 
 ## 依赖库
 * [Arduino_GFX-1.3.7](https://github.com/moononournation/Arduino_GFX)

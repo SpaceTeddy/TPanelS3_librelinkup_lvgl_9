@@ -297,6 +297,7 @@
 * [HYNITRON-CST3240_V1.0](./information/HYNITRON-CST3240_V1.0.pdf)
 * [EBYTE-RSM485MT5V](./information/EBYTE-RSM485MT5V.pdf)
 * [ST7701S_SPEC_V1.4](./information/ST7701S_SPEC_V1.4.pdf)
+* [TD501MCANFD_MORNSUN](./information/TD501MCANFD_MORNSUN.pdf)
 
 ## DependentLibraries
 * [Arduino_GFX-1.3.7](https://github.com/moononournation/Arduino_GFX)
