@@ -1,10 +1,8 @@
 /*
  * @Description: LVGL
- * @version: V1.0.0
  * @Author: LILYGO_L
  * @Date: 2023-09-22 11:59:37
- * @LastEditors: LILYGO_L
- * @LastEditTime: 2024-03-01 11:15:28
+ * @LastEditTime: 2024-09-11 09:50:25
  * @License: GPL 3.0
  */
 // #define TOUCH_MODULES_GT911
@@ -21,7 +19,7 @@
 #include "lv_demo_benchmark.h"
 #include "TouchLib.h"
 
-static bool Touch_Int_Flag = false;
+volatile bool Touch_Int_Flag = false;
 
 TouchLib touch(Wire, TOUCH_SDA, TOUCH_SCL, CST3240_ADDRESS);
 
@@ -63,25 +61,23 @@ void my_touchpad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data)
 {
     if (Touch_Int_Flag == true)
     {
-        Touch_Int_Flag = false;
-
         touch.read();
-        if (touch.getPointNum() > 0)
-        {
-            TP_Point t = touch.getPoint(0);
+        TP_Point t = touch.getPoint(0);
 
+        if ((touch.getPointNum() == 1) && (t.pressure > 0) && (t.state != 0))
+        {
             data->state = LV_INDEV_STATE_PR;
 
             /*Set the coordinates*/
             data->point.x = t.x;
             data->point.y = t.y;
 
-            // Serial.print("Data x ");
-            // Serial.printf("%d\n", x[0]);
-
-            // Serial.print("Data y ");
-            // Serial.printf("%d\n", y[0]);
+            // Serial.printf("Touch X: %d Y: %d", t.x, t.y);
+            // Serial.printf("Static: %d", t.state);
+            // Serial.printf("Pressure: %d", t.pressure);
         }
+
+        Touch_Int_Flag = false;
     }
     else
     {
@@ -133,6 +129,15 @@ void setup()
 
     pinMode(LCD_BL, OUTPUT);
     digitalWrite(LCD_BL, HIGH);
+
+    attachInterrupt(
+        TOUCH_INT,
+        []
+        {
+            Touch_Int_Flag = true;
+            // Serial.println("get_int");
+        },
+        FALLING); 
 
     Wire.begin(IIC_SDA, IIC_SCL);
 
