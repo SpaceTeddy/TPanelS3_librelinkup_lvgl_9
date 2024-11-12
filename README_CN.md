@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2023-09-11 16:13:14
- * @LastEditTime: 2024-07-22 16:49:34
+ * @LastEditTime: 2024-11-12 14:38:23
  * @License: GPL 3.0
 -->
 <h1 align = "center">T-Panel</h1>
@@ -165,6 +165,7 @@ T-Panel是一款拥有480x480RGB像素大屏的智能家居产品。板载高性
 | Flash Mode                         | QIO 80MHz                         |
 | Flash Size                           | 16MB (128Mb)                     |
 | Core Debug Level                | None                                 |
+| Partition Scheme                | 16M Flash (3MB APP/9.9MB FATFS) |
 | PSRAM                                | QSPI PSRAM                         |
 | Arduino Runs On                  | Core 1                               |
 | Events Run On                     | Core 1                               |
