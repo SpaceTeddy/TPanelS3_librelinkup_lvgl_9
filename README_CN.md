@@ -2,10 +2,14 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2023-09-11 16:13:14
- * @LastEditTime: 2024-11-12 14:38:23
+ * @LastEditTime: 2024-11-12 15:54:07
  * @License: GPL 3.0
 -->
 <h1 align = "center">T-Panel</h1>
+
+<p align="center" width="100%">
+    <img src="image/13.jpg" alt="">
+</p>
 
 ## **[English](./README.md) | 中文**
 
@@ -40,10 +44,23 @@ T-Panel是一款拥有480x480RGB像素大屏的智能家居产品。板载高性
 
 ## 预览
 
-### PCB板
+### 实物图
 
-### 渲染图
+<p align="center" width="100%">
+    <img src="image/12.jpg" alt="">
+</p>
 
+---
+
+<p align="center" width="100%">
+    <img src="image/13.jpg" alt="">
+</p>
+
+---
+
+<p align="center" width="100%">
+    <img src="image/14.jpg" alt="">
+</p>
 
 ## 模块
 
@@ -57,7 +74,6 @@ T-Panel是一款拥有480x480RGB像素大屏的智能家居产品。板载高性
 * MCU2：ESP32-H2-MINI-1
 * FLASH：4MB
 * 其他说明：更多资料请访问[乐鑫官方ESP32­-MINI-1数据手册](https://www.espressif.com/sites/default/files/documentation/esp32-h2-mini-1_mini-1u_datasheet_cn.pdf)
-
 
 ### 2. 屏幕
 
@@ -301,7 +317,9 @@ T-Panel是一款拥有480x480RGB像素大屏的智能家居产品。板载高性
 * [TD501MCANFD_MORNSUN](./information/TD501MCANFD_MORNSUN.pdf)
 
 ## 依赖库
-* [Arduino_GFX-1.3.7](https://github.com/moononournation/Arduino_GFX)
+* [Arduino_GFX-1.4.6](https://github.com/moononournation/Arduino_GFX)
 * [TouchLib](https://github.com/mmMicky/TouchLib)
-* [XL95x5_Driver]()
 * [lvgl-8.3.5](https://github.com/lvgl/lvgl)
+* [ESP32_USB_Stream-0.0.1](https://github.com/esp-arduino-libs/ESP32_USB_Stream)
+* [JPEGDEC-1.2.8](https://github.com/bitbank2/JPEGDEC)
+* [MiniTV](https://github.com/moononournation/MiniTV)

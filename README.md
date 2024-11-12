@@ -2,14 +2,16 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2023-09-11 16:13:14
- * @LastEditTime: 2024-11-12 14:40:31
+ * @LastEditTime: 2024-11-12 15:54:40
  * @License: GPL 3.0
 -->
 <h1 align = "center">T-Panel</h1>
 
+<p align="center" width="100%">
+    <img src="image/13.jpg" alt="">
+</p>
+
 ## **English | [中文](./README_CN.md)**
-
-
 
 ## Version iteration:
 | Version     | Update date       |Update description|
@@ -43,9 +45,23 @@
 
 ## Preview
 
-### PCB board
+### Actual Product Image
 
-### Rendering
+<p align="center" width="100%">
+    <img src="image/12.jpg" alt="">
+</p>
+
+---
+
+<p align="center" width="100%">
+    <img src="image/13.jpg" alt="">
+</p>
+
+---
+
+<p align="center" width="100%">
+    <img src="image/14.jpg" alt="">
+</p>
 
 ## Module
 
@@ -303,7 +319,9 @@
 * [TD501MCANFD_MORNSUN](./information/TD501MCANFD_MORNSUN.pdf)
 
 ## DependentLibraries
-* [Arduino_GFX-1.3.7](https://github.com/moononournation/Arduino_GFX)
+* [Arduino_GFX-1.4.6](https://github.com/moononournation/Arduino_GFX)
 * [TouchLib](https://github.com/mmMicky/TouchLib)
-* [XL95x5_Driver]()
 * [lvgl-8.3.5](https://github.com/lvgl/lvgl)
+* [ESP32_USB_Stream-0.0.1](https://github.com/esp-arduino-libs/ESP32_USB_Stream)
+* [JPEGDEC-1.2.8](https://github.com/bitbank2/JPEGDEC)
+* [MiniTV](https://github.com/moononournation/MiniTV)
