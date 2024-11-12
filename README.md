@@ -2,12 +2,14 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2023-09-11 16:13:14
- * @LastEditTime: 2024-11-12 14:38:33
+ * @LastEditTime: 2024-11-12 14:40:31
  * @License: GPL 3.0
 -->
 <h1 align = "center">T-Panel</h1>
 
 ## **English | [中文](./README_CN.md)**
+
+
 
 ## Version iteration:
 | Version     | Update date       |Update description|
