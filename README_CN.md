@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2023-09-11 16:13:14
- * @LastEditTime: 2024-11-12 15:54:07
+ * @LastEditTime: 2024-11-19 09:17:04
  * @License: GPL 3.0
 -->
 <h1 align = "center">T-Panel</h1>
