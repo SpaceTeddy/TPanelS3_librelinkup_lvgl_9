@@ -2,7 +2,7 @@
  * @Description: LVGL
  * @Author: LILYGO_L
  * @Date: 2023-09-22 11:59:37
- * @LastEditTime: 2024-09-11 09:50:25
+ * @LastEditTime: 2024-11-20 18:04:44
  * @License: GPL 3.0
  */
 // #define TOUCH_MODULES_GT911
