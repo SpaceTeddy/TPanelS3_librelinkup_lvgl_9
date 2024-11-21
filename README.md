@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2023-09-11 16:13:14
- * @LastEditTime: 2024-11-21 14:45:23
+ * @LastEditTime: 2024-11-21 14:46:56
  * @License: GPL 3.0
 -->
 <h1 align = "center">T-Panel</h1>
@@ -129,7 +129,7 @@
 | [Lvgl](./examples/Lvgl) | `[Platformio IDE][espressif32-v6.5.0]`<br />`[Arduino IDE][esp32_v2.0.14]` |  |  |
 | [Lvgl_benchmark](./examples/Lvgl_benchmark) | `[Platformio IDE][espressif32-v6.5.0]`<br />`[Arduino IDE][esp32_v2.0.14]` |  |  |
 | [CAN](./examples/CAN) | `[Platformio IDE][espressif32-v6.5.0]`<br />`[Arduino IDE][esp32_v2.0.14]` |  |  |
-| [openHASP](https://github.com/HASwitchPlate/openHASP) | `[Platformio IDE][espressif32-v6.5.0]`<br />`[openHASP][0.7.0]` | Detailed development process introduction can be found at [openHASP Development Documentation](https://openhasp.haswitchplate.com/0.7.0/) | <p align="center" width="10%"> <img src="image/1.png" alt="example" width="50%"> </p> |
+| [openHASP](https://github.com/HASwitchPlate/openHASP) | `[Platformio IDE][espressif32-v6.5.0]`<br />`[openHASP][0.7.0]` | Detailed development process introduction can be found at [openHASP Development Documentation](https://openhasp.haswitchplate.com/0.7.0/) | <p align="center" width="10%"> <img src="image/1.png" alt="example" width="80%"> </p> |
 
 | Firmware | Description | Picture |
 | ------  | ------  | ------ |
