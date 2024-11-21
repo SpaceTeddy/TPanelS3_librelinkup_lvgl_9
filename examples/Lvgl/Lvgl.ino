@@ -2,7 +2,7 @@
  * @Description: LVGL
  * @Author: LILYGO_L
  * @Date: 2023-09-22 11:59:37
- * @LastEditTime: 2024-11-20 18:04:44
+ * @LastEditTime: 2024-11-21 11:42:10
  * @License: GPL 3.0
  */
 // #define TOUCH_MODULES_GT911
@@ -148,9 +148,9 @@ void setup()
     gfx->begin();
     gfx->fillScreen(BLACK);
 
-    gfx->XL_digitalWrite(TOUCH_RST, LOW);
+    gfx->XL_digitalWrite(XL95X5_TOUCH_RST, LOW);
     delay(200);
-    gfx->XL_digitalWrite(TOUCH_RST, HIGH);
+    gfx->XL_digitalWrite(XL95X5_TOUCH_RST, HIGH);
     delay(200);
 
     touch.init();
