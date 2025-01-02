@@ -1,7 +1,8 @@
 name: Issue description template
 description: Report any problem here
 labels: ["help wanted"]
-Assignees: ["Llgok"]
+assignees:
+  - Llgok
 body:
   - type: markdown
     attributes:
