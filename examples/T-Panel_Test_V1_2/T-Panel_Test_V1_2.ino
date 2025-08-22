@@ -26,12 +26,12 @@
 #include <HTTPClient.h>
 #include <driver/twai.h>
 
-#define WIFI_SSID "xinyuandianzi"
-#define WIFI_PASSWORD "AA15994823428"
-// #define WIFI_SSID "LilyGo-AABB"
-// #define WIFI_PASSWORD "xinyuandianzi"
+// #define WIFI_SSID "xinyuandianzi"
+// #define WIFI_PASSWORD "AA15994823428"
+#define WIFI_SSID "LilyGo-AABB"
+#define WIFI_PASSWORD "xinyuandianzi"
 
-#define WIFI_CONNECT_WAIT_MAX (5000)
+#define WIFI_CONNECT_WAIT_MAX (30000)
 
 #define NTP_SERVER1 "pool.ntp.org"
 #define NTP_SERVER2 "time.nist.gov"
