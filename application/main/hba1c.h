@@ -30,12 +30,6 @@ extern char today_json_filename[20];
 class HBA1C {
     public:
         /**
-         * @brief begin function.
-         * @param nothing.
-         */
-        void begin();
-
-        /**
          * @brief Debug function to print raw JSON file contents.
          * @param filename Path of the JSON file.
          */

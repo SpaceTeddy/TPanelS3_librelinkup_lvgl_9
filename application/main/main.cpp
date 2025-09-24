@@ -110,9 +110,10 @@ void my_touchpad_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
             data->point.x = t.x;
             data->point.y = t.y;
 
-            Serial.printf("Touch X: %d Y: %d", t.x, t.y);
-            Serial.printf("Static: %d", t.state);
+            Serial.printf("Touch X: %d Y: %d ", t.x, t.y);
+            Serial.printf("Static: %d ", t.state);
             Serial.printf("Pressure: %d", t.pressure);
+            Serial.println();
         }
 
         Touch_Int_Flag = false;
@@ -662,7 +663,7 @@ void esp_status(){
 // The adjustable range is 0~15, 0 is the minimum brightness, 15 is the maximum brightness
 uint8_t set_trgb_backlight_brightness(uint8_t value)
 {
-    ledcSetup(0, 5000, 8);                              // 0-15, 5000, 8
+    ledcSetup(0, 15000, 8);                              // 0-15, 5000, 8
     ledcAttachPin(LCD_BL, 0);         // EXAMPLE_PIN_NUM_BK_LIGHT, 0 - 15
     ledcWrite(0, value);        // 0-15, 0-255 (with 8 bit resolution); 0=totally dark;255=totally shiny
     
@@ -1537,17 +1538,18 @@ void LoopTask(void *pvParameters) {
     Serial.println("Loop Task gestartet...");
     while (1) {
         
-        // ElegantOTA
+        //ElegantOTA
         ElegantOTA.loop();              // OTA-Loop in einer separaten Task ausführen
         
-        //mqtt client
-        mqtt_client.loop();            //loop and keep mqtt client to server 
+        if(ota_in_progress == 0){
+            //mqtt client
+            mqtt_client.loop();            //loop and keep mqtt client to server 
 
-        //telnet loop
-        uuid::loop();
-        telnet.loop();
-        Shell::loop_all();yield();
-
+            //telnet loop
+            uuid::loop();
+            telnet.loop();
+            Shell::loop_all();yield();
+        }
         vTaskDelay(pdMS_TO_TICKS(1));  // Task nicht blockieren
     }
 }
@@ -1582,11 +1584,10 @@ void setup_tpanels3(){
         1               // Core (0 oder 1)
     );
 
-    // init Backlight
+    // init Backlight PWM pin
     pinMode(LCD_BL, OUTPUT);
-    digitalWrite(LCD_BL, 0x20); // set backlight to 50%
-
-    set_trgb_backlight_brightness(15); // set backlight to 15%
+    // set backlight to 45%
+    set_trgb_backlight_brightness(45); 
 
     // init Touch Pin Interrupt
     attachInterrupt(
@@ -1601,9 +1602,10 @@ void setup_tpanels3(){
     Wire.begin(IIC_SDA, IIC_SCL);
 
     gfx->begin();
-    gfx->setRotation(2); // rotation = 0, 1, 2, 3  entspricht 0°, 90°, 180°, 270°
+    gfx->setRotation(0); // rotation = 0, 1, 2, 3  entspricht 0°, 90°, 180°, 270°
     gfx->fillScreen(BLACK);
 
+    // Touch Init
     gfx->XL_digitalWrite(XL95X5_TOUCH_RST, LOW);
     delay(200);
     gfx->XL_digitalWrite(XL95X5_TOUCH_RST, HIGH);
@@ -1611,14 +1613,14 @@ void setup_tpanels3(){
 
     touch.init();
     
+    // LVGL Init
     lvgl_initialization();
 
-    // inits LV widgets
+    // inits LV screens
     ui_init();
     lv_label_set_text(ui_Label_WelcomeInfo, "LibreLinkUp\nClient" );
     lv_timer_handler(); /* let the GUI do its work */
-    delay(1000);
-}
+ }
 
 // setup config
 void setup_load_system_config(){
@@ -1827,7 +1829,7 @@ void setup_task(){
 void setup()
 {
     //Setup ADC for battery voltage
-    setup_adc();
+    //setup_adc(); //currently not used becasue of LCD color confusion
     
     //Setup UART
     setup_serial();
@@ -1843,7 +1845,7 @@ void setup()
 
     //Setup WiFi
     setup_wifi();
-
+    
     //Setup Telnet
     setup_uuid_console();
 
@@ -1858,9 +1860,6 @@ void setup()
 
     //Setup librelinkup
     setup_librelinkup();
-
-    //Setup HBA1C
-    hba1c.begin();
 
     //Setup OTA
     setup_OTA(settings.config.ota_update);
@@ -1893,12 +1892,13 @@ void setup()
                     lv_keyboard_set_textarea(ui_kb, ui_ta_password);
                     lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
                     }, LV_EVENT_FOCUSED, NULL);
-    //---------------------------------------------------------------------------------------------
+    
+//---------------------------------------------------------------------------------------------
     
     //get first glycose data
     update_glucose_data();
 
-    // decrease update counter -1 and update if five_minute_chart_update_counter == 0
+    //decrease update counter -1 and update if five_minute_chart_update_counter == 0
     update_five_minute_counter();
         
     //publish mqtt data to mqtt broker
@@ -1910,25 +1910,19 @@ void setup()
     //--------------------------------------------------------------------------------------
     // Change to main screen
     lv_disp_load_scr(ui_Main_screen);
-
     //---------------------------------------------------------------------------------------------
-
 }
 
 void loop()
 {
     //---------- all other loop function in LoopTask() function ---------------------
-    /*must be in loop and not in seperate task*/
-    /*
-    uuid::loop();
-    telnet.loop();
-    Shell::loop_all();yield();
-    */
-
+    /*all loop handlers must be in seperate loop task LoopTask(void *pvParameters) */
+     
     //LVGL update
     lv_timer_handler();delay(1);                /* let the GUI do its work */
     
     //-------------------[Software Timer]-----------------------  
+    
     if(millis() - g_timer_250ms_backup > timer_250ms){
         g_timer_250ms_backup = millis(); 
 
@@ -1941,81 +1935,80 @@ void loop()
     if(millis() - g_timer_1000ms_backup > timer_1000ms){
         g_timer_1000ms_backup = millis();
 
-        //check battery voltage
-        int raw_adc = analogRead(BATTERY_ADC_PIN);
-        float voltage = (raw_adc * ADC_REF_VOLTAGE / ADC_MAX_VALUE) * VOLTAGE_DIVIDER_RATIO;
-        //debugI("Battery Voltage: %.2fV", voltage);
+        if(ota_in_progress == 0){
+            //check and update debug screen
+            if (lv_scr_act() == ui_Debug_screen){
+                uint64_t time_delta = (59 - (((millis() - g_timer_60000ms_backup)))/1000); //-59 seconds
+                String internet_data_refresh_in = "Data Refresh in: " + String(time_delta) + "sec.";
+                lv_label_set_text(ui_Label_DebugDataRefresh, internet_data_refresh_in.c_str() );
 
-        //check and update debug screen
-        if (lv_scr_act() == ui_Debug_screen){
-            uint64_t time_delta = (59 - (((millis() - g_timer_60000ms_backup)))/1000); //-59 seconds
-            String internet_data_refresh_in = "Data Refresh in: " + String(time_delta) + "sec.";
-            lv_label_set_text(ui_Label_DebugDataRefresh, internet_data_refresh_in.c_str() );
+                String esp32_time_date = "ESP32 Time: " + helper.get_esp_time_date();
+                lv_label_set_text(ui_Label_DebugTime, esp32_time_date.c_str() );
+                String ip_address = "IP: " + WiFi.localIP().toString();
+                lv_label_set_text(ui_Label_DebugIP, ip_address.c_str());
+                String sensor_sn = "Sensor SN: " + librelinkup.llu_sensor_data.sensor_sn;
+                String sensor_id = "Sensor: " + librelinkup.llu_sensor_data.sensor_id;
+                lv_label_set_text(ui_Label_DebugSensor, sensor_id.c_str() );
+                
+                String sensor_valid_time = "Valid: ";
+                char buf_label1[35];
+                snprintf(buf_label1, 35, "%dDays %dHours %dMinutes",librelinkup.sensor_livetime.sensor_valid_days,librelinkup.sensor_livetime.sensor_valid_hours, librelinkup.sensor_livetime.sensor_valid_minutes);
+                sensor_valid_time = sensor_valid_time + buf_label1;
+                lv_label_set_text(ui_Label_DebugSensorTimestamp, sensor_valid_time.c_str() );
 
-            String esp32_time_date = "ESP32 Time: " + helper.get_esp_time_date();
-            lv_label_set_text(ui_Label_DebugTime, esp32_time_date.c_str() );
-            String ip_address = "IP: " + WiFi.localIP().toString();
-            lv_label_set_text(ui_Label_DebugIP, ip_address.c_str());
-            String sensor_sn = "Sensor SN: " + librelinkup.llu_sensor_data.sensor_sn;
-            String sensor_id = "Sensor: " + librelinkup.llu_sensor_data.sensor_id;
-            lv_label_set_text(ui_Label_DebugSensor, sensor_id.c_str() );
-            
-            String sensor_valid_time = "Valid: ";
-            char buf_label1[35];
-            snprintf(buf_label1, 35, "%dDays %dHours %dMinutes",librelinkup.sensor_livetime.sensor_valid_days,librelinkup.sensor_livetime.sensor_valid_hours, librelinkup.sensor_livetime.sensor_valid_minutes);
-            sensor_valid_time = sensor_valid_time + buf_label1;
-            lv_label_set_text(ui_Label_DebugSensorTimestamp, sensor_valid_time.c_str() );
+                String str_sensor_state = "Sensor State: ";
+                char buf_label2[35];
+                if(librelinkup.llu_sensor_data.sensor_state == 0){
+                    snprintf(buf_label2, 35, "%d => unknown",librelinkup.llu_sensor_data.sensor_state);
+                }else if(librelinkup.llu_sensor_data.sensor_state == 1){
+                    snprintf(buf_label2, 35, "%d => not startet yet",librelinkup.llu_sensor_data.sensor_state);
+                }else if(librelinkup.llu_sensor_data.sensor_state == 2){
+                    snprintf(buf_label2, 35, "%d => starting phase",librelinkup.llu_sensor_data.sensor_state);
+                }else if(librelinkup.llu_sensor_data.sensor_state == 3){
+                    snprintf(buf_label2, 35, "%d => ready",librelinkup.llu_sensor_data.sensor_state);
+                }else if(librelinkup.llu_sensor_data.sensor_state == 4){
+                    snprintf(buf_label2, 35, "%d => expired",librelinkup.llu_sensor_data.sensor_state);
+                }else if(librelinkup.llu_sensor_data.sensor_state == 5){
+                    snprintf(buf_label2, 35, "%d => shut down",librelinkup.llu_sensor_data.sensor_state);
+                }else if(librelinkup.llu_sensor_data.sensor_state == 6){
+                    snprintf(buf_label2, 35, "%d => has failure",librelinkup.llu_sensor_data.sensor_state);
+                }
+                str_sensor_state = str_sensor_state + buf_label2;
+                lv_label_set_text(ui_Label_DebugSensorState, str_sensor_state.c_str() );
 
-            String str_sensor_state = "Sensor State: ";
-            char buf_label2[35];
-            if(librelinkup.llu_sensor_data.sensor_state == 0){
-                snprintf(buf_label2, 35, "%d => unknown",librelinkup.llu_sensor_data.sensor_state);
-            }else if(librelinkup.llu_sensor_data.sensor_state == 1){
-                snprintf(buf_label2, 35, "%d => not startet yet",librelinkup.llu_sensor_data.sensor_state);
-            }else if(librelinkup.llu_sensor_data.sensor_state == 2){
-                snprintf(buf_label2, 35, "%d => starting phase",librelinkup.llu_sensor_data.sensor_state);
-            }else if(librelinkup.llu_sensor_data.sensor_state == 3){
-                snprintf(buf_label2, 35, "%d => ready",librelinkup.llu_sensor_data.sensor_state);
-            }else if(librelinkup.llu_sensor_data.sensor_state == 4){
-                snprintf(buf_label2, 35, "%d => expired",librelinkup.llu_sensor_data.sensor_state);
-            }else if(librelinkup.llu_sensor_data.sensor_state == 5){
-                snprintf(buf_label2, 35, "%d => shut down",librelinkup.llu_sensor_data.sensor_state);
-            }else if(librelinkup.llu_sensor_data.sensor_state == 6){
-                snprintf(buf_label2, 35, "%d => has failure",librelinkup.llu_sensor_data.sensor_state);
+                String str_sensor_value = "Sensor Value: ";
+                char buf_label_value[35];
+                char buf_label_delta[14];
+
+                if(glucose_delta == 0){
+                    snprintf(buf_label_delta, 14, "±%d mg/dL", glucose_delta);           //get the "+" for positive values
+                }else if(glucose_delta > 0){
+                    snprintf(buf_label_delta, 14, "+%d mg/dL", glucose_delta);
+                }else if(glucose_delta < 0){
+                    snprintf(buf_label_delta, 14, "%d mg/dL", glucose_delta);
+                }
+                str_sensor_value = str_sensor_value + String(librelinkup.llu_glucose_data.glucoseMeasurement) + librelinkup.llu_glucose_data.str_trendArrow + " " + buf_label_delta;
+                lv_label_set_text(ui_Label_DebugSensorValue, str_sensor_value.c_str()); 
             }
-            str_sensor_state = str_sensor_state + buf_label2;
-            lv_label_set_text(ui_Label_DebugSensorState, str_sensor_state.c_str() );
-
-            String str_sensor_value = "Sensor Value: ";
-            char buf_label_value[35];
-            char buf_label_delta[14];
-
-            if(glucose_delta == 0){
-                snprintf(buf_label_delta, 14, "±%d mg/dL", glucose_delta);           //get the "+" for positive values
-            }else if(glucose_delta > 0){
-                snprintf(buf_label_delta, 14, "+%d mg/dL", glucose_delta);
-            }else if(glucose_delta < 0){
-                snprintf(buf_label_delta, 14, "%d mg/dL", glucose_delta);
-            }
-            str_sensor_value = str_sensor_value + String(librelinkup.llu_glucose_data.glucoseMeasurement) + librelinkup.llu_glucose_data.str_trendArrow + " " + buf_label_delta;
-            lv_label_set_text(ui_Label_DebugSensorValue, str_sensor_value.c_str()); 
         }
     }
 
     if(millis() - g_timer_5000ms_backup > timer_5000ms){
         g_timer_5000ms_backup = millis();
 
-        if (!mqtt_client.connected() && mqtt.mqtt_enable == 1){
-            
-            mqtt_client.connect((mqtt.mqtt_base + mqtt.mqtt_client_name).c_str(), mqtt.mqtt_user, mqtt.mqtt_password);
-            mqtt_client.subscribe((mqtt.mqtt_base + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
-            
-            if (!mqtt_client.connected()){
-                DBGprint;Serial.printf("mqtt_client reconnect...failed!\n");
-                logger.notice("mqtt_client reconnect...failed!\r\n");
-            }else if (mqtt_client.connected()){
-                DBGprint;Serial.printf("mqtt_client reconnect...success!\n");
-                logger.notice("mqtt_client reconnect...success!\r\n");
+        if(ota_in_progress == 0){
+            if (!mqtt_client.connected() && mqtt.mqtt_enable == 1){
+                
+                mqtt_client.connect((mqtt.mqtt_base + mqtt.mqtt_client_name).c_str(), mqtt.mqtt_user, mqtt.mqtt_password);
+                mqtt_client.subscribe((mqtt.mqtt_base + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
+                
+                if (!mqtt_client.connected()){
+                    DBGprint;Serial.printf("mqtt_client reconnect...failed!\n");
+                    logger.notice("mqtt_client reconnect...failed!\r\n");
+                }else if (mqtt_client.connected()){
+                    DBGprint;Serial.printf("mqtt_client reconnect...success!\n");
+                    logger.notice("mqtt_client reconnect...success!\r\n");
+                }
             }
         }
     } 
@@ -2027,7 +2020,7 @@ void loop()
     if(millis() - g_timer_10000ms_backup > timer_10000ms){
       g_timer_10000ms_backup = millis(); 
     }
-
+    
     if(millis() - g_timer_60000ms_backup > timer_60000ms){
         g_timer_60000ms_backup = millis();
     
@@ -2035,7 +2028,7 @@ void loop()
         if(ota_in_progress == 0){
             update_glucose_data();
         
-            // decrease update counter -1 and update if five_minute_chart_update_counter == 0
+            //decrease update counter -1 and update if five_minute_chart_update_counter == 0
             update_five_minute_counter();
         
             //publish mqtt data to mqtt broker
