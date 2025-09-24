@@ -44,7 +44,9 @@
 #endif
 
 #define COMBINE_H8L4_H(h, l)  (raw_data[h & 0xFF] << 4 | raw_data[l & 0xFF] >> 4)
-#define COMBINE_H8L4_L(h, l)  (raw_data[h & 0xFF] << 4 | raw_data[l & 0xFF] & 0xF)
+//fix bug here, should be & 0x0F not & 0xF
+//#define COMBINE_H8L4_L(h, l)  (raw_data[h & 0xFF] << 4 | raw_data[l & 0xFF] & 0xF)
+#define COMBINE_H8L4_L(h, l) ( ((raw_data[(h) & 0xFF] << 4)) | (raw_data[(l) & 0xFF] & 0x0F) )
 
 #define COMBINE_H4L8(h, l)    ((raw_data[h] & 0x0F) << 8 | raw_data[l])
 
