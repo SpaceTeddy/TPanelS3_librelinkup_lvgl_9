@@ -298,9 +298,9 @@ public:
   void batchOperation(const uint8_t *operations, size_t len);
 #endif // !defined(LITTLE_FOOT_PRINT)
 
-    virtual void pinMode(uint8_t pin, uint8_t mode);
-    virtual void digitalWrite(uint8_t pin, uint8_t val);
-    virtual int digitalRead(uint8_t pin);
+  virtual void pinMode(uint8_t pin, uint8_t mode);
+  virtual void digitalWrite(uint8_t pin, uint8_t val);
+  virtual int digitalRead(uint8_t pin);
 
 protected:
   int32_t _speed;

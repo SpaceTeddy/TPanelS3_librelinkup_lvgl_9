@@ -73,6 +73,13 @@ Arduino_RGB_Display *gfx = new Arduino_RGB_Display(
 	lv_indev_drv_t indev_drv;
 #endif
 
+// set screen rotation // rotation = 0, 1, 2, 3  entspricht 0°, 90°, 180°, 270°
+void setRotation(uint8_t r) {
+  if (gfx) {
+    gfx->setRotation(r);
+  }
+}
+
 /* Display flushing */
 static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
   uint32_t w = (area->x2 - area->x1 + 1);
@@ -85,13 +92,6 @@ static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px
     #endif
 
   lv_display_flush_ready(disp);
-}
-
-// set screen rotation // rotation = 0, 1, 2, 3  entspricht 0°, 90°, 180°, 270°
-void setRotation(uint8_t r) {
-  if (gfx) {
-    gfx->setRotation(r);
-  }
 }
 
 /*Read the touchpad*/
@@ -233,7 +233,7 @@ uint8_t update_ota_progress_screen(int progress) {
     char progress_text[10];
     snprintf(progress_text, sizeof(progress_text), "%d%%", progress);
     lv_label_set_text(ui_Label_FWUpdateProgress_percent, progress_text);
-
+    lv_timer_handler(); 
     return 1;
 }
 
@@ -493,7 +493,7 @@ void onOTAStart() {
 }
 
 void onOTAProgress(size_t current, size_t final) {
-    // Log every 250 milliseconds
+    // Log every 1000 milliseconds
     if (millis() - ota_progress_millis > 1000) {
         ota_progress_millis = millis();
 
@@ -502,7 +502,7 @@ void onOTAProgress(size_t current, size_t final) {
 
         // Ausgabe von Bytes und Prozentwert
         //Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes, Progress: %.2f%%\n", current, final, progress);
-        logger.debug("OTA Progress Current: %u bytes, Final: %u bytes, Progress: %.2f%%", current, final, progress);
+        //logger.debug("OTA Progress Current: %u bytes, Final: %u bytes, Progress: %.2f%%", current, final, progress);
         
         /*
         logger.notice("===== Heap-Speicherstatus =====");
@@ -522,22 +522,23 @@ void onOTAProgress(size_t current, size_t final) {
 void onOTAEnd(bool success) {
     // Log when OTA has finished
     if (success) {
-        Serial.println("OTA update finished successfully!");
+       // Serial.println("OTA update finished successfully!");
     } else {
-        Serial.println("There was an error during OTA update!");
-        logger.notice("There was an error during OTA update!");
+        //Serial.println("There was an error during OTA update!");
+        //logger.notice("There was an error during OTA update!");
     }
     // <Add your own code here>
-    logger.notice("OTA Update Progress success: %d", success);
+    //logger.notice("OTA Update Progress success: %d", success);
     if(success == 0){
         lv_disp_load_scr(ui_Main_screen);
+        lv_timer_handler();delay(5);
         ota_in_progress = 0;
     }else if(success == 1){
             ota_in_progress = 0;
             lv_label_set_text(ui_Label_FWUpdateProgress_percent, "100%");
             lv_label_set_text(ui_Label_FWUpdateInfo, "FWUpdate successful!\n\nperforming Reset" );
             lv_task_handler();delay(5);
-            //delay(250);
+            delay(250);
     }
 }
 
@@ -1559,7 +1560,7 @@ void LoopTask(void *pvParameters) {
 void setup_serial(){
     Serial.begin(115200); 
     Serial.setTxTimeoutMs(1);  // workaround for blocking output if no host is connected to native USB CDC
-    Serial.println(); delay(500);
+    Serial.println();
     DBGprint; Serial.println(F("Libre Link Up Api client with lvgl"));
 }
 
@@ -1589,6 +1590,16 @@ void setup_tpanels3(){
     // set backlight to 45%
     set_trgb_backlight_brightness(45); 
 
+
+    // init I2C for Touch
+    Wire.begin(IIC_SDA, IIC_SCL);
+    
+    // Touch Init
+    gfx->XL_digitalWrite(XL95X5_TOUCH_RST, LOW);
+    delay(200);
+    gfx->XL_digitalWrite(XL95X5_TOUCH_RST, HIGH);
+    delay(200);
+
     // init Touch Pin Interrupt
     attachInterrupt(
         TOUCH_INT,
@@ -1599,20 +1610,13 @@ void setup_tpanels3(){
         },
         FALLING); 
 
-    Wire.begin(IIC_SDA, IIC_SCL);
-
-    gfx->begin();
-    gfx->setRotation(0); // rotation = 0, 1, 2, 3  entspricht 0°, 90°, 180°, 270°
-    gfx->fillScreen(BLACK);
-
-    // Touch Init
-    gfx->XL_digitalWrite(XL95X5_TOUCH_RST, LOW);
-    delay(200);
-    gfx->XL_digitalWrite(XL95X5_TOUCH_RST, HIGH);
-    delay(200);
-
     touch.init();
     
+    // LCD Init
+    gfx->begin();
+    //gfx->setRotation(0); // rotation = 0, 1, 2, 3  entspricht 0°, 90°, 180°, 270°
+    gfx->fillScreen(BLACK);
+
     // LVGL Init
     lvgl_initialization();
 
