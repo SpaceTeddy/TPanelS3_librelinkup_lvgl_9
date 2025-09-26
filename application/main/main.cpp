@@ -650,6 +650,7 @@ void esp_status(){
     logger.notice("Local Time      : %s",helper.get_esp_time_date().c_str());
     logger.notice("TimeZone        : %d",settings.config.timezone);
     logger.notice("Brightness LCD  : %d",settings.config.brightness);
+    logger.notice("MQTT Client Name: %s",mqtt.mqtt_client_name.c_str());
 
     if( wg.is_initialized() ) {
         logger.notice("WG connected! IP: %s, Gateway: %s, SubNet: %s, dnsIP: %s \r\n",local_ip.toString(),WiFi.gatewayIP().toString(),WiFi.subnetMask().toString(), WiFi.dnsIP().toString());
@@ -1761,6 +1762,7 @@ void setup_mqtt() {
     mqtt_client.setBufferSize(512);
     
     mqtt.mqtt_client_name = "/" + helper.get_flashmemory_id();
+    logger.notice("setup mqtt ... client name: %s", mqtt.mqtt_client_name.c_str());
     
     if (!mqtt_client.connected()){
         mqtt_client.connect((mqtt.mqtt_base + mqtt.mqtt_client_name).c_str(), mqtt.mqtt_user, mqtt.mqtt_password);

@@ -225,14 +225,15 @@ String HELPER::get_esp_time_date(){
 }
 
 //------------------------[get flash ID functions]--------------------------------
-String HELPER::get_flashmemory_id(){
+String HELPER::get_flashmemory_id() {
+    uint64_t chipid = ESP.getEfuseMac();   // 48-Bit MAC
 
-    uint32_t g_chipuid = ESP.getEfuseMac();
-    String g_chipuid_str = String(g_chipuid, HEX);
-    g_chipuid_str.toUpperCase();
-    //mqtt_base +=  "_" + g_chipuid_str;
-    //DBGprint;Serial.print("Flash UID str:"); Serial.println(g_chipuid_str);
-    return g_chipuid_str;
+    // 48 Bit → 32 Bit eindampfen
+    uint32_t shortid = (uint32_t)(chipid ^ (chipid >> 32));
+
+    char buf[9];  
+    snprintf(buf, sizeof(buf), "%08X", shortid);  // 8 Stellen, HEX
+    return String(buf);
 }
 
 //------------------------[get json memory data]--------------------------------
