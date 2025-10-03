@@ -17,6 +17,14 @@
 #include "helper.h"
 HELPER helper;
 
+//------------------------------[ UART IPC ESP32H2 <-> ESP32S3 ]--------------------------
+#include <HardwareSerial.h>
+
+HardwareSerial SerialPort(2); // use UART2
+char UART_IPC_DATA1 = 0;
+
+void setup_UART_IPC(void);
+
 /*******************************************************************************
  * Start of misc setting
  *
@@ -613,18 +621,6 @@ void setup_mqtt(void);
 
 //---------------------------[helper functions]---------------------------------
 
-//---------------------------[battery voltage]---------------------------------
-#define BATTERY_ADC_PIN 4  // ADC-Pin, an den die Batteriespannung angeschlossen ist
-#define ADC_MAX_VALUE 4095 // 12-Bit-Auflösung
-#define ADC_REF_VOLTAGE 3.3 // Referenzspannung in Volt
-#define VOLTAGE_DIVIDER_RATIO 2 // Verhältnis des Spannungsteilers
-
-void setup_adc(void);
-
-void setup_adc(void){
-    analogReadResolution(12);       // 12-Bit-resolution (Standard)
-    analogSetAttenuation(ADC_11db); // allow voltage till ~3.3V    
-}
 
 //--------------------------[esp_status functions]--------------------------------
 void esp_status(){
@@ -1565,6 +1561,13 @@ void setup_serial(){
     DBGprint; Serial.println(F("Libre Link Up Api client with lvgl"));
 }
 
+// setup UART IPC
+void setup_UART_IPC(){
+    SerialPort.begin(115200, SERIAL_8N1, ESP32H2_RX, ESP32H2_TX);
+    Serial.println();
+    DBGprint; Serial.println(F("Init SerialPort for IPC"));
+}
+
 // setup LittleFS
 void setup_littlefs(){
     if(!LittleFS.begin()){
@@ -1834,11 +1837,11 @@ void setup_task(){
 
 void setup()
 {
-    //Setup ADC for battery voltage
-    //setup_adc(); //currently not used becasue of LCD color confusion
-    
     //Setup UART
     setup_serial();
+
+    //Setup UART IPC
+
 
     //Setup LittleFS
     setup_littlefs();
@@ -1923,12 +1926,21 @@ void loop()
 {
     //---------- all other loop function in LoopTask() function ---------------------
     /*all loop handlers must be in seperate loop task LoopTask(void *pvParameters) */
-     
+    
+    //UART IPC read
+    if (SerialPort.available() > 0)
+    {
+        // read the incoming byte:
+        UART_IPC_DATA1 = SerialPort.read();
+        // say what you got:
+        DBGprint; Serial.print(UART_IPC_DATA1);
+        logger.notice("UART_IPC: %c", UART_IPC_DATA1);
+    }
+
     //LVGL update
     lv_timer_handler();delay(1);                /* let the GUI do its work */
     
     //-------------------[Software Timer]-----------------------  
-    
     if(millis() - g_timer_250ms_backup > timer_250ms){
         g_timer_250ms_backup = millis(); 
 
