@@ -169,22 +169,25 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
 
 // **Schaltet zwischen den Progress Bars um**
 void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode) {
-    
-    // clear label text
-    lv_label_set_text_fmt(ui->label, "");
-    
-    // Alle ausblenden
-    lv_obj_add_flag(dayBar.bar, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(hourBar.bar, LV_OBJ_FLAG_HIDDEN);
+    // alle Bars und Labels verstecken
+    lv_obj_add_flag(dayBar.bar,    LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(hourBar.bar,   LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(minuteBar.bar, LV_OBJ_FLAG_HIDDEN);
-    
-    // Die gewünschte Progress Bar sichtbar machen
+
+    lv_obj_add_flag(dayBar.label,    LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(hourBar.label,   LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(minuteBar.label, LV_OBJ_FLAG_HIDDEN);
+
+    // gewünschte Bar + zugehöriges Label zeigen
     if (ui->bar == dayBar.bar) {
-        lv_obj_clear_flag(dayBar.bar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(dayBar.bar,   LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(dayBar.label, LV_OBJ_FLAG_HIDDEN);
     } else if (ui->bar == hourBar.bar) {
-        lv_obj_clear_flag(hourBar.bar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(hourBar.bar,   LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(hourBar.label, LV_OBJ_FLAG_HIDDEN);
     } else if (ui->bar == minuteBar.bar) {
-        lv_obj_clear_flag(minuteBar.bar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(minuteBar.bar,   LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(minuteBar.label, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
