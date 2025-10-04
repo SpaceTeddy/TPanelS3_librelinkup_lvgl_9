@@ -130,7 +130,6 @@ void create_sensor_valid_progress_bar(ProgressBarUI *ui, lv_obj_t *parent, int n
     lv_obj_align(ui->label, LV_ALIGN_CENTER, x, y + block_size + 10);
 }
 
-// Aktualisiert die Anzeige mit den verbleibenden Blöcken
 void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
     if (remaining > ui->total_blocks) remaining = ui->total_blocks;
     if (remaining < 0) remaining = 0;
@@ -165,9 +164,16 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
     }else if(ui->total_blocks == BLOCKS_VALID_MINUTES){
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d minutes", remaining);
     }
+    
+    if (remaining <= 0) {
+        lv_label_set_text(ui->label, "");                      // Text löschen
+        lv_obj_add_flag(ui->label, LV_OBJ_FLAG_HIDDEN);        // optional: Label verstecken
+    }
+    else {
+        lv_obj_clear_flag(ui->label, LV_OBJ_FLAG_HIDDEN);      // sicherstellen, dass es wieder sichtbar ist
+    }
 }
 
-// **Schaltet zwischen den Progress Bars um**
 void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode) {
     // alle Bars und Labels verstecken
     lv_obj_add_flag(dayBar.bar,    LV_OBJ_FLAG_HIDDEN);
@@ -191,7 +197,6 @@ void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode) {
     }
 }
 
-// **Erstellt alle drei Progress Bars, zeigt aber nur eine an**
 void create_all_sensor_valid_progress_bars() {
     create_sensor_valid_progress_bar(&dayBar, ui_Main_screen,    BLOCKS_VALID_DAYS, 0, 170, "");
     create_sensor_valid_progress_bar(&hourBar, ui_Main_screen,   BLOCKS_VALID_HOURS, 0, 170, "");
@@ -200,7 +205,6 @@ void create_all_sensor_valid_progress_bars() {
     switch_sensor_valid_progress_bar(&dayBar, 0); // Standard: Tage
 }
 
-// **Update-Funktion, um die aktuelle Progress Bar zu aktualisieren**
 void update_chart_valid_values(ProgressBarUI *ui, int value) {
     if (ui->bar == dayBar.bar) {
         update_sensor_valid_progress_bar(&dayBar, value);
