@@ -410,7 +410,7 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
 
         https.addHeader("User-Agent", "Mozilla/5.0");
         https.addHeader("Content-Type", "application/json");
-        https.addHeader("version", "4.7.0");
+        https.addHeader("version", "4.16.0");
         https.addHeader("product", "llu.ios");
         https.addHeader("Connection", "keep-alive");
         https.addHeader("Pragma", "no-cache");
@@ -498,7 +498,7 @@ uint16_t LIBRELINKUP::tou_user(void){
 
         https.addHeader("User-Agent", "Mozilla/5.0");
         https.addHeader("Content-Type", "application/json");
-        https.addHeader("version", "4.7.0");
+        https.addHeader("version", "4.16.0");
         https.addHeader("product", "llu.ios");
         https.addHeader("Connection", "keep-alive");
         https.addHeader("Pragma", "no-cache");
@@ -587,10 +587,9 @@ uint16_t LIBRELINKUP::get_connection_data(void){
 
         https.addHeader("User-Agent", "Mozilla/5.0");
         https.addHeader("Content-Type", "application/json");
-        https.addHeader("version", "4.12.0");
+        https.addHeader("version", "4.16.0");
         https.addHeader("product", "llu.ios");
         https.addHeader("Connection", "keep-alive");
-        //https.addHeader("Accept-Encoding", "gzip, deflate, br");
         https.addHeader("Pragma", "no-cache");
         https.addHeader("Cache-Control", "no-cache");
         https.addHeader("Authorization","Bearer " + llu_login_data.user_token);
@@ -739,7 +738,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
         //https.addHeader("User-Agent", "Mozilla/5.0");
         https.addHeader("Content-Type", "application/json");
-        https.addHeader("version", "4.12.0");
+        https.addHeader("version", "4.16.0");
         https.addHeader("product", "llu.ios");
         //https.addHeader("Connection", "keep-alive");
         //https.addHeader("Accept-Encoding", "gzip, deflate, br");
