@@ -1824,7 +1824,7 @@ void setup_task(){
     xTaskCreatePinnedToCore(
         LoopTask,         // Funktionsname
         "LoopTask",       // Task-Name
-        4096,             // Stack-Größe
+        8192,             // Stack-Größe 32kb
         NULL,             // Parameter
         1,                // Priorität
         NULL,             // Task-Handle
