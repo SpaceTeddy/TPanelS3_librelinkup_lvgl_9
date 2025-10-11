@@ -1548,7 +1548,7 @@ void LoopTask(void *pvParameters) {
             telnet.loop();
             Shell::loop_all();yield();
         }
-        vTaskDelay(pdMS_TO_TICKS(1));  // Task nicht blockieren
+        vTaskDelay(pdMS_TO_TICKS(10));  // Task nicht blockieren
     }
 }
 
@@ -1824,7 +1824,7 @@ void setup_task(){
     xTaskCreatePinnedToCore(
         LoopTask,         // Funktionsname
         "LoopTask",       // Task-Name
-        8192,             // Stack-Größe 32kb
+        8192,             // Stack-Größe 32kb = 8192 words
         NULL,             // Parameter
         1,                // Priorität
         NULL,             // Task-Handle

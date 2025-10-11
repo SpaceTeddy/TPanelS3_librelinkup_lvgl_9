@@ -7,6 +7,8 @@
  * Includes SSL/TLS management, sensor data processing, and API communication
  */
 
+#pragma once
+
 #ifndef librelinkup_H
 #define librelinkup_H
 
@@ -126,6 +128,21 @@ private:
      * @return Calculated milliseconds
      */
     uint32_t convertToMillis(uint8_t hours, uint8_t minutes, uint8_t seconds);
+
+    inline void addDefaultLLUHeaders(HTTPClient& https) {
+        https.addHeader("User-Agent", "Mozilla/5.0");
+        https.addHeader("Content-Type", "application/json");
+        https.addHeader("version", "4.16.0");
+        https.addHeader("product", "llu.ios");
+        https.addHeader("Connection", "keep-alive");
+        https.addHeader("Pragma", "no-cache");
+        https.addHeader("Cache-Control", "no-cache");
+    }
+
+    inline void addAuthHeaders(HTTPClient& https, const String& bearer, const String& accountId) {
+        https.addHeader("Authorization", "Bearer " + bearer);
+        if (accountId.length()) https.addHeader("Account-ID", accountId);
+    }
 
 public:
 

@@ -91,7 +91,6 @@ uint8_t LIBRELINKUP::begin(uint8_t use_cert){
 }
 
 //sha256 account-id calculation as String
-
 String LIBRELINKUP::account_id_sha256(String user_id){
     // change input to byte array
     const char *data = user_id.c_str();
@@ -405,17 +404,13 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
     uint8_t result = 0;
 
     if (https.begin(*llu_client, base_url + url_user_auth)) {
-        delay(10);        
+        //delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));       
         //Serial.println("Connected to: " + url);
 
-        https.addHeader("User-Agent", "Mozilla/5.0");
-        https.addHeader("Content-Type", "application/json");
-        https.addHeader("version", "4.16.0");
-        https.addHeader("product", "llu.ios");
-        https.addHeader("Connection", "keep-alive");
-        https.addHeader("Pragma", "no-cache");
-        https.addHeader("Cache-Control", "no-cache");
-
+        // Add LLU default headers
+        addDefaultLLUHeaders(https);
+        
         // JSON data to send with HTTP POST
         String httpRequestData = "{\"email\":\"" + user_email + "\",\"password\":\"" + user_password + "\"}";           
         
@@ -493,16 +488,11 @@ uint16_t LIBRELINKUP::tou_user(void){
     uint8_t result = 0;
 
     if (https.begin(*llu_client, base_url + url_user_tou)) {
-        delay(10);        
+        //delay(10);        
+        vTaskDelay(pdMS_TO_TICKS(10));
         //Serial.println("Connected to: " + url);
 
-        https.addHeader("User-Agent", "Mozilla/5.0");
-        https.addHeader("Content-Type", "application/json");
-        https.addHeader("version", "4.16.0");
-        https.addHeader("product", "llu.ios");
-        https.addHeader("Connection", "keep-alive");
-        https.addHeader("Pragma", "no-cache");
-        https.addHeader("Cache-Control", "no-cache");
+        addDefaultLLUHeaders(https);        
         https.addHeader("Authorization","Bearer " + llu_login_data.user_token + "");
 
         // JSON data to send with HTTP POST
@@ -583,15 +573,11 @@ uint16_t LIBRELINKUP::get_connection_data(void){
 
     // get API graph data from LibreView server 
     if(https.begin(*llu_client, base_url + url_connection)) {
-        delay(10);        
+        //delay(10);        
+        vTaskDelay(pdMS_TO_TICKS(10));
 
-        https.addHeader("User-Agent", "Mozilla/5.0");
-        https.addHeader("Content-Type", "application/json");
-        https.addHeader("version", "4.16.0");
-        https.addHeader("product", "llu.ios");
-        https.addHeader("Connection", "keep-alive");
-        https.addHeader("Pragma", "no-cache");
-        https.addHeader("Cache-Control", "no-cache");
+        // Add LLU default headers
+        addDefaultLLUHeaders(https);
         https.addHeader("Authorization","Bearer " + llu_login_data.user_token);
         https.addHeader("Account-ID", llu_login_data.account_id);
 
@@ -734,16 +720,11 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
     // get API graph data from LibreView server 
     if(https.begin(*llu_client, base_url + url_graph)) {
-        delay(10);        
+        //delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));        
 
-        //https.addHeader("User-Agent", "Mozilla/5.0");
-        https.addHeader("Content-Type", "application/json");
-        https.addHeader("version", "4.16.0");
-        https.addHeader("product", "llu.ios");
-        //https.addHeader("Connection", "keep-alive");
-        //https.addHeader("Accept-Encoding", "gzip, deflate, br");
-        //https.addHeader("Pragma", "no-cache");
-        //https.addHeader("Cache-Control", "no-cache");
+        // Add LLU default headers
+        addDefaultLLUHeaders(https);
         https.addHeader("Authorization","Bearer " + llu_login_data.user_token);
         https.addHeader("Account-ID", llu_login_data.account_id);
 
@@ -912,7 +893,8 @@ void LIBRELINKUP::check_https_connection(const char* url){
     // Test server connection
     // get API graph data from LibreView server 
     if(https.begin(*llu_client, url)) {
-        delay(10);        
+        //delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));    
 
         https.addHeader("User-Agent", "Mozilla/5.0");
         https.addHeader("Content-Type", "application/json");
@@ -1013,7 +995,8 @@ uint16_t LIBRELINKUP::download_root_ca_to_file(const char* download_url, const c
 
     // get API graph data from LibreView server 
     if(https.begin(*llu_client, download_url)) {
-        delay(10);        
+        //delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));       
 
         https.addHeader("User-Agent", "Mozilla/5.0");
         https.addHeader("Content-Type", "application/json");
