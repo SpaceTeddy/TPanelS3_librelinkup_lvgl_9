@@ -896,59 +896,84 @@ static void brightness_on_off_cb(lv_event_t * event)
     //DBGprint; Serial.println("LCD Clicked");
     logger.notice("Button Longpress for Brightness ON/OFF triggered!");
 
-    ledcSetup(0, 5000, 8);                              // 0-15, 5000, 8
-    ledcAttachPin(LCD_BL, 0);         // EXAMPLE_PIN_NUM_BK_LIGHT, 0 - 15
+    //ledcSetup(0, 15000, 8);                              // 0-15, 5000, 8
+    //ledcAttachPin(LCD_BL, 0);         // EXAMPLE_PIN_NUM_BK_LIGHT, 0 - 15
     
     if(settings.config.brightness == 0){
+        logger.notice("Turn LCD backlight ON to %d",TRGB_STD_BACKLIGHT_BRIGHTNESS);
         for(uint8_t i=0;i<TRGB_STD_BACKLIGHT_BRIGHTNESS;i++){
             ledcWrite(0, i); // 0-15, 0-255 (with 8 bit resolution); 0=totally dark;255=totally shiny
-            delay(30);
+            delay(10);
         }
         settings.config.brightness = TRGB_STD_BACKLIGHT_BRIGHTNESS;
-
-    }else{
+    }
+    else{
+        logger.notice("Turn LCD backlight already ON");
+        /*
         for(uint8_t i=settings.config.brightness;i>0;i--){
             ledcWrite(0, i); // 0-15, 0-255 (with 8 bit resolution); 0=totally dark;255=totally shiny
-            delay(30);
+            delay(10);
         }
         ledcWrite(0, 0); // 0-15, 0-255 (with 8 bit resolution); 0=totally dark;255=totally shiny
         settings.config.brightness = 0;
+        */
     }
-    
 }
 
 static void touch_gesture_cb(lv_event_t * event)
 {
-    logger.debug("Touch gesture:,%d",lv_indev_get_gesture_dir(lv_indev_get_act()));
+    // Aktuelles Eingabegerät und Position holen
+    lv_indev_t * indev = lv_event_get_indev(event);
+    if(!indev) return;
 
-    lv_obj_t * screen = (lv_obj_t *)lv_event_get_current_target(event); // Expliziter Cast notwendig
-    lv_dir_t dir = lv_indev_get_gesture_dir(lv_event_get_indev(event)); // Korrekte Methode für LVGL 9
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);   // Bildschirm-Koordinaten
+
+    // Nur reagieren, wenn Touch im oberen Bereich war (z. B. oberhalb 50 px)
+    if(p.y > 100) {
+        // Unterhalb der Zone → ignorieren
+        return;
+    }
+
+    // Richtung ermitteln
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    logger.debug("Touch gesture dir: %d", dir);
+
+    // Aktuellen Screen abfragen
+    lv_obj_t * active = lv_scr_act();
 
     switch(dir) {
         case LV_DIR_LEFT:
             logger.debug("Touch gesture: left");
-            if(lv_scr_act() == ui_Login_screen){
+            if(active == ui_Login_screen) {
                 lv_disp_load_scr(ui_Debug_screen);
-            }
-            else if(lv_scr_act() == ui_Debug_screen){
+            } else if(active == ui_Debug_screen) {
                 lv_disp_load_scr(ui_Main_screen);
-            }      
+            } else if(active == ui_Main_screen) {
+                lv_disp_load_scr(ui_Login_screen);
+            }
             break;
+
         case LV_DIR_RIGHT:
             logger.debug("Touch gesture: right");
-            if(lv_scr_act() == ui_Main_screen){
+            if(active == ui_Main_screen) {
                 lv_disp_load_scr(ui_Debug_screen);
-            }
-            else if(lv_scr_act() == ui_Debug_screen){
+            } else if(active == ui_Debug_screen) {
                 lv_disp_load_scr(ui_Login_screen);
-                break;
+            } else if(active == ui_Login_screen) {
+                lv_disp_load_scr(ui_Main_screen);
             }
             break;
+
         case LV_DIR_TOP:
-            logger.debug("Touch gesture: Top");
+            logger.debug("Touch gesture: top");
             break;
+
         case LV_DIR_BOTTOM:
             logger.debug("Touch gesture: bottom");
+            break;
+
+        default:
             break;
     }
 }
@@ -1038,7 +1063,6 @@ static void btn_login_event_cb(lv_event_t *event) {
 }
 
 static int last_x = -1;  // Letzte X-Position speichern
-
 static void touch_event_cb(lv_event_t * e) {
     lv_obj_t * obj = (lv_obj_t *)lv_event_get_target(e);
     lv_indev_t * indev = lv_event_get_indev(e);
@@ -1068,7 +1092,7 @@ static void touch_event_cb(lv_event_t * e) {
 
     // **Chart-Dimensionen ohne Padding verwenden**
     lv_coord_t chart_height = lv_obj_get_height(ui_Chart_Glucose_5Min);
-    lv_coord_t y_min = 40;  
+    lv_coord_t y_min = 40;
     lv_coord_t y_max = 225;
 
     // **Y-Wert auf Chart-Höhe skalieren (Padding entfernt)**
@@ -1079,27 +1103,38 @@ static void touch_event_cb(lv_event_t * e) {
     const uint8_t y_pos_offset = 6;
 
     // **Marker-Farbe setzen**
-    if (value >= librelinkup.llu_glucose_data.glucosetargetHigh || value <= librelinkup.llu_glucose_data.glucoseAlarmLow) {
-        lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker, lv_palette_main(LV_PALETTE_RED), 0);
+    if (value >= librelinkup.llu_glucose_data.glucosetargetHigh ||
+        value <= librelinkup.llu_glucose_data.glucoseAlarmLow) {
+        lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker,
+                                  lv_palette_main(LV_PALETTE_RED), 0);
     } else {
-        lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker, lv_palette_main(LV_PALETTE_GREEN), 0);
+        lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker,
+                                  lv_palette_main(LV_PALETTE_GREEN), 0);
     }
 
     // **Marker-Position setzen**
-    lv_obj_set_pos(ui_Chart_Glucose_5Min_last_point_marker, relative_x - x_pos_offset, y_pos - y_pos_offset);
+    lv_obj_set_pos(ui_Chart_Glucose_5Min_last_point_marker,
+                   relative_x - x_pos_offset,
+                   y_pos - y_pos_offset);
 
     // **Marker in den Vordergrund bringen**
     lv_obj_move_foreground(ui_Chart_Glucose_5Min_last_point_marker);
 
     // **Y-Wert als Label anzeigen**
     uint8_t mode = 1;
-    uint8_t color = (value >= librelinkup.llu_glucose_data.glucosetargetHigh || value <= librelinkup.llu_glucose_data.glucoseAlarmLow) ? LV_PALETTE_RED : LV_PALETTE_GREEN;
+    uint8_t color = (value >= librelinkup.llu_glucose_data.glucosetargetHigh ||
+                     value <= librelinkup.llu_glucose_data.glucoseAlarmLow)
+                        ? LV_PALETTE_RED
+                        : LV_PALETTE_GREEN;
     uint16_t glucose_value = value;
-    
-    draw_labels(mode, color, glucose_value, librelinkup.llu_glucose_data.str_trendArrow, librelinkup.llu_glucose_data.str_TrendMessage, 0);
-    
+
+    draw_labels(mode, color, glucose_value,
+                librelinkup.llu_glucose_data.str_trendArrow,
+                librelinkup.llu_glucose_data.str_TrendMessage, 0);
+
     // **Debugging-Ausgabe**
-    logger.notice("Touch X (rel): %d, Index: %d, Value: %d, Y: %d", relative_x, index, value, y_pos);
+    logger.notice("Touch X (rel): %d, Index: %d, Value: %d, Y: %d",
+                  relative_x, index, value, y_pos);
 
     // Letzte X-Position speichern
     last_x = relative_x;
@@ -1824,7 +1859,7 @@ void setup_task(){
     xTaskCreatePinnedToCore(
         LoopTask,         // Funktionsname
         "LoopTask",       // Task-Name
-        8192,             // Stack-Größe 32kb = 8192 words
+        12288,            // Stack-Größe 48kb = 12288 words
         NULL,             // Parameter
         1,                // Priorität
         NULL,             // Task-Handle
@@ -1879,13 +1914,13 @@ void setup()
     
     //------------------------------[LVGL Callbacks registation]-------------------------------
     // Main screen Touch Callback function
-    //lv_obj_add_event_cb(ui_Main_screen, brightness_on_off_cb, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_add_event_cb(ui_Main_screen, brightness_on_off_cb, LV_EVENT_PRESSED, NULL);
     //lv_obj_add_event_cb(ui_Chart_Glucose_5Min, brightness_on_off_cb, LV_EVENT_LONG_PRESSED, NULL);
 
     lv_obj_add_event_cb(ui_Chart_Glucose_5Min, touch_event_cb, LV_EVENT_PRESSING, NULL);
 
     //touch: get touch gesture events
-    //lv_obj_add_event_cb(ui_Main_screen, touch_gesture_cb, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(ui_Main_screen, touch_gesture_cb, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(ui_Debug_screen, touch_gesture_cb, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(ui_btn_wireguard, btn_wireguard_cb, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_btn_mqtt, btn_mqtt_cb, LV_EVENT_ALL, NULL);

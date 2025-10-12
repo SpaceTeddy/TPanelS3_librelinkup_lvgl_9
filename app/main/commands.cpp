@@ -4,8 +4,10 @@
 #include "librelinkup.h"
 #include "mqtt.h"
 #include "hba1c.h"
+#include "ui.h"
 #include <ESP32Ping.h>
 #include <LittleFS.h>
+#include <lvgl.h>
 
 #include <cstdarg> // for va_list, va_start, va_end
 #include <cstdio>  // for vsnprintf
@@ -18,6 +20,7 @@ extern MQTT mqtt;
 extern HBA1C hba1c;
 extern HELPER helper;
 extern uint16_t telnet_port;
+
 
 //------------------------[uuid logger]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -99,6 +102,34 @@ void espResetCommand(uuid::console::Shell &shell, const std::vector<std::string>
 void espStatusCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
     esp_status();
     shell.printfln(F("ESP status: WiFi connected, free heap: %d"), ESP.getFreeHeap());
+}
+
+void switch_screensCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
+    if (!arguments.empty()) {
+        String screen_argument = arguments[0].c_str(); // next or previous
+        
+        if(screen_argument == "next"){
+            if(lv_scr_act() == ui_Main_screen) {
+                lv_disp_load_scr(ui_Debug_screen);
+            } else if(lv_scr_act() == ui_Debug_screen) {
+                lv_disp_load_scr(ui_Login_screen);
+            } else if(lv_scr_act() == ui_Login_screen) {
+                lv_disp_load_scr(ui_Main_screen);
+            }
+        }
+        else if((screen_argument == "prev")){
+            if(lv_scr_act() == ui_Main_screen) {
+                lv_disp_load_scr(ui_Login_screen);
+            } else if(lv_scr_act() == ui_Login_screen) {
+                lv_disp_load_scr(ui_Debug_screen);
+            } else if(lv_scr_act() == ui_Debug_screen) {
+                lv_disp_load_scr(ui_Main_screen);
+            }
+        }
+        else {
+            shell.printfln("invalid argument: %s",screen_argument);
+        }
+    }
 }
 
 void configSettingCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
@@ -485,6 +516,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("exit")}, exitCommand);
     commands->add_command(uuid::flash_string_vector{F("esp_reset")}, espResetCommand);
     commands->add_command(uuid::flash_string_vector{F("esp_status")}, espStatusCommand);
+    commands->add_command(uuid::flash_string_vector{F("screens")}, uuid::flash_string_vector{F("<next|prev>")}, switch_screensCommand);
     commands->add_command(uuid::flash_string_vector{F("log_level")}, uuid::flash_string_vector{F("<OFF|INFO|NOTICE|DEBUG|ALL>")}, LoglevelCommand);
     commands->add_command(uuid::flash_string_vector{F("config")}, uuid::flash_string_vector{F("<load|save>")}, configSettingCommand);
     commands->add_command(uuid::flash_string_vector{F("wifi_settings")}, uuid::flash_string_vector{F("<bssid>"), F("<password>")}, WiFiSettingCommand);    

@@ -204,7 +204,7 @@ typedef struct {
  * - Hours remaining
  * - Minutes remaining
  */
-ProgressBarUI dayBar, hourBar, minuteBar;
+extern ProgressBarUI dayBar, hourBar, minuteBar;
 
 /**
  * @enum ValidBlockModes

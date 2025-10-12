@@ -74,6 +74,10 @@ lv_obj_t * ui_btn_label_mqtt;
 lv_obj_t * ui_btn_ota_update;
 lv_obj_t * ui_btn_label_ota_update;
 
+/* Definitionen mit C-Linkage (da ui.h im extern "C" deklariert) */
+ProgressBarUI dayBar = { 0 };
+ProgressBarUI hourBar = { 0 };
+ProgressBarUI minuteBar = { 0 };
 
 ///////////////////// TEST LVGL SETTINGS ////////////////////
 #if LV_COLOR_DEPTH != 16
@@ -523,23 +527,7 @@ void ui_FWUpdate_screen_init(void)
     lv_obj_align(ui_Label_FWUpdateInfo, LV_ALIGN_CENTER, 0, -100);
     lv_label_set_text(ui_Label_FWUpdateInfo, "FW Update ..." );
 
-    // Fortschrittsbalken erstellen
-    /*
-    ui_Bar_FWUpdateProgress = lv_bar_create(ui_FWUpdate_screen);
-    lv_obj_set_size(ui_Bar_FWUpdateProgress, 400, 60);  // Größe des Balkens
-    lv_obj_align(ui_Bar_FWUpdateProgress, LV_ALIGN_CENTER, 0, 100);  // Position
-    lv_bar_set_range(ui_Bar_FWUpdateProgress, 0, 100);  // Wertebereich 0 bis 100
-    // Stil für den Indikator (den Fortschrittsbalken) setzen
-    lv_obj_set_style_bg_color(ui_Bar_FWUpdateProgress, lv_palette_main(LV_PALETTE_RED), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(ui_Bar_FWUpdateProgress, LV_OPA_COVER, LV_PART_INDICATOR);
-    // Stil für den Hintergrund (eckig machen)
-    lv_obj_set_style_radius(ui_Bar_FWUpdateProgress, 0, LV_PART_MAIN);  // Kein Radius für den Hintergrund
-    // Stil für den Indikator (eckig machen)
-    lv_obj_set_style_radius(ui_Bar_FWUpdateProgress, 0, LV_PART_INDICATOR);  // Kein Radius für den Fortschrittsbalken
-    lv_obj_set_style_bg_color(ui_Bar_FWUpdateProgress, lv_palette_main(LV_PALETTE_RED), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(ui_Bar_FWUpdateProgress, LV_OPA_COVER, LV_PART_INDICATOR);
-    */
-
+    
     // Prozentanzeige innerhalb des Fortschrittsbalkens
     ui_Label_FWUpdateProgress_percent = lv_label_create(ui_FWUpdate_screen);
     lv_obj_set_style_text_color(ui_Label_FWUpdateProgress_percent, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -550,8 +538,6 @@ void ui_FWUpdate_screen_init(void)
     lv_obj_set_width(ui_Label_FWUpdateProgress_percent, 400);                               /*Set smaller width to make the lines wrap*/
     lv_obj_align(ui_Label_FWUpdateProgress_percent, LV_ALIGN_CENTER, 0, 50);
     lv_label_set_text(ui_Label_FWUpdateProgress_percent, "0%");
-    
-    //lv_obj_align_to(ui_Label_FWUpdateProgress_percent, ui_Bar_FWUpdateProgress, LV_ALIGN_CENTER, 0, 0);  // Zentriert im Balken
 }
 
 void ui_btn_debug_screen_init(lv_obj_t * parent){
