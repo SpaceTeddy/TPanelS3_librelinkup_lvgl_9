@@ -95,7 +95,7 @@ void WiFiSettingCommand(uuid::console::Shell &shell, const std::vector<std::stri
 }
 
 void espResetCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
-    shell.printfln(F("ESP Reset!"));
+    shell.printfln(F("ESP Reboot!"));
     ESP.restart();
 }
 
