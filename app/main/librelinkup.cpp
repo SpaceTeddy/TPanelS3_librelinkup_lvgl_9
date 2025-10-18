@@ -172,9 +172,10 @@ uint8_t LIBRELINKUP::get_sensor_state(uint8_t state){
 }
 
 // check if freestyle libre3 sensor is expired
-int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time) {
+int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time){
+    
     int result = -1;
-
+    
     struct tm timeinfo;
     time_t now;
 
@@ -184,80 +185,65 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time) {
         return SENSOR_NOT_AVAILABLE;
     }
 
-    time(&now); // get epoch time
-
-    // --- kein aktiver Sensor ---
-    if(llu_sensor_data.sensor_id_non_active == "" &&
-       llu_sensor_data.sensor_sn_non_active == "") {
-        logger.debug("sensor not active");
-        return SENSOR_NOT_AVAILABLE;
-    }
-
-    // --- Warmup-Phase ---
-    if(llu_sensor_data.sensor_id_non_active == "" &&
-       llu_sensor_data.sensor_sn_non_active != "" &&
-       unix_activation_time > 0 &&
-       (unix_activation_time + 3600) > now) {
-
-        logger.debug("sensor in startup phase!");
-        int remaining_warmup_time = get_remaining_warmup_time(unix_activation_time);
-        logger.debug("sensor available in: %d minutes", remaining_warmup_time);
-        return SENSOR_STARTING;
-    }
-
-    // --- Sensor aktiv & innerhalb der Laufzeit ---
-    if(unix_activation_time > 0 &&
-       unix_activation_time + 3600 <= now &&
-       (unix_activation_time + sensor_total_runtime) > now) {
-
-        logger.debug("Sensor is ready!");
-        result = SENSOR_READY;
-
-        // Restlaufzeit berechnen
-        uint32_t diff_time = ((unix_activation_time + sensor_total_runtime) - now);
-
-        sensor_livetime.sensor_valid_days    = diff_time / 86400;
-        sensor_livetime.sensor_valid_hours   = (diff_time / 3600) % 24;
-        sensor_livetime.sensor_valid_minutes = (diff_time / 60) % 60;
-        sensor_livetime.sensor_valid_seconds = diff_time % 60;
-
-        logger.debug("Sensor expires in: Days:%02d Hours:%02d Minutes:%02d Seconds:%02d",
-                     sensor_livetime.sensor_valid_days,
-                     sensor_livetime.sensor_valid_hours,
-                     sensor_livetime.sensor_valid_minutes,
-                     sensor_livetime.sensor_valid_seconds);
-
+    time(&now); // get epoche time
+    
+    /*
+    logger.debug("sensor_id_non_active:       %s", sensor_id_non_active.c_str());
+    logger.debug("sensor_sn_non_active:       %s", sensor_sn_non_active.c_str());
+    logger.debug("sensor_activation_unixtime: %d", sensor_non_activ_unixtime);
+    */
+   
+    //check if sensor is available
+    if(llu_sensor_data.sensor_id_non_active == "" && llu_sensor_data.sensor_sn_non_active == ""){
+        //DBGprint_LLU;Serial.printf("no active sensor\r\n");
+        logger.debug("sensor not activ");
+        result = SENSOR_NOT_AVAILABLE;
         return result;
     }
+    //check if sensor is in startup phase
+    else if(llu_sensor_data.sensor_id_non_active == "" && llu_sensor_data.sensor_sn_non_active != ""  &&
+            unix_activation_time > 0 &&
+            (unix_activation_time + 3600) > now){
+            logger.debug("sensor in startup phase!");
+            int remaining_warmup_time = get_remaining_warmup_time(unix_activation_time);
+            logger.debug("sensor available in: %dminutes", remaining_warmup_time);
+            result = SENSOR_STARTING;
+            return result;
+    }
+    //check of valid remaining time if sensor is ready
+    else if((unix_activation_time + (UNIXTIME14DAYS)) > now &&
+             unix_activation_time > 0 &&
+             unix_activation_time + 3600 <= now && 
+             unix_activation_time + UNIXTIME14DAYS > now){          
+            
+            //DBGprint_LLU;Serial.printf("Sensor is ready\r\n");
+            logger.debug("Sensor is ready!");
+            result = SENSOR_READY;
 
-    // --- Sensor abgelaufen? Prüfen ob evtl. Plus ---
-    if(unix_activation_time > 0 &&
-       (unix_activation_time + sensor_total_runtime) < now) {
-
-        if(sensor_total_runtime == UNIXTIME14DAYS &&
-           (unix_activation_time + UNIXTIME15DAYS) > now) {
-
-            logger.debug("Looks like Libre 3 Plus – switching to 15 days");
-            sensor_total_runtime = UNIXTIME15DAYS;
-
-            // Restlaufzeit jetzt direkt mit 15 Tagen berechnen
-            uint32_t diff_time = ((unix_activation_time + sensor_total_runtime) - now);
+            //calculate remaining time in days / hours / minute / seconds 
+            uint32_t diff_time = ((unix_activation_time + (UNIXTIME14DAYS)) - now);
 
             sensor_livetime.sensor_valid_days    = diff_time / 86400;
-            sensor_livetime.sensor_valid_hours   = (diff_time / 3600) % 24;
-            sensor_livetime.sensor_valid_minutes = (diff_time / 60) % 60;
+            sensor_livetime.sensor_valid_hours   = diff_time / 3600 % 24;
+            sensor_livetime.sensor_valid_minutes = diff_time / 60 % 60;
             sensor_livetime.sensor_valid_seconds = diff_time % 60;
+            
+            //DBGprint_LLU;Serial.printf("Sensor expires in: Days:%02d Hours:%02d Minutes:%02d Seconds:%02d\r\n",sensor_livetime.sensor_valid_days, sensor_livetime.sensor_valid_hours, sensor_livetime.sensor_valid_minutes, sensor_livetime.sensor_valid_seconds);
+            logger.debug("Sensor expires in: Days:%02d Hours:%02d Minutes:%02d Seconds:%02d",sensor_livetime.sensor_valid_days, sensor_livetime.sensor_valid_hours, sensor_livetime.sensor_valid_minutes, sensor_livetime.sensor_valid_seconds);
+            return result;
 
-            return SENSOR_READY;
-        }
-
+    }else if(llu_sensor_data.sensor_id_non_active == "" && 
+             llu_sensor_data.sensor_sn_non_active != "" && 
+             unix_activation_time > 0   &&
+             (unix_activation_time + (UNIXTIME14DAYS)) < now){
+        DBGprint_LLU;Serial.printf("Sensor expired!\r\n");
         logger.debug("Sensor expired!");
-        return SENSOR_EXPIRED;
+        result = SENSOR_EXPIRED;
+        return result;
     }
 
     return result;
 }
-
 
 // Funktion zur Berechnung der verbleibenden Zeit in Minuten
 int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {

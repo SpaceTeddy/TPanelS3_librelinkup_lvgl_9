@@ -163,11 +163,8 @@ public:
     static const int GRAPHDATAARRAYSIZE_PLUS_ONE = 1;    ///< Graph array size buffer
     static const int GRAPHDATAARRAYSIZE = 141;           ///< Primary data points count
     static const int UNIXTIME1HOUR = 3600;                ///< Seconds per hour
-    static const int UNIXTIME1DAY    = 86400;              ///< Seconds in 1 day
-    static const int UNIXTIME14DAYS  = 14 * UNIXTIME1DAY;  ///< Seconds in 14 days
-    static const int UNIXTIME15DAYS  = 15 * UNIXTIME1DAY;  ///< Seconds in 15 days
+    static const int UNIXTIME14DAYS = 1209600;            ///< Seconds in 14 days
     static const int TIMEFULLGRAPHDATA = 1160100;         ///< Full dataset duration (13d 12h 15m)
-    uint32_t sensor_total_runtime = UNIXTIME14DAYS;
     /** @} */
 
     /**
