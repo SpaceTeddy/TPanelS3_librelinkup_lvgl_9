@@ -514,7 +514,7 @@ void showCaFromFileCommand(uuid::console::Shell &shell, const std::vector<std::s
 void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("help")}, helpCommand);
     commands->add_command(uuid::flash_string_vector{F("exit")}, exitCommand);
-    commands->add_command(uuid::flash_string_vector{F("esp_reset")}, espResetCommand);
+    commands->add_command(uuid::flash_string_vector{F("reboot")}, espResetCommand);
     commands->add_command(uuid::flash_string_vector{F("esp_status")}, espStatusCommand);
     commands->add_command(uuid::flash_string_vector{F("screens")}, uuid::flash_string_vector{F("<next|prev>")}, switch_screensCommand);
     commands->add_command(uuid::flash_string_vector{F("log_level")}, uuid::flash_string_vector{F("<OFF|INFO|NOTICE|DEBUG|ALL>")}, LoglevelCommand);
