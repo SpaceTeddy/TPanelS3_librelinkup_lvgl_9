@@ -172,74 +172,74 @@ uint8_t LIBRELINKUP::get_sensor_state(uint8_t state){
 }
 
 // check if freestyle libre3 sensor is expired
-int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time){
+// sensor_days: 14 -> 14 Tage, 15 -> 15 Tage (Libre 3 Plus)
+int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint8_t sensor_days){
     
     int result = -1;
     
     struct tm timeinfo;
     time_t now;
 
-    // get local time as int ------------------
+    // lokale Zeit holen ------------------
     if(!getLocalTime(&timeinfo)){
         DBGprint_LLU; Serial.println("Failed to obtain time");
         return SENSOR_NOT_AVAILABLE;
     }
 
-    time(&now); // get epoche time
-    
-    /*
-    logger.debug("sensor_id_non_active:       %s", sensor_id_non_active.c_str());
-    logger.debug("sensor_sn_non_active:       %s", sensor_sn_non_active.c_str());
-    logger.debug("sensor_activation_unixtime: %d", sensor_non_activ_unixtime);
-    */
-   
-    //check if sensor is available
+    time(&now); // epoch time
+
+    // gewünschte Laufzeit aus Parameter ableiten (Default = 14)
+    const uint32_t sensor_runtime = (sensor_days == 15) ? UNIXTIME15DAYS : UNIXTIME14DAYS;
+
+    // Sensor nicht verfügbar
     if(llu_sensor_data.sensor_id_non_active == "" && llu_sensor_data.sensor_sn_non_active == ""){
-        //DBGprint_LLU;Serial.printf("no active sensor\r\n");
         logger.debug("sensor not activ");
-        result = SENSOR_NOT_AVAILABLE;
+        return SENSOR_NOT_AVAILABLE;
+    }
+
+    // Warmup-Phase (60 Minuten)
+    if(llu_sensor_data.sensor_id_non_active == "" && 
+       llu_sensor_data.sensor_sn_non_active != "" &&
+       unix_activation_time > 0 &&
+       (unix_activation_time + 3600) > now){
+        logger.debug("sensor in startup phase!");
+        int remaining_warmup_time = get_remaining_warmup_time(unix_activation_time);
+        logger.debug("sensor available in: %dminutes", remaining_warmup_time);
+        return SENSOR_STARTING;
+    }
+
+    // Sensor aktiv & innerhalb Laufzeit
+    if( unix_activation_time > 0 &&
+        (unix_activation_time + 3600) <= now &&
+        (unix_activation_time + sensor_runtime) > now ){
+        
+        logger.debug("Sensor is ready!");
+        result = SENSOR_READY;
+
+        // Restlaufzeit berechnen
+        uint32_t diff_time = (unix_activation_time + sensor_runtime) - now;
+
+        sensor_livetime.sensor_valid_days    = diff_time / 86400;
+        sensor_livetime.sensor_valid_hours   = (diff_time / 3600) % 24;
+        sensor_livetime.sensor_valid_minutes = (diff_time / 60) % 60;
+        sensor_livetime.sensor_valid_seconds = diff_time % 60;
+
+        logger.debug("Sensor expires in: Days:%02d Hours:%02d Minutes:%02d Seconds:%02d",
+                     sensor_livetime.sensor_valid_days,
+                     sensor_livetime.sensor_valid_hours,
+                     sensor_livetime.sensor_valid_minutes,
+                     sensor_livetime.sensor_valid_seconds);
         return result;
     }
-    //check if sensor is in startup phase
-    else if(llu_sensor_data.sensor_id_non_active == "" && llu_sensor_data.sensor_sn_non_active != ""  &&
-            unix_activation_time > 0 &&
-            (unix_activation_time + 3600) > now){
-            logger.debug("sensor in startup phase!");
-            int remaining_warmup_time = get_remaining_warmup_time(unix_activation_time);
-            logger.debug("sensor available in: %dminutes", remaining_warmup_time);
-            result = SENSOR_STARTING;
-            return result;
-    }
-    //check of valid remaining time if sensor is ready
-    else if((unix_activation_time + (UNIXTIME14DAYS)) > now &&
-             unix_activation_time > 0 &&
-             unix_activation_time + 3600 <= now && 
-             unix_activation_time + UNIXTIME14DAYS > now){          
-            
-            //DBGprint_LLU;Serial.printf("Sensor is ready\r\n");
-            logger.debug("Sensor is ready!");
-            result = SENSOR_READY;
 
-            //calculate remaining time in days / hours / minute / seconds 
-            uint32_t diff_time = ((unix_activation_time + (UNIXTIME14DAYS)) - now);
-
-            sensor_livetime.sensor_valid_days    = diff_time / 86400;
-            sensor_livetime.sensor_valid_hours   = diff_time / 3600 % 24;
-            sensor_livetime.sensor_valid_minutes = diff_time / 60 % 60;
-            sensor_livetime.sensor_valid_seconds = diff_time % 60;
-            
-            //DBGprint_LLU;Serial.printf("Sensor expires in: Days:%02d Hours:%02d Minutes:%02d Seconds:%02d\r\n",sensor_livetime.sensor_valid_days, sensor_livetime.sensor_valid_hours, sensor_livetime.sensor_valid_minutes, sensor_livetime.sensor_valid_seconds);
-            logger.debug("Sensor expires in: Days:%02d Hours:%02d Minutes:%02d Seconds:%02d",sensor_livetime.sensor_valid_days, sensor_livetime.sensor_valid_hours, sensor_livetime.sensor_valid_minutes, sensor_livetime.sensor_valid_seconds);
-            return result;
-
-    }else if(llu_sensor_data.sensor_id_non_active == "" && 
-             llu_sensor_data.sensor_sn_non_active != "" && 
-             unix_activation_time > 0   &&
-             (unix_activation_time + (UNIXTIME14DAYS)) < now){
-        DBGprint_LLU;Serial.printf("Sensor expired!\r\n");
+    // Sensor abgelaufen
+    if(llu_sensor_data.sensor_id_non_active == "" && 
+       llu_sensor_data.sensor_sn_non_active != "" &&
+       unix_activation_time > 0 &&
+       (unix_activation_time + sensor_runtime) < now){
+        DBGprint_LLU; Serial.printf("Sensor expired!\r\n");
         logger.debug("Sensor expired!");
-        result = SENSOR_EXPIRED;
-        return result;
+        return SENSOR_EXPIRED;
     }
 
     return result;

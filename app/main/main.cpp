@@ -1509,7 +1509,7 @@ void update_glucose_data() {
     logger.debug("LLU API fetch time: %dms", librelinkup.https_llu_api_fetch_time);
 
     // Sensorstatus und Zeitstempel auslesen
-    librelinkup.llu_status.sensor_state = librelinkup.check_sensor_lifetime(librelinkup.llu_sensor_data.sensor_non_activ_unixtime);
+    librelinkup.llu_status.sensor_state = librelinkup.check_sensor_lifetime(librelinkup.llu_sensor_data.sensor_non_activ_unixtime, librelinkup.llu_sensor_data.sensor_lifetime);
     librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp(librelinkup.llu_glucose_data.str_measurement_timestamp, 1);
     librelinkup.llu_status.last_timestamp_unixtime = helper.convertStrToUnixTime(librelinkup.llu_glucose_data.str_measurement_timestamp);
 

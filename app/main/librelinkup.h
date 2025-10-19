@@ -234,30 +234,31 @@ public:
     //uint32_t timestamp[GRAPHDATAARRAYSIZE+GRAPHDATAARRAYSIZE_PLUS_ONE] = {0};  ///< Glucose history buffer
     
     struct {
-        uint16_t glucoseMeasurement = 0;        ///< Current measurement (mg/dL)
-        uint8_t trendArrow = 0;                 ///< Trend direction code
-        uint8_t measurement_color = 0;          ///< Display color code
-        String str_TrendMessage = "";           ///< Trend interpretation
-        String str_measurement_timestamp = "";  ///< Formatted timestamp
-        String str_trendArrow = "";             ///< Trend direction text
+        uint16_t glucoseMeasurement = 0;            ///< Current measurement (mg/dL)
+        uint8_t trendArrow = 0;                     ///< Trend direction code
+        uint8_t measurement_color = 0;              ///< Display color code
+        String str_TrendMessage = "";               ///< Trend interpretation
+        String str_measurement_timestamp = "";      ///< Formatted timestamp
+        String str_trendArrow = "";                 ///< Trend direction text
 
-        uint16_t glucosetargetLow = 0;          ///< Lower target range
-        uint16_t glucosetargetHigh = 0;         ///< Upper target range
-        uint16_t glucoseAlarmLow = 0;           ///< Low glucose threshold
-        uint16_t glucoseAlarmHigh = 0;          ///< High glucose threshold
-        uint16_t glucosefixedLowAlarmValues = 0;///< Fixed low alarm setting
+        uint16_t glucosetargetLow = 0;              ///< Lower target range
+        uint16_t glucosetargetHigh = 0;             ///< Upper target range
+        uint16_t glucoseAlarmLow = 0;               ///< Low glucose threshold
+        uint16_t glucoseAlarmHigh = 0;              ///< High glucose threshold
+        uint16_t glucosefixedLowAlarmValues = 0;    ///< Fixed low alarm setting
               
     } llu_glucose_data;
 
     struct {
-        uint8_t sensor_state = 0;               ///< Current sensor state
-        String sensor_sn_non_active = "";       ///< Inactive sensor serial
-        String sensor_id_non_active = "";       ///< Inactive sensor ID
-        uint32_t sensor_non_activ_unixtime = 0; ///< Last activation attempt
+        uint8_t sensor_state = 0;                   ///< Current sensor state
+        String sensor_sn_non_active = "";           ///< Inactive sensor serial
+        String sensor_id_non_active = "";           ///< Inactive sensor ID
+        uint32_t sensor_non_activ_unixtime = 0;     ///< Last activation attempt
         
-        String sensor_id = "";                  ///< Active sensor ID
-        String sensor_sn = "";                  ///< Active sensor serialsensor_state                = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["pt"].as<int>();
-        uint32_t sensor_activation_time = 0;    ///< Activation timestamp                
+        String sensor_id = "";                      ///< Active sensor ID
+        String sensor_sn = "";                      ///< Active sensor serialsensor_state
+        uint32_t sensor_lifetime = UNIXTIME14DAYS;  ///< lifetime set to 14 days  
+        uint32_t sensor_activation_time = 0;        ///< Activation timestamp                
     } llu_sensor_data;
         
     
@@ -448,9 +449,10 @@ public:
     /**
      * @brief Calculate sensor remaining lifetime
      * @param unix_activation_time Activation timestamp
+     * @param sensor_days sensor lifetime
      * @return Days remaining (negative if expired)
      */
-    int check_sensor_lifetime(uint32_t unix_activation_time);
+    int check_sensor_lifetime(uint32_t unix_activation_time, uint8_t sensor_days);
 
     /**
      * @brief Calculate sensor remaining warmuptime
