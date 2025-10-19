@@ -141,10 +141,10 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
     // Farben setzen
     for (int i = 0; i < ui->total_blocks; i++) {
         if (i < remaining) {
-            if(ui->total_blocks == BLOCKS_VALID_DAYS){
+            if(ui->total_blocks == BLOCKS_VALID_14DAYS){
                 lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(100, 200, 100), 0); // reen
             }
-            else if(ui->total_blocks == BLOCKS_VALID_DAYS && remaining <= 3){ // last 3 days
+            else if(ui->total_blocks == BLOCKS_VALID_14DAYS && remaining <= 3){ // last 3 days
                 lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 200, 0), 0); // yellow
             }
             else{
@@ -161,7 +161,7 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
     
     //lv_timer_handler();
 
-    if(ui->total_blocks == BLOCKS_VALID_DAYS){
+    if(ui->total_blocks == BLOCKS_VALID_14DAYS){
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d days", remaining);
     }else if(ui->total_blocks == BLOCKS_VALID_HOURS){
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d hours", remaining);
@@ -202,7 +202,7 @@ void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode) {
 }
 
 void create_all_sensor_valid_progress_bars() {
-    create_sensor_valid_progress_bar(&dayBar, ui_Main_screen,    BLOCKS_VALID_DAYS, 0, 170, "");
+    create_sensor_valid_progress_bar(&dayBar, ui_Main_screen,    BLOCKS_VALID_14DAYS, 0, 170, "");
     create_sensor_valid_progress_bar(&hourBar, ui_Main_screen,   BLOCKS_VALID_HOURS, 0, 170, "");
     create_sensor_valid_progress_bar(&minuteBar, ui_Main_screen, BLOCKS_VALID_MINUTES, 0, 170, "");
 

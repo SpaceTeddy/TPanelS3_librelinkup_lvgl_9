@@ -211,7 +211,8 @@ extern ProgressBarUI dayBar, hourBar, minuteBar;
  * @brief Configuration modes for progress bars
  */
 enum {
-    BLOCKS_VALID_DAYS    = 14,  ///< 14-day sensor validity period
+    BLOCKS_VALID_14DAYS  = 14,  ///< 14-day sensor validity period
+    BLOCKS_VALID_15DAYS  = 15,  ///< 14-day sensor validity period
     BLOCKS_VALID_HOURS   = 24,  ///< 24-hour display mode
     BLOCKS_VALID_MINUTES = 60   ///< 60-minute display mode
 };
