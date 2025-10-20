@@ -75,7 +75,8 @@ lv_obj_t * ui_btn_ota_update;
 lv_obj_t * ui_btn_label_ota_update;
 
 /* Definitionen mit C-Linkage (da ui.h im extern "C" deklariert) */
-ProgressBarUI dayBar = { 0 };
+ProgressBarUI dayBar14 = { 0 };
+ProgressBarUI dayBar15 = { 0 };
 ProgressBarUI hourBar = { 0 };
 ProgressBarUI minuteBar = { 0 };
 
@@ -91,11 +92,11 @@ ProgressBarUI minuteBar = { 0 };
 ///////////////////// ANIMATIONS ////////////////////
 
 ///////////////////// FUNCTIONS ////////////////////
-
 //int activeMode = 0; // 0 = days, 1 = hours, 2 = minutes
 
 // Erstellt eine neue Blockanzeige für Tage, Stunden oder Minuten
 void create_sensor_valid_progress_bar(ProgressBarUI *ui, lv_obj_t *parent, int num_blocks, int x, int y, const char *label_text) {
+    
     ui->total_blocks = num_blocks;
 
     // Dynamische Blockgröße berechnen (nicht breiter als MAX_BAR_WIDTH)
@@ -141,10 +142,10 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
     // Farben setzen
     for (int i = 0; i < ui->total_blocks; i++) {
         if (i < remaining) {
-            if(ui->total_blocks == BLOCKS_VALID_14DAYS){
-                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(100, 200, 100), 0); // reen
+            if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS && remaining > 3){ // days mode
+                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(100, 200, 100), 0); // green
             }
-            else if(ui->total_blocks == BLOCKS_VALID_14DAYS && remaining <= 3){ // last 3 days
+            else if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS && remaining <= 3){ // last 3 days
                 lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 200, 0), 0); // yellow
             }
             else{
@@ -161,7 +162,7 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
     
     //lv_timer_handler();
 
-    if(ui->total_blocks == BLOCKS_VALID_14DAYS){
+    if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS){
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d days", remaining);
     }else if(ui->total_blocks == BLOCKS_VALID_HOURS){
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d hours", remaining);
@@ -180,18 +181,22 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
 
 void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode) {
     // alle Bars und Labels verstecken
-    lv_obj_add_flag(dayBar.bar,    LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(hourBar.bar,   LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(minuteBar.bar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(dayBar14.bar,    LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(dayBar15.bar,    LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(hourBar.bar,     LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(minuteBar.bar,   LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_add_flag(dayBar.label,    LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(dayBar14.label,  LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(hourBar.label,   LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(minuteBar.label, LV_OBJ_FLAG_HIDDEN);
 
     // gewünschte Bar + zugehöriges Label zeigen
-    if (ui->bar == dayBar.bar) {
-        lv_obj_clear_flag(dayBar.bar,   LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(dayBar.label, LV_OBJ_FLAG_HIDDEN);
+    if (ui->bar == dayBar14.bar) {
+        lv_obj_clear_flag(dayBar14.bar,   LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN);
+    } else if (ui->bar == dayBar15.bar) {
+        lv_obj_clear_flag(dayBar15.bar,   LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN); // Label bleibt gleich wie bei 14 Tage
     } else if (ui->bar == hourBar.bar) {
         lv_obj_clear_flag(hourBar.bar,   LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(hourBar.label, LV_OBJ_FLAG_HIDDEN);
@@ -202,17 +207,28 @@ void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode) {
 }
 
 void create_all_sensor_valid_progress_bars() {
-    create_sensor_valid_progress_bar(&dayBar, ui_Main_screen,    BLOCKS_VALID_14DAYS, 0, 170, "");
-    create_sensor_valid_progress_bar(&hourBar, ui_Main_screen,   BLOCKS_VALID_HOURS, 0, 170, "");
-    create_sensor_valid_progress_bar(&minuteBar, ui_Main_screen, BLOCKS_VALID_MINUTES, 0, 170, "");
 
-    switch_sensor_valid_progress_bar(&dayBar, 0); // Standard: Tage
+    // Day-Bar nach Bedarf neu erzeugen
+    create_sensor_valid_progress_bar(&dayBar15, ui_Main_screen, BLOCKS_VALID_15DAYS, 0, 170, "");    
+    create_sensor_valid_progress_bar(&dayBar14, ui_Main_screen, BLOCKS_VALID_14DAYS, 0, 170, "");
+
+    // Hour/Minute-Bar nur erstellen, wenn noch nicht vorhanden
+    if (!hourBar.bar && !hourBar.label) {
+        create_sensor_valid_progress_bar(&hourBar, ui_Main_screen, BLOCKS_VALID_HOURS, 0, 170, "");
+    }
+    if (!minuteBar.bar && !minuteBar.label) {
+        create_sensor_valid_progress_bar(&minuteBar, ui_Main_screen, BLOCKS_VALID_MINUTES, 0, 170, "");
+    }
+    //switch_sensor_valid_progress_bar(&dayBar14, 0); // Standard: Tage
+    //switch_sensor_valid_progress_bar(&dayBar15, 0); // Standard: Tage
 }
 
 void update_chart_valid_values(ProgressBarUI *ui, int value) {
-    if (ui->bar == dayBar.bar) {
-        update_sensor_valid_progress_bar(&dayBar, value);
-    } else if (ui->bar == hourBar.bar) {
+    if (ui->bar == dayBar14.bar) {
+        update_sensor_valid_progress_bar(&dayBar14, value);
+    }else if (ui->bar == dayBar15.bar) {
+        update_sensor_valid_progress_bar(&dayBar15, value);
+    }else if (ui->bar == hourBar.bar) {
         update_sensor_valid_progress_bar(&hourBar, value);
     } else if (ui->bar == minuteBar.bar) {
         update_sensor_valid_progress_bar(&minuteBar, value);
@@ -374,8 +390,7 @@ void ui_Main_screen_init(void)
     lv_obj_set_pos(ui_Chart_x_label_end, 395, 375);
 
     //Add data to sensor valid chart
-    create_all_sensor_valid_progress_bars();
-
+    create_all_sensor_valid_progress_bars(); // default 14 days sensor
 }
 
 void ui_Debug_screen_init(void)
