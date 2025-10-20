@@ -324,9 +324,9 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
         else if((llu_argument == "sensor_type")){
 
             String sensor_type_str = "";
-            if (librelinkup.llu_sensor_data.sensor_lifetime == 14*86400) {
+            if (librelinkup.llu_sensor_data.sensor_runtime == 14*86400) {
                 sensor_type_str = "FreeStyle Libre 3";
-            } else if (librelinkup.llu_sensor_data.sensor_lifetime == 15*86400) {
+            } else if (librelinkup.llu_sensor_data.sensor_runtime == 15*86400) {
                 sensor_type_str = "FreeStyle Libre 3 Plus";
             } else {
                 sensor_type_str = "Unknown";
@@ -385,21 +385,23 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
 }
 
 void lluSensorTypeCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
-    uint8_t sensor_type = parseArgument(arguments, 0, 0);
-    switch (sensor_type)
-    {
-    case 14:
-        librelinkup.llu_sensor_data.sensor_lifetime = 14*86400;
-        break;
-    case 15:
-        librelinkup.llu_sensor_data.sensor_lifetime = 15*86400;
-        break;
-    default:
-        librelinkup.llu_sensor_data.sensor_lifetime = 14*86400;
-        break;
+    String sensor_type = arguments[0].c_str();
+    
+    if(sensor_type == "Libre3"){
+        librelinkup.llu_sensor_data.sensor_runtime = 14*86400; // 14 days in seconds
+        switch_sensor_valid_progress_bar(&dayBar14, 0);
+    }
+    else if((sensor_type == "Libre3Plus")){
+        librelinkup.llu_sensor_data.sensor_runtime = 15*86400; // 15 days in seconds
+        switch_sensor_valid_progress_bar(&dayBar15, 0);
+    }
+    else {
+        shell.printfln("invalid sensor type: %s",sensor_type.c_str());
+        return;
     }
     
-    shell.printfln(F("Sensortype %d days"), sensor_type);
+    shell.printfln(F("Sensortype: %s"), sensor_type);
+    
 }
 
 void PingCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
@@ -561,6 +563,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("delete_json_file")}, uuid::flash_string_vector{F("<filename>")}, deleteJsonFileCommand);
     commands->add_command(uuid::flash_string_vector{F("print_raw_json_file")}, uuid::flash_string_vector{F("<filename>")}, debugRawFileContentsCommand);
     commands->add_command(uuid::flash_string_vector{F("llu_login_data")}, uuid::flash_string_vector{F("<email@domain.com>"), F("<password>")}, LLULoginDataCommand);    
+    commands->add_command(uuid::flash_string_vector{F("llu_sensor_type")}, uuid::flash_string_vector{F("<Libre3|Libre3Plus>")}, lluSensorTypeCommand);
     commands->add_command(uuid::flash_string_vector{F("llu")}, uuid::flash_string_vector{F("\t<value>\n\r\t<user_id>\n\r\t<user_token>\n\r\t<auth>\n\r\t<tou>\n\r\t<sensor_id>\n\r\t<sensor_sn>\n\r\t<sensor_type>\n\r\t<timestamp>\n\r\t<history>\n\r\t<graphdata>\n\r\t<graph_redraw>\n\r\t<get_graphdata>\n\r\t<statistics>")}, lluCommand);
     commands->add_command(uuid::flash_string_vector{F("ping")}, PingCommand);
     commands->add_command(uuid::flash_string_vector{F("mqtt_client")}, uuid::flash_string_vector{F("<enable|disable>")}, mqttClientSettingCommand);
