@@ -257,7 +257,8 @@ public:
         
         String sensor_id = "";                      ///< Active sensor ID
         String sensor_sn = "";                      ///< Active sensor serialsensor_state
-        uint32_t sensor_lifetime = UNIXTIME14DAYS;  ///< lifetime set to 14 days  
+        String LIBRE3PLUS_SERIAL_START = "0J000000";///< Libre 3 Plus serial prefix
+        uint32_t sensor_runtime = UNIXTIME14DAYS;   ///< lifetime set to 14 days  
         uint32_t sensor_activation_time = 0;        ///< Activation timestamp                
     } llu_sensor_data;
         
@@ -352,6 +353,30 @@ public:
      * @return Hashed account ID string
      */
     String account_id_sha256(String user_id);
+
+    /**
+     * @brief Compares two serial numbers lexicographically
+     * 
+     * This function compares two serial number strings and determines which one
+     * is newer based on lexicographic ordering. The comparison is performed
+     * character by character using strcmp().
+     * 
+     * @param s1 Pointer to the first serial number string
+     * @param s2 Pointer to the second serial number string
+     * 
+     * @return int Comparison result:
+     *         - -1 if s1 is older than s2 (s1 < s2)
+     *         -  0 if both serial numbers are identical
+     *         -  1 if s1 is newer than s2 (s1 > s2)
+     * 
+     * @note The function assumes that higher lexicographic values represent
+     *       newer serial numbers.
+     * 
+     * @example
+     * int result = compare_serial("0GJAR1", "0PHDA");
+     * // Returns -1 because "0GJAR1" < "0PHDA"
+     */
+    int check_sensor_type(const char *s1, const char *s2);
 
     /**
      * @brief Validate graph data integrity
@@ -452,7 +477,7 @@ public:
      * @param sensor_days sensor lifetime
      * @return Days remaining (negative if expired)
      */
-    int check_sensor_lifetime(uint32_t unix_activation_time, uint8_t sensor_days);
+    int check_sensor_lifetime(uint32_t unix_activation_time, uint32_t sensor_runtime);
 
     /**
      * @brief Calculate sensor remaining warmuptime

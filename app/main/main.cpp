@@ -1173,8 +1173,13 @@ void draw_chart_sensor_valid(){
 
     // draw valid days chart
     if(librelinkup.sensor_livetime.sensor_valid_days > 0 && librelinkup.sensor_livetime.sensor_valid_hours >= 0){
-        switch_sensor_valid_progress_bar(&dayBar, 0);
-        update_chart_valid_values(&dayBar,librelinkup.sensor_livetime.sensor_valid_days +1);
+        if(librelinkup.llu_sensor_data.sensor_runtime == 14*86400){
+            switch_sensor_valid_progress_bar(&dayBar14, 0);
+            update_chart_valid_values(&dayBar14,librelinkup.sensor_livetime.sensor_valid_days +1);
+        }else if(librelinkup.llu_sensor_data.sensor_runtime == 15*86400){
+            switch_sensor_valid_progress_bar(&dayBar15, 0);
+            update_chart_valid_values(&dayBar15,librelinkup.sensor_livetime.sensor_valid_days +1);
+        }
     }
     else if(librelinkup.sensor_livetime.sensor_valid_days == 0 && (librelinkup.sensor_livetime.sensor_valid_hours > 0 && librelinkup.sensor_livetime.sensor_valid_hours < 24)){
         switch_sensor_valid_progress_bar(&hourBar, 1);
@@ -1509,7 +1514,7 @@ void update_glucose_data() {
     logger.debug("LLU API fetch time: %dms", librelinkup.https_llu_api_fetch_time);
 
     // Sensorstatus und Zeitstempel auslesen
-    librelinkup.llu_status.sensor_state = librelinkup.check_sensor_lifetime(librelinkup.llu_sensor_data.sensor_non_activ_unixtime, librelinkup.llu_sensor_data.sensor_lifetime);
+    librelinkup.llu_status.sensor_state = librelinkup.check_sensor_lifetime(librelinkup.llu_sensor_data.sensor_non_activ_unixtime, librelinkup.llu_sensor_data.sensor_runtime);
     librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp(librelinkup.llu_glucose_data.str_measurement_timestamp, 1);
     librelinkup.llu_status.last_timestamp_unixtime = helper.convertStrToUnixTime(librelinkup.llu_glucose_data.str_measurement_timestamp);
 
@@ -1547,6 +1552,40 @@ void update_glucose_json_logging(){
     uint32_t unixtime_now = librelinkup.get_epoch_time();
     hba1c.addGlucoseValue(unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement);
     logger.debug("addGlucoseValue to LittleFS: %d / %d", unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement );
+}
+
+void check_sensor_type() {
+    static bool already_checked = false;  ///< Flag, um Mehrfachprüfungen zu vermeiden
+
+    // Prüfe, ob eine Seriennummer vorhanden ist und noch nicht geprüft wurde
+    if (librelinkup.llu_sensor_data.sensor_sn.length() > 0 && !already_checked) {
+
+        // Vergleiche Seriennummer mit Referenz
+        int cmp = librelinkup.check_sensor_type(
+            librelinkup.llu_sensor_data.sensor_sn.c_str(),
+            librelinkup.llu_sensor_data.LIBRE3PLUS_SERIAL_START.c_str()
+        );
+
+        if (cmp == 1) {
+            // Sensor ist Libre 3 Plus
+            logger.debug("Sensor Type: Libre 3 Plus");
+            librelinkup.llu_sensor_data.sensor_runtime = 15 * 86400; // 15 Tage Laufzeit
+            switch_sensor_valid_progress_bar(&dayBar15, 0);
+
+        } else if (cmp == -1) {
+            // Sensor ist Libre 3
+            logger.debug("Sensor Type: Libre 3");
+            librelinkup.llu_sensor_data.sensor_runtime = 14 * 86400; // 14 Tage Laufzeit
+            switch_sensor_valid_progress_bar(&dayBar14, 0);
+
+        } else {
+            // Unbekannter Sensortyp
+            logger.debug("Sensor Type: unknown sensor type");
+        }
+
+        // Setze Flag, damit der Typ nicht mehrfach geprüft wird
+        already_checked = true;
+    }
 }
 
 void glucose_statistics(){
@@ -1876,7 +1915,7 @@ void setup()
     setup_serial();
 
     //Setup UART IPC
-
+    //setup_UART_IPC();
 
     //Setup LittleFS
     setup_littlefs();
@@ -1941,6 +1980,9 @@ void setup()
     
     //get first glycose data
     update_glucose_data();
+
+    //check sensor type and create progress bars
+    check_sensor_type();
 
     //decrease update counter -1 and update if five_minute_chart_update_counter == 0
     update_five_minute_counter();
@@ -2080,6 +2122,9 @@ void loop()
         //fetch data from LibreLinkUp server if system has internet access
         if(ota_in_progress == 0){
             update_glucose_data();
+
+            //check sensor type and create progress bars
+            check_sensor_type();
         
             //decrease update counter -1 and update if five_minute_chart_update_counter == 0
             update_five_minute_counter();

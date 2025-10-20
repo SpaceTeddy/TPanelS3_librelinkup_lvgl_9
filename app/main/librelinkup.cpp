@@ -136,6 +136,20 @@ time_t LIBRELINKUP::get_epoch_time() {
     return now;
 }
 
+// compare two sensor serials
+// Rückgabewert: -1 wenn s1 < s2, 0 wenn gleich, 1 wenn s1 > s2
+int LIBRELINKUP::check_sensor_type(const char *s1, const char *s2) {
+    int result = strcmp(s1, s2);
+    
+    if (result < 0) {
+        return -1;  // s1 ist älter
+    } else if (result > 0) {
+        return 1;   // s1 ist neuer
+    }
+    
+    return 0;  // Beide sind identisch
+}
+
 // check libre3 sensor state
 uint8_t LIBRELINKUP::get_sensor_state(uint8_t state){
 
@@ -173,7 +187,7 @@ uint8_t LIBRELINKUP::get_sensor_state(uint8_t state){
 
 // check if freestyle libre3 sensor is expired
 // sensor_days: 14 -> 14 Tage, 15 -> 15 Tage (Libre 3 Plus)
-int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint8_t sensor_days){
+int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t sensor_runtime){
     
     int result = -1;
     
@@ -187,9 +201,6 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint8_t se
     }
 
     time(&now); // epoch time
-
-    // gewünschte Laufzeit aus Parameter ableiten (Default = 14)
-    const uint32_t sensor_runtime = (sensor_days == 15) ? UNIXTIME15DAYS : UNIXTIME14DAYS;
 
     // Sensor nicht verfügbar
     if(llu_sensor_data.sensor_id_non_active == "" && llu_sensor_data.sensor_sn_non_active == ""){
