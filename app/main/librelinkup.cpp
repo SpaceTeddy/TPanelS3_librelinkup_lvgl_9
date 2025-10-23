@@ -216,6 +216,8 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
         logger.debug("sensor in startup phase!");
         int remaining_warmup_time = get_remaining_warmup_time(unix_activation_time);
         logger.debug("sensor available in: %dminutes", remaining_warmup_time);
+        llu_sensor_data.sensor_sn = ""; // reset active sensor sn druring warmup
+
         return SENSOR_STARTING;
     }
 
