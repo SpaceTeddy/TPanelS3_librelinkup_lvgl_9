@@ -258,6 +258,43 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
     return result;
 }
 
+// check sensor type and set remaining sensor time
+int LIBRELINKUP::check_sensor_type() {
+    static bool already_checked = false;  ///< Flag to avoid multiple checks
+
+    // Check if a serial number exists and has not yet been checked
+    if (llu_sensor_data.sensor_sn.length() > 0 && !already_checked) {
+
+        // Compare serial number with reference
+        int cmp = check_sensor_type(
+            llu_sensor_data.sensor_sn.c_str(),
+            llu_sensor_data.LIBRE3PLUS_SERIAL_START.c_str()
+        );
+
+        if (cmp == 1) {
+            // Sensor is Libre 3 Plus
+            logger.debug("Sensor Type: Libre 3 Plus");
+            llu_sensor_data.sensor_runtime = UNIXTIME15DAYS; // 15 days runtime
+            return 1;
+
+        } else if (cmp == -1) {
+            // Sensor is Libre 3
+            logger.debug("Sensor Type: Libre 3");
+            llu_sensor_data.sensor_runtime = UNIXTIME14DAYS; // 14 days runtime
+            return -1;
+
+        } else {
+            // Unknown sensor type
+            logger.debug("Sensor Type: unknown sensor type");
+            return 0;
+        }
+
+        // Set flag so the type is not checked multiple times
+        already_checked = true;
+    }
+    return 0;
+}
+
 // Funktion zur Berechnung der verbleibenden Zeit in Minuten
 int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
     time_t current_time = time(NULL);  // Aktuelle Zeit holen (Unix-Zeit)

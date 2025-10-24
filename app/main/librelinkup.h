@@ -258,7 +258,7 @@ public:
         String sensor_id = "";                      ///< Active sensor ID
         String sensor_sn = "";                      ///< Active sensor serialsensor_state
         String LIBRE3PLUS_SERIAL_START = "0J000000";///< Libre 3 Plus serial prefix
-        uint32_t sensor_runtime = UNIXTIME14DAYS;   ///< lifetime set to 14 days  
+        uint32_t sensor_runtime = 0; //UNIXTIME14DAYS;   ///< lifetime set to 14 days  
         uint32_t sensor_activation_time = 0;        ///< Activation timestamp                
     } llu_sensor_data;
         
@@ -478,6 +478,12 @@ public:
      * @return Days remaining (negative if expired)
      */
     int check_sensor_lifetime(uint32_t unix_activation_time, uint32_t sensor_runtime);
+
+    /**
+     * @brief Check sensor type and set remaining sensor time
+     * @return Sensor type code (1=15days, -1=14days, 0=error)
+     */
+    int check_sensor_type();
 
     /**
      * @brief Calculate sensor remaining warmuptime
