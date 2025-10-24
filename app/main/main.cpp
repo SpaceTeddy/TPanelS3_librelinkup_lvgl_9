@@ -656,13 +656,13 @@ void esp_status(){
     }
 }
 
-//--------------------------[TRGB configuration]--------------------------------
+//--------------------------[TPanel configuration]--------------------------------
 // LilyGo  T-RGB  control backlight chip has 16 levels of adjustment range
 // The adjustable range is 0~15, 0 is the minimum brightness, 15 is the maximum brightness
 uint8_t set_trgb_backlight_brightness(uint8_t value)
 {
-    ledcSetup(0, 15000, 8);                              // 0-15, 5000, 8
-    ledcAttachPin(LCD_BL, 0);         // EXAMPLE_PIN_NUM_BK_LIGHT, 0 - 15
+    ledcSetup(0, 15000, 8);     // 0-15, 5000, 8
+    ledcAttachPin(LCD_BL, 0);   // EXAMPLE_PIN_NUM_BK_LIGHT, 0 - 15
     ledcWrite(0, value);        // 0-15, 0-255 (with 8 bit resolution); 0=totally dark;255=totally shiny
     
     return value;
@@ -1378,7 +1378,7 @@ void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color, uint16_t _glu
 
 void handle_internet_disconnection() {
     static uint8_t counter_internet_offline = 0;
-    if (++counter_internet_offline == 5) {
+    if (++counter_internet_offline == RECONNECT_WIFI_TIMEOUT_MS / 1000) {
         counter_internet_offline = 0;
         logger.notice("Client offline -> reconnect to WiFi");
         esp_status_counter_wifi_restart++;
@@ -1898,7 +1898,7 @@ void setup_task(){
     xTaskCreatePinnedToCore(
         LoopTask,         // Funktionsname
         "LoopTask",       // Task-Name
-        12288,            // Stack-Größe 48kb = 12288 words
+        16384,            // Stack-Größe 64kb = 16384 words
         NULL,             // Parameter
         1,                // Priorität
         NULL,             // Task-Handle
@@ -2113,7 +2113,18 @@ void loop()
     }
 
     if(millis() - g_timer_10000ms_backup > timer_10000ms){
-      g_timer_10000ms_backup = millis(); 
+      g_timer_10000ms_backup = millis();
+        //Test
+        // check internet status
+        internet_status = helper.check_internet_status();
+        if(internet_status != 1){
+            DBGprint;Serial.println("Client offline -> reconnect to WiFi");
+            logger.notice("Client offline -> reconnect to WiFi");
+            esp_status_counter_wifi_restart++;
+            WiFi.disconnect();
+            delay(2000);
+            WiFi.reconnect();
+        }
     }
     
     if(millis() - g_timer_60000ms_backup > timer_60000ms){
