@@ -262,65 +262,47 @@ void create_sensor_valid_progress_bar(ProgressBarUI *ui, lv_obj_t *parent,
  * 
  * @note Automatically hides label when remaining reaches 0
  */
-void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) 
-{
-    if (ui == NULL || ui->bar == NULL) {
-        return;
-    }
+void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
+    if (remaining > ui->total_blocks) remaining = ui->total_blocks;
+    if (remaining < 0) remaining = 0;
 
-    // Clamp remaining to valid range
-    if (remaining > ui->total_blocks) {
-        remaining = ui->total_blocks;
-    }
-    if (remaining < 0) {
-        remaining = 0;
-    }
-
-    // Update block colors based on remaining time and mode
+    // Farben setzen
     for (int i = 0; i < ui->total_blocks; i++) {
-        if (ui->blocks[i] == NULL) {
-            continue;
-        }
-
         if (i < remaining) {
-            // FIXED: Proper parentheses for logical operators
-            bool is_day_mode = (ui->total_blocks == BLOCKS_VALID_14DAYS || 
-                               ui->total_blocks == BLOCKS_VALID_15DAYS);
-            
-            if (is_day_mode && remaining > 3) {
-                // Green for normal operation
-                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(100, 200, 100), 0);
-            } else if (is_day_mode && remaining <= 3) {
-                // Yellow for last 3 days warning
-                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 200, 0), 0);
-            } else {
-                // Red for hours/minutes (critical)
-                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 0, 0), 0);
+            if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS && remaining > 3){ // days mode
+                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(100, 200, 100), 0); // green
             }
+            else if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS && remaining <= 3){ // last 3 days
+                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 200, 0), 0); // yellow
+            }
+            else{
+                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 0, 0), 0); // red
+            }
+            
         } else {
-            // Gray for inactive blocks
-            lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(80, 80, 80), 0);
+            lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(80, 80, 80), 0); // Grau
         }
     }
 
-    // Update label text based on mode
-    if (ui->label == NULL) {
-        return;
-    }
+    // set label text
+    lv_label_set_text_fmt(ui->label, " ");
+    
+    //lv_timer_handler();
 
+    if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS){
+        lv_label_set_text_fmt(ui->label, "Sensor exp. in %d days", remaining);
+    }else if(ui->total_blocks == BLOCKS_VALID_HOURS){
+        lv_label_set_text_fmt(ui->label, "Sensor exp. in %d hours", remaining);
+    }else if(ui->total_blocks == BLOCKS_VALID_MINUTES){
+        lv_label_set_text_fmt(ui->label, "Sensor exp. in %d minutes", remaining);
+    }
+    
     if (remaining <= 0) {
-        lv_label_set_text(ui->label, "");
-        lv_obj_add_flag(ui->label, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_clear_flag(ui->label, LV_OBJ_FLAG_HIDDEN);
-        
-        if (ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS) {
-            lv_label_set_text_fmt(ui->label, "Sensor exp. in %d days", remaining);
-        } else if (ui->total_blocks == BLOCKS_VALID_HOURS) {
-            lv_label_set_text_fmt(ui->label, "Sensor exp. in %d hours", remaining);
-        } else if (ui->total_blocks == BLOCKS_VALID_MINUTES) {
-            lv_label_set_text_fmt(ui->label, "Sensor exp. in %d minutes", remaining);
-        }
+        lv_label_set_text(ui->label, "");                      // Text löschen
+        lv_obj_add_flag(ui->label, LV_OBJ_FLAG_HIDDEN);        // optional: Label verstecken
+    }
+    else {
+        lv_obj_clear_flag(ui->label, LV_OBJ_FLAG_HIDDEN);      // sicherstellen, dass es wieder sichtbar ist
     }
 }
 

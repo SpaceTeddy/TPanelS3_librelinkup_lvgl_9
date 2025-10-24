@@ -162,6 +162,15 @@ void lvgl_initialization(void)
 //------------------------------[ Backlight settings ]--------------------------
 #define TRGB_STD_BACKLIGHT_BRIGHTNESS (50)
 
+//------------------------------[ Task settings ]--------------------------
+// vTaskSuspend(wifiScanHandle);     // Task pausieren
+// vTaskResume(wifiScanHandle);      // Task fortsetzen
+// vTaskDelete(wifiScanHandle);      // Task löschen
+
+TaskHandle_t wifiScanHandle = NULL; // WLAN-Scan Task Handle
+TaskHandle_t LoopTaskhandle = NULL; // 
+TaskHandle_t LvglTaskHandle = NULL; //
+
 //------------------------------[ ArduinoJson settings ]--------------------------
 #include <ArduinoJson.h>
 #include <StreamUtils.h>
@@ -234,14 +243,12 @@ uint16_t glucoseMeasurement_backup = 0; ///< Previous measurement
 
 // Update OTA update progress bar
 uint8_t update_ota_progress_screen(int progress) {
-    // Fortschrittsbalken aktualisieren
-    //lv_bar_set_value(ui_Bar_FWUpdateProgress, progress, LV_ANIM_OFF);
-
+    
     // Prozentanzeige aktualisieren
     char progress_text[10];
     snprintf(progress_text, sizeof(progress_text), "%d%%", progress);
     lv_label_set_text(ui_Label_FWUpdateProgress_percent, progress_text);
-    lv_timer_handler(); 
+    lv_timer_handler(); delay(5);                /* let the GUI do its work */
     return 1;
 }
 
@@ -497,6 +504,8 @@ void onOTAStart() {
     // Log when OTA has started
     Serial.println("OTA update started!");
     logger.notice("OTA Update Progress has started");
+    vTaskSuspend(wifiScanHandle);     // Task pausieren
+    //vTaskResume(wifiScanHandle);      // Task fortsetzen
     ota_in_progress = 1;
 }
 
@@ -1659,7 +1668,7 @@ void setup_tpanels3(){
         2048,           // Stack-Größe (in Bytes)
         NULL,           // Parameter (optional)
         1,              // Priorität (1 ist niedrig)
-        NULL,           // Task-Handle (optional)
+        &LvglTaskHandle,// Task-Handle (optional)
         1               // Core (0 oder 1)
     );
 
@@ -1867,7 +1876,7 @@ void setup_OTA(bool mode){
             4096,                       // Stack-Größe
             NULL,                       // Parameter
             1,                          // Task-Priorität
-            NULL,                       // Task-Handle
+            &wifiScanHandle,            // Task-Handle
             1                           // Core 1 verwenden
         );
 
@@ -1901,7 +1910,7 @@ void setup_task(){
         16384,            // Stack-Größe 64kb = 16384 words
         NULL,             // Parameter
         1,                // Priorität
-        NULL,             // Task-Handle
+        &LoopTaskhandle,  // Task-Handle
         1                 // Core 1
     );
 }
@@ -2121,6 +2130,7 @@ void loop()
     
         //fetch data from LibreLinkUp server if system has internet access
         if(ota_in_progress == 0){
+            // fetch and update glucose data
             update_glucose_data();
 
             //check sensor type and create progress bars
