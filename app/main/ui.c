@@ -286,8 +286,7 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
 
     // set label text
     lv_label_set_text_fmt(ui->label, " ");
-    
-    //lv_timer_handler();
+    lv_timer_handler();
 
     if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS){
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d days", remaining);
