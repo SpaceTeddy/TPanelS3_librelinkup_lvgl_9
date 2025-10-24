@@ -2114,17 +2114,6 @@ void loop()
 
     if(millis() - g_timer_10000ms_backup > timer_10000ms){
       g_timer_10000ms_backup = millis();
-        //Test
-        // check internet status
-        internet_status = helper.check_internet_status();
-        if(internet_status != 1){
-            DBGprint;Serial.println("Client offline -> reconnect to WiFi");
-            logger.notice("Client offline -> reconnect to WiFi");
-            esp_status_counter_wifi_restart++;
-            WiFi.disconnect();
-            delay(2000);
-            WiFi.reconnect();
-        }
     }
     
     if(millis() - g_timer_60000ms_backup > timer_60000ms){
