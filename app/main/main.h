@@ -11,8 +11,10 @@
 
 #include <Arduino.h>
 
-extern int16_t glucose_delta;              ///< Change from last reading
-extern uint16_t glucoseMeasurement_backup; ///< Previous measurement
+#define RECONNECT_WIFI_TIMEOUT_MS (1000)    ///< WiFi reconnect timeout in milliseconds
+
+extern int16_t glucose_delta;               ///< Change from last reading
+extern uint16_t glucoseMeasurement_backup;  ///< Previous measurement
 
 /**
  * @enum GlucoseLabelColor
