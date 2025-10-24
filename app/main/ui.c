@@ -13,7 +13,6 @@
  */
 
 #include "ui.h"
-#include "math.h"
 
 ///////////////////// CONSTANTS ////////////////////
 
