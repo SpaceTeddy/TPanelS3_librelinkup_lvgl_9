@@ -1,46 +1,62 @@
-// LVGL VERSION: 9.2.2
-// PROJECT: ESP32 LibreLinkUp Client
+/**
+ * @file ui.cpp
+ * @brief LVGL User Interface implementation for ESP32 LibreLinkUp Client
+ * @version 1.0
+ * @date 2025
+ * 
+ * This file implements the complete UI for the glucose monitoring system,
+ * including multiple screens (Welcome, Main, Debug, Login, FW Update) and
+ * interactive elements like charts and progress bars.
+ * 
+ * @note LVGL Version: 9.2.2
+ * @note Project: ESP32 LibreLinkUp Client
+ */
 
 #include "ui.h"
 
 ///////////////////// CONSTANTS ////////////////////
 
-#define TOTAL_CHART_POINTS                  (142)
 ///////////////////// VARIABLES ////////////////////
 
+// Screen objects
 lv_obj_t * ui_Welcome_screen;
 lv_obj_t * ui_Main_screen;
 lv_obj_t * ui_Debug_screen;
 lv_obj_t * ui_FWUpdate_screen;
 lv_obj_t * ui_Login_screen;
 
+// Welcome screen elements
 lv_obj_t * ui_Label_WelcomeInfo;
 lv_obj_t * ui_Label_WelcomeWifiInfo;
 
+// Main screen - Glucose display elements
 lv_obj_t * ui_Label_GlucoseValue;
 lv_obj_t * ui_Label_GlucoseDelta;
 lv_obj_t * ui_Label_GlucoseTrendArrow;
 lv_obj_t * ui_Label_GlucoseTrendMessage;
 
+// Main screen - Status indicators
 lv_obj_t * ui_Label_LiebreViewAPIActivity;
 lv_obj_t * ui_Label_ESP32Connectivity;
 
+// Firmware update elements
 lv_obj_t * ui_Label_FWUpdateInfo;
 lv_obj_t * ui_Label_FWUpdateProgress_percent;
 lv_obj_t * ui_Bar_FWUpdateProgress;
 
+// Chart objects
 lv_obj_t * ui_Chart_Glucose_5Min;
 lv_obj_t * ui_Chart_Valid_Sensor;
-
 lv_obj_t * ui_Label_Chart_GlucoseLimitLow;
 lv_obj_t * ui_Label_Chart_GlucoseLimitHigh;
-
 lv_obj_t * ui_Chart_Glucose_5Min_last_point_marker;
 
+// Chart axis labels
 lv_obj_t *ui_Chart_x_label_start;
 lv_obj_t *ui_Chart_x_label_middle;
 lv_obj_t *ui_Chart_x_label_end;
 
+// Chart data series
 lv_chart_series_t * glucoseValueSeries_upperlimit;
 lv_chart_series_t * glucoseValueSeries_lowerlimit;
 lv_chart_series_t * glucoseValueSeries_5Min;
@@ -50,6 +66,7 @@ lv_chart_series_t * glucoseValueSeries_last;
 lv_chart_series_t * sensorValidDaysSeries_yellow;
 lv_chart_series_t * sensorValidDaysSeries_grey;
 
+// Debug screen elements
 lv_obj_t * ui_Label_DebugInfo;
 lv_obj_t * ui_Label_DebugDataRefresh;
 lv_obj_t * ui_Label_DebugTime;
@@ -60,6 +77,7 @@ lv_obj_t * ui_Label_DebugSensorState;
 lv_obj_t * ui_Label_DebugSensorValue;
 lv_obj_t * ui_Label_DebugTest;
 
+// Login screen elements
 lv_obj_t * ui_Label_LoginInfo;
 lv_obj_t * ui_kb;
 lv_obj_t * ui_ta_email;
@@ -67,74 +85,166 @@ lv_obj_t * ui_ta_password;
 lv_obj_t * btn_login;
 lv_obj_t * btn_label;
 
+// Debug screen buttons
 lv_obj_t * ui_btn_wireguard;
 lv_obj_t * ui_btn_label_wireguard;
-
 lv_obj_t * ui_btn_mqtt;
 lv_obj_t * ui_btn_label_mqtt;
-
 lv_obj_t * ui_btn_ota_update;
 lv_obj_t * ui_btn_label_ota_update;
 
-/* Definitionen mit C-Linkage (da ui.h im extern "C" deklariert) */
+/// Progress bar definitions with C-linkage (as ui.h declares in extern "C")
 ProgressBarUI dayBar14 = { 0 };
 ProgressBarUI dayBar15 = { 0 };
 ProgressBarUI hourBar = { 0 };
 ProgressBarUI minuteBar = { 0 };
 
-///////////////////// TEST LVGL SETTINGS ////////////////////
+///////////////////// LVGL CONFIGURATION CHECKS ////////////////////
+
 #if LV_COLOR_DEPTH != 16
     #error "LV_COLOR_DEPTH should be 16bit to match SquareLine Studio's settings"
 #endif
-/*
-#if LV_COLOR_16_SWAP != 1
-    #error "LV_COLOR_16_SWAP should be 1 to match SquareLine Studio's settings"
-#endif
-*/
-///////////////////// ANIMATIONS ////////////////////
 
-///////////////////// FUNCTIONS ////////////////////
-//int activeMode = 0; // 0 = days, 1 = hours, 2 = minutes
+///////////////////// HELPER FUNCTIONS ////////////////////
 
-// Erstellt eine neue Blockanzeige für Tage, Stunden oder Minuten
-void create_sensor_valid_progress_bar(ProgressBarUI *ui, lv_obj_t *parent, int num_blocks, int x, int y, const char *label_text) {
+/**
+ * @brief Creates a styled label with common settings
+ * 
+ * @param[in] parent     Parent LVGL object
+ * @param[in] font       Font to use for the label
+ * @param[in] color      Text color (hex value)
+ * @param[in] width      Label width in pixels
+ * @param[in] align      Alignment type
+ * @param[in] x_offset   X-axis offset
+ * @param[in] y_offset   Y-axis offset
+ * 
+ * @return Pointer to created label object, NULL on failure
+ */
+static lv_obj_t* create_styled_label(lv_obj_t* parent, const lv_font_t* font, 
+                                      uint32_t color, lv_coord_t width,
+                                      lv_align_t align, lv_coord_t x_offset, 
+                                      lv_coord_t y_offset)
+{
+    if (parent == NULL || font == NULL) {
+        return NULL;
+    }
+
+    lv_obj_t* label = lv_label_create(parent);
+    if (label == NULL) {
+        return NULL;
+    }
+
+    lv_obj_set_style_text_color(label, lv_color_hex(color), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(label, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(label, font, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_width(label, width);
+    lv_obj_align(label, align, x_offset, y_offset);
+    
+    return label;
+}
+
+/**
+ * @brief Safely deletes an LVGL object and sets pointer to NULL
+ * 
+ * @param[in,out] obj Pointer to LVGL object pointer
+ */
+static void safe_delete_obj(lv_obj_t** obj)
+{
+    if (obj != NULL && *obj != NULL) {
+        lv_obj_del(*obj);
+        *obj = NULL;
+    }
+}
+
+///////////////////// SENSOR VALIDITY PROGRESS BAR FUNCTIONS ////////////////////
+
+/**
+ * @brief Creates a visual progress bar for sensor validity display
+ * 
+ * Creates a horizontal bar chart with individual blocks to visualize
+ * remaining sensor lifetime. The bar can display days (14/15), hours (24),
+ * or minutes (60) depending on the configuration.
+ * 
+ * @param[out] ui          Pointer to ProgressBarUI structure to initialize
+ * @param[in]  parent      Parent LVGL object to attach the bar to
+ * @param[in]  num_blocks  Number of blocks to display
+ * @param[in]  x           X-axis offset from center alignment
+ * @param[in]  y           Y-axis offset from center alignment
+ * @param[in]  label_text  Initial text for the label (usually empty string)
+ * 
+ * @note The function dynamically calculates block size based on MAX_BAR_WIDTH
+ * @warning If called multiple times without cleanup, may cause memory leaks
+ * @warning num_blocks is clamped to MAX_BLOCKS if exceeded
+ */
+void create_sensor_valid_progress_bar(ProgressBarUI *ui, lv_obj_t *parent, 
+                                      int num_blocks, int x, int y, 
+                                      const char *label_text) 
+{
+    if (ui == NULL || parent == NULL || label_text == NULL) {
+        return;
+    }
+
+    // Clean up existing objects to prevent memory leaks
+    safe_delete_obj(&ui->bar);
+    safe_delete_obj(&ui->label);
+    
+    // Clamp num_blocks to valid range
+    if (num_blocks > MAX_BLOCKS) {
+        num_blocks = MAX_BLOCKS;
+    }
+    if (num_blocks < 1) {
+        num_blocks = 1;
+    }
     
     ui->total_blocks = num_blocks;
 
-    // Dynamische Blockgröße berechnen (nicht breiter als MAX_BAR_WIDTH)
+    // Calculate dynamic block size (not wider than MAX_BAR_WIDTH)
     int block_size = MAX_BAR_WIDTH / num_blocks;
-    if (block_size < 5) block_size = 5;  // Mindestgröße für gute Darstellung
+    if (block_size < MIN_BLOCK_SIZE) {
+        block_size = MIN_BLOCK_SIZE;
+    }
     
-    // Berechne die tatsächliche Breite (maximal MAX_BAR_WIDTH)
+    // Calculate actual width (maximum MAX_BAR_WIDTH)
     int total_width = block_size * num_blocks;
     if (total_width > MAX_BAR_WIDTH) {
         total_width = MAX_BAR_WIDTH;
     }
 
-    // **Hauptcontainer für die Anzeige**
+    // Create main container for the display
     ui->bar = lv_obj_create(parent);
+    if (ui->bar == NULL) {
+        return;
+    }
+    
     lv_obj_set_size(ui->bar, total_width, block_size + 10);
     lv_obj_align(ui->bar, LV_ALIGN_CENTER, x, y);
     lv_obj_set_style_bg_color(ui->bar, lv_color_black(), 0);
     lv_obj_set_style_border_width(ui->bar, 0, 0);
     lv_obj_set_style_pad_all(ui->bar, 5, 0);
 
-    // **Blöcke innerhalb des Containers erstellen**
+    // Create individual blocks within the container
     for (int i = 0; i < num_blocks; i++) {
         ui->blocks[i] = lv_obj_create(ui->bar);
-        lv_obj_set_size(ui->blocks[i], block_size - 2, block_size - 2); // Dynamische Größe
-        lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(80, 80, 80), 0); // Standard: Grau
+        if (ui->blocks[i] == NULL) {
+            continue;
+        }
+        
+        lv_obj_set_size(ui->blocks[i], block_size - BLOCK_SPACING, block_size - BLOCK_SPACING);
+        lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(80, 80, 80), 0);
         lv_obj_set_style_radius(ui->blocks[i], 2, 0);
         lv_obj_set_style_border_width(ui->blocks[i], 0, 0);
         lv_obj_align(ui->blocks[i], LV_ALIGN_LEFT_MID, i * block_size, 0);
     }
 
-    // **Textlabel für die Anzeige**
+    // Create text label for the display
     ui->label = lv_label_create(parent);
-    lv_label_set_text(ui->label, label_text);
-    lv_obj_set_style_text_font(ui->label, &JetBrainsMonoLight16, 0);
-    lv_obj_set_style_text_color(ui->label, lv_color_white(), 0);
-    lv_obj_align(ui->label, LV_ALIGN_CENTER, x, y + block_size + 10);
+    if (ui->label != NULL) {
+        lv_label_set_text(ui->label, label_text);
+        lv_obj_set_style_text_font(ui->label, &JetBrainsMonoLight16, 0);
+        lv_obj_set_style_text_color(ui->label, lv_color_white(), 0);
+        lv_obj_align(ui->label, LV_ALIGN_CENTER, x, y + block_size + 10);
+    }
 }
 
 /**
@@ -196,336 +306,410 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
     }
 }
 
-void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode) {
-    // alle Bars und Labels verstecken
-    lv_obj_add_flag(dayBar14.bar,    LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(dayBar15.bar,    LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(hourBar.bar,     LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(minuteBar.bar,   LV_OBJ_FLAG_HIDDEN);
+/**
+ * @brief Switches between different sensor validity display modes
+ * 
+ * Hides all progress bars and shows only the specified one.
+ * Used to switch between day/hour/minute views.
+ * 
+ * @param[in] ui   Pointer to the ProgressBarUI to make visible
+ * @param[in] mode Display mode (0=days, 1=hours, 2=minutes) - currently unused
+ * 
+ * @note All bars are hidden first, then the selected one is shown
+ */
+void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode) 
+{
+    // Hide all bars and labels with NULL checks
+    if (dayBar14.bar != NULL) {
+        lv_obj_add_flag(dayBar14.bar, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (dayBar15.bar != NULL) {
+        lv_obj_add_flag(dayBar15.bar, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (hourBar.bar != NULL) {
+        lv_obj_add_flag(hourBar.bar, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (minuteBar.bar != NULL) {
+        lv_obj_add_flag(minuteBar.bar, LV_OBJ_FLAG_HIDDEN);
+    }
 
-    lv_obj_add_flag(dayBar14.label,  LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(hourBar.label,   LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(minuteBar.label, LV_OBJ_FLAG_HIDDEN);
+    if (dayBar14.label != NULL) {
+        lv_obj_add_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (hourBar.label != NULL) {
+        lv_obj_add_flag(hourBar.label, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (minuteBar.label != NULL) {
+        lv_obj_add_flag(minuteBar.label, LV_OBJ_FLAG_HIDDEN);
+    }
 
-    // gewünschte Bar + zugehöriges Label zeigen
+    if (ui == NULL || ui->bar == NULL) {
+        return;
+    }
+
+    // Show the selected bar and its label
     if (ui->bar == dayBar14.bar) {
-        lv_obj_clear_flag(dayBar14.bar,   LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(dayBar14.bar, LV_OBJ_FLAG_HIDDEN);
+        if (dayBar14.label != NULL) {
+            lv_obj_clear_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN);
+        }
     } else if (ui->bar == dayBar15.bar) {
-        lv_obj_clear_flag(dayBar15.bar,   LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN); // Label bleibt gleich wie bei 14 Tage
+        lv_obj_clear_flag(dayBar15.bar, LV_OBJ_FLAG_HIDDEN);
+        if (dayBar14.label != NULL) {
+            lv_obj_clear_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN);
+        }
     } else if (ui->bar == hourBar.bar) {
-        lv_obj_clear_flag(hourBar.bar,   LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(hourBar.label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(hourBar.bar, LV_OBJ_FLAG_HIDDEN);
+        if (hourBar.label != NULL) {
+            lv_obj_clear_flag(hourBar.label, LV_OBJ_FLAG_HIDDEN);
+        }
     } else if (ui->bar == minuteBar.bar) {
-        lv_obj_clear_flag(minuteBar.bar,   LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(minuteBar.label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(minuteBar.bar, LV_OBJ_FLAG_HIDDEN);
+        if (minuteBar.label != NULL) {
+            lv_obj_clear_flag(minuteBar.label, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 }
 
-void create_all_sensor_valid_progress_bars() {
-
-    // Day-Bar nach Bedarf neu erzeugen
-    create_sensor_valid_progress_bar(&dayBar15, ui_Main_screen, BLOCKS_VALID_15DAYS, 0, 170, "");    
-    create_sensor_valid_progress_bar(&dayBar14, ui_Main_screen, BLOCKS_VALID_14DAYS, 0, 170, "");
-
-    // Hour/Minute-Bar nur erstellen, wenn noch nicht vorhanden
-    if (!hourBar.bar && !hourBar.label) {
-        create_sensor_valid_progress_bar(&hourBar, ui_Main_screen, BLOCKS_VALID_HOURS, 0, 170, "");
+/**
+ * @brief Creates all sensor validity progress bars
+ * 
+ * Initializes all progress bar variants (14-day, 15-day, hourly, and minute bars).
+ * Only creates bars that don't already exist to prevent memory leaks.
+ * 
+ * @note Should be called once during UI initialization
+ */
+void create_all_sensor_valid_progress_bars() 
+{
+    if (ui_Main_screen == NULL) {
+        return;
     }
-    if (!minuteBar.bar && !minuteBar.label) {
-        create_sensor_valid_progress_bar(&minuteBar, ui_Main_screen, BLOCKS_VALID_MINUTES, 0, 170, "");
+
+    // Always recreate day bars (they might need to switch between 14/15 days)
+    create_sensor_valid_progress_bar(&dayBar15, ui_Main_screen, BLOCKS_VALID_15DAYS, 
+                                     0, SENSOR_BAR_Y_OFFSET, "");    
+    create_sensor_valid_progress_bar(&dayBar14, ui_Main_screen, BLOCKS_VALID_14DAYS, 
+                                     0, SENSOR_BAR_Y_OFFSET, "");
+
+    // Create hour/minute bars only if they don't exist yet
+    if (hourBar.bar == NULL && hourBar.label == NULL) {
+        create_sensor_valid_progress_bar(&hourBar, ui_Main_screen, BLOCKS_VALID_HOURS, 
+                                        0, SENSOR_BAR_Y_OFFSET, "");
     }
-    //switch_sensor_valid_progress_bar(&dayBar14, 0); // Standard: Tage
-    //switch_sensor_valid_progress_bar(&dayBar15, 0); // Standard: Tage
+    if (minuteBar.bar == NULL && minuteBar.label == NULL) {
+        create_sensor_valid_progress_bar(&minuteBar, ui_Main_screen, BLOCKS_VALID_MINUTES, 
+                                        0, SENSOR_BAR_Y_OFFSET, "");
+    }
 }
 
-void update_chart_valid_values(ProgressBarUI *ui, int value) {
+/**
+ * @brief Updates the appropriate progress bar based on UI pointer
+ * 
+ * Determines which progress bar to update by comparing the bar pointer
+ * and calls the appropriate update function.
+ * 
+ * @param[in] ui    Pointer to ProgressBarUI structure
+ * @param[in] value New remaining value to display
+ */
+void update_chart_valid_values(ProgressBarUI *ui, int value) 
+{
+    if (ui == NULL || ui->bar == NULL) {
+        return;
+    }
+
     if (ui->bar == dayBar14.bar) {
         update_sensor_valid_progress_bar(&dayBar14, value);
-    }else if (ui->bar == dayBar15.bar) {
+    } else if (ui->bar == dayBar15.bar) {
         update_sensor_valid_progress_bar(&dayBar15, value);
-    }else if (ui->bar == hourBar.bar) {
+    } else if (ui->bar == hourBar.bar) {
         update_sensor_valid_progress_bar(&hourBar, value);
     } else if (ui->bar == minuteBar.bar) {
         update_sensor_valid_progress_bar(&minuteBar, value);
     }
 }
-///////////////////// SCREENS ////////////////////
+
+///////////////////// SCREEN INITIALIZATION FUNCTIONS ////////////////////
+
+/**
+ * @brief Initializes the welcome screen
+ * 
+ * Creates the initial welcome screen displayed at startup.
+ * Shows welcome message and WiFi connection information.
+ */
 void ui_Welcome_screen_init(void)
 {
     ui_Welcome_screen = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Welcome_screen, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_clear_flag(ui_Welcome_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui_Welcome_screen, lv_color_black(), LV_PART_MAIN);
 
-    ui_Label_WelcomeInfo = lv_label_create(ui_Welcome_screen);
-    lv_obj_set_style_text_color(ui_Label_WelcomeInfo, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_WelcomeInfo, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_WelcomeInfo, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_WelcomeInfo, &JetBrainsMonoLight56, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_WelcomeInfo, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(ui_Label_WelcomeInfo, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_WelcomeInfo, LV_ALIGN_CENTER, 0, -60);
+    ui_Label_WelcomeInfo = create_styled_label(ui_Welcome_screen, &JetBrainsMonoLight56,
+                                                COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -60);
+    if (ui_Label_WelcomeInfo != NULL) {
+        lv_obj_set_style_text_align(ui_Label_WelcomeInfo, LV_TEXT_ALIGN_CENTER, 0);
+    }
 
-    ui_Label_WelcomeWifiInfo = lv_label_create(ui_Welcome_screen);
-    lv_obj_set_style_text_color(ui_Label_WelcomeWifiInfo, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_WelcomeWifiInfo, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_WelcomeWifiInfo, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_WelcomeWifiInfo, &JetBrainsMonoLight24, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_width(ui_Label_WelcomeWifiInfo, 400);                               
-    lv_obj_set_style_text_align(ui_Label_WelcomeWifiInfo, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui_Label_WelcomeWifiInfo, LV_ALIGN_CENTER, 0, 150);
-    lv_label_set_text(ui_Label_WelcomeWifiInfo, "" );
+    ui_Label_WelcomeWifiInfo = create_styled_label(ui_Welcome_screen, &JetBrainsMonoLight24,
+                                                    COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 150);
+    if (ui_Label_WelcomeWifiInfo != NULL) {
+        lv_obj_set_style_text_align(ui_Label_WelcomeWifiInfo, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(ui_Label_WelcomeWifiInfo, "");
+    }
 }
 
+/**
+ * @brief Initializes the main screen
+ * 
+ * Creates the main glucose monitoring screen with:
+ * - Current glucose value display
+ * - Trend arrow and delta
+ * - Glucose history chart
+ * - Sensor validity progress bar
+ * - Status indicators
+ */
 void ui_Main_screen_init(void)
 {
     ui_Main_screen = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Main_screen, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_clear_flag(ui_Main_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui_Main_screen, lv_color_black(), LV_PART_MAIN);
 
-    ui_Label_GlucoseValue = lv_label_create(ui_Main_screen);
-    lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_GlucoseValue, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_GlucoseValue, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_GlucoseValue, &JetBrainsMonoLight100, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_GlucoseValue, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(ui_Label_GlucoseValue, 200);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_GlucoseValue, LV_ALIGN_CENTER, 0, -140);
-    lv_label_set_text(ui_Label_GlucoseValue, "" );
+    // Main glucose value display
+    ui_Label_GlucoseValue = create_styled_label(ui_Main_screen, &JetBrainsMonoLight100,
+                                                 COLOR_WHITE, GLUCOSE_VALUE_WIDTH, LV_ALIGN_CENTER, 
+                                                 0, GLUCOSE_VALUE_Y_OFFSET);
+    if (ui_Label_GlucoseValue != NULL) {
+        lv_label_set_text(ui_Label_GlucoseValue, "");
+    }
 
-    ui_Label_GlucoseDelta = lv_label_create(ui_Main_screen);
-    lv_obj_set_style_text_color(ui_Label_GlucoseDelta, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_GlucoseDelta, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_GlucoseDelta, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_GlucoseDelta, &JetBrainsMonoLight36, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_width(ui_Label_GlucoseDelta, 300);                               
-    lv_obj_set_style_text_align(ui_Label_GlucoseDelta, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui_Label_GlucoseDelta, LV_ALIGN_CENTER, 0, -60);
-    lv_label_set_text(ui_Label_GlucoseDelta, "" );
+    // Glucose delta display
+    ui_Label_GlucoseDelta = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
+                                                 COLOR_WHITE, GLUCOSE_DELTA_WIDTH, LV_ALIGN_CENTER, 
+                                                 0, GLUCOSE_DELTA_Y_OFFSET);
+    if (ui_Label_GlucoseDelta != NULL) {
+        lv_label_set_text(ui_Label_GlucoseDelta, "");
+    }
     
-    ui_Label_GlucoseTrendArrow = lv_label_create(ui_Main_screen);
-    lv_obj_set_style_text_color(ui_Label_GlucoseTrendArrow, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_GlucoseTrendArrow, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_GlucoseTrendArrow, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_GlucoseTrendArrow, &JetBrainsMonoLight72, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_width(ui_Label_GlucoseTrendArrow, 100);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_set_style_text_align(ui_Label_GlucoseTrendArrow, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui_Label_GlucoseTrendArrow, LV_ALIGN_CENTER, 130, -100);
-    lv_label_set_text(ui_Label_GlucoseTrendArrow, "" );
+    // Trend arrow
+    ui_Label_GlucoseTrendArrow = create_styled_label(ui_Main_screen, &JetBrainsMonoLight72,
+                                                      COLOR_WHITE, GLUCOSE_TREND_WIDTH, LV_ALIGN_CENTER, 
+                                                      GLUCOSE_ARROW_X_OFFSET, GLUCOSE_ARROW_Y_OFFSET);
+    if (ui_Label_GlucoseTrendArrow != NULL) {
+        lv_label_set_text(ui_Label_GlucoseTrendArrow, "");
+    }
 
-    ui_Label_GlucoseTrendMessage = lv_label_create(ui_Main_screen);
-    lv_obj_set_style_text_color(ui_Label_GlucoseTrendMessage, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_GlucoseTrendMessage, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_GlucoseTrendMessage, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_GlucoseTrendMessage, &JetBrainsMonoLight36, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_width(ui_Label_GlucoseTrendMessage, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_set_style_text_align(ui_Label_GlucoseTrendMessage, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui_Label_GlucoseTrendMessage, LV_ALIGN_CENTER, 0, 55);
-    lv_label_set_text(ui_Label_GlucoseTrendMessage, "" );
+    // Trend message
+    ui_Label_GlucoseTrendMessage = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
+                                                        COLOR_RED, GLUCOSE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 55);
+    if (ui_Label_GlucoseTrendMessage != NULL) {
+        lv_label_set_text(ui_Label_GlucoseTrendMessage, "");
+    }
 
-    ui_Label_LiebreViewAPIActivity = lv_label_create(ui_Main_screen);
-    lv_obj_set_style_text_color(ui_Label_LiebreViewAPIActivity, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_LiebreViewAPIActivity, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_LiebreViewAPIActivity, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_LiebreViewAPIActivity, &JetBrainsMonoLight36, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_width(ui_Label_LiebreViewAPIActivity, 20);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_LiebreViewAPIActivity, LV_ALIGN_CENTER, 100, -180);
-    lv_label_set_text(ui_Label_LiebreViewAPIActivity, " " );
+    // API Activity indicator
+    ui_Label_LiebreViewAPIActivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
+                                                          COLOR_WHITE, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
+    if (ui_Label_LiebreViewAPIActivity != NULL) {
+        lv_label_set_text(ui_Label_LiebreViewAPIActivity, " ");
+    }
 
-    ui_Label_ESP32Connectivity = lv_label_create(ui_Main_screen);
-    lv_obj_set_style_text_color(ui_Label_ESP32Connectivity, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_ESP32Connectivity, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_ESP32Connectivity, LV_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_ESP32Connectivity, &JetBrainsMonoLight24, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_width(ui_Label_ESP32Connectivity, 20);
-    lv_obj_align(ui_Label_ESP32Connectivity, LV_ALIGN_CENTER, 100, -180);
-    lv_label_set_text(ui_Label_ESP32Connectivity, " " );
+    // Connectivity indicator
+    ui_Label_ESP32Connectivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight24,
+                                                      COLOR_GREEN, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
+    if (ui_Label_ESP32Connectivity != NULL) {
+        lv_label_set_text(ui_Label_ESP32Connectivity, " ");
+    }
     
-    ui_Label_Chart_GlucoseLimitHigh = lv_label_create(ui_Main_screen);
-    lv_obj_set_style_text_color(ui_Label_Chart_GlucoseLimitHigh, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_Chart_GlucoseLimitHigh, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_Chart_GlucoseLimitHigh, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_Chart_GlucoseLimitHigh, &JetBrainsMonoLight16, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_width(ui_Label_Chart_GlucoseLimitHigh, 40);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_set_style_text_align(ui_Label_Chart_GlucoseLimitHigh, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui_Label_Chart_GlucoseLimitHigh, LV_ALIGN_CENTER, -175, 0);
-    lv_label_set_text(ui_Label_Chart_GlucoseLimitHigh, "" );
+    // Chart limit labels
+    ui_Label_Chart_GlucoseLimitHigh = create_styled_label(ui_Main_screen, &JetBrainsMonoLight16,
+                                                           COLOR_WHITE, 40, LV_ALIGN_CENTER, -175, 0);
+    if (ui_Label_Chart_GlucoseLimitHigh != NULL) {
+        lv_label_set_text(ui_Label_Chart_GlucoseLimitHigh, "");
+    }
 
-    ui_Label_Chart_GlucoseLimitLow = lv_label_create(ui_Main_screen);
-    lv_obj_set_style_text_color(ui_Label_Chart_GlucoseLimitLow, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_Chart_GlucoseLimitLow, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_Chart_GlucoseLimitLow, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_Chart_GlucoseLimitLow, &JetBrainsMonoLight16, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_width(ui_Label_Chart_GlucoseLimitLow, 40);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_set_style_text_align(ui_Label_Chart_GlucoseLimitLow, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui_Label_Chart_GlucoseLimitLow, LV_ALIGN_CENTER, -180, 95);
-    lv_label_set_text(ui_Label_Chart_GlucoseLimitLow, "" );
+    ui_Label_Chart_GlucoseLimitLow = create_styled_label(ui_Main_screen, &JetBrainsMonoLight16,
+                                                          COLOR_WHITE, 40, LV_ALIGN_CENTER, -180, 95);
+    if (ui_Label_Chart_GlucoseLimitLow != NULL) {
+        lv_label_set_text(ui_Label_Chart_GlucoseLimitLow, "");
+    }
 
+    // Glucose chart
     ui_Chart_Glucose_5Min = lv_chart_create(ui_Main_screen);
-    lv_obj_set_size(ui_Chart_Glucose_5Min, 400, 200);
+    lv_obj_set_size(ui_Chart_Glucose_5Min, CHART_WIDTH, CHART_HEIGHT);
     lv_obj_align(ui_Chart_Glucose_5Min, LV_ALIGN_CENTER, 0, 50);
-    lv_obj_set_style_size(ui_Chart_Glucose_5Min, 1, 1 , LV_PART_INDICATOR);
-	lv_obj_set_style_line_width(ui_Chart_Glucose_5Min, 5, LV_PART_ITEMS);
-	lv_obj_set_style_border_width(ui_Chart_Glucose_5Min, 0, LV_PART_MAIN);
-	lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min, lv_color_black(), LV_PART_MAIN);
-	lv_obj_set_style_bg_opa(ui_Chart_Glucose_5Min, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_size(ui_Chart_Glucose_5Min, 1, 1, LV_PART_INDICATOR);
+    lv_obj_set_style_line_width(ui_Chart_Glucose_5Min, 5, LV_PART_ITEMS);
+    lv_obj_set_style_border_width(ui_Chart_Glucose_5Min, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui_Chart_Glucose_5Min, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_chart_set_update_mode(ui_Chart_Glucose_5Min, LV_CHART_UPDATE_MODE_SHIFT);
-    lv_chart_set_range(ui_Chart_Glucose_5Min, LV_CHART_AXIS_PRIMARY_Y , 40, 225);
-    lv_chart_set_point_count(ui_Chart_Glucose_5Min, TOTAL_CHART_POINTS);        //starts like an array with "0"
-    lv_chart_set_type(ui_Chart_Glucose_5Min, LV_CHART_TYPE_LINE);       /*Show lines and points too*/
-    lv_chart_set_div_line_count(ui_Chart_Glucose_5Min, 5, 5);           // background chart lines
+    lv_chart_set_range(ui_Chart_Glucose_5Min, LV_CHART_AXIS_PRIMARY_Y, 40, 225);
+    lv_chart_set_point_count(ui_Chart_Glucose_5Min, TOTAL_CHART_POINTS);
+    lv_chart_set_type(ui_Chart_Glucose_5Min, LV_CHART_TYPE_LINE);
+    lv_chart_set_div_line_count(ui_Chart_Glucose_5Min, 5, 5);
     lv_obj_clear_flag(ui_Chart_Glucose_5Min, LV_OBJ_FLAG_SCROLLABLE);
     
-    /*Add five data series*/
+    // Add chart data series
     glucoseValueSeries_upperlimit = lv_chart_add_series(ui_Chart_Glucose_5Min, lv_palette_main(LV_PALETTE_ORANGE), LV_CHART_AXIS_PRIMARY_Y);
     glucoseValueSeries_lowerlimit = lv_chart_add_series(ui_Chart_Glucose_5Min, lv_palette_main(LV_PALETTE_ORANGE), LV_CHART_AXIS_PRIMARY_Y);
     glucoseValueSeries_5Min       = lv_chart_add_series(ui_Chart_Glucose_5Min, lv_palette_main(LV_PALETTE_GREEN), LV_CHART_AXIS_PRIMARY_Y);
     glucoseValueSeries_alert      = lv_chart_add_series(ui_Chart_Glucose_5Min, lv_palette_main(LV_PALETTE_RED), LV_CHART_AXIS_PRIMARY_Y);
     glucoseValueSeries_last       = lv_chart_add_series(ui_Chart_Glucose_5Min, lv_palette_main(LV_PALETTE_YELLOW), LV_CHART_AXIS_PRIMARY_Y);
 
-    // circle for last graph value
+    // Circle marker for last graph value
     ui_Chart_Glucose_5Min_last_point_marker = lv_obj_create(ui_Chart_Glucose_5Min);
-    lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN); // hide object
+    lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_size(ui_Chart_Glucose_5Min_last_point_marker, 15, 15);
     lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker, lv_palette_main(LV_PALETTE_GREEN), 0);
     lv_obj_set_style_radius(ui_Chart_Glucose_5Min_last_point_marker, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_color(ui_Chart_Glucose_5Min_last_point_marker, lv_color_white(), 0);
     lv_obj_set_style_border_width(ui_Chart_Glucose_5Min_last_point_marker, 2, 0); 
 
-    // create X-Axis label
+    // Create X-axis labels
     ui_Chart_x_label_start = lv_label_create(ui_Main_screen);
-    lv_label_set_text(ui_Chart_x_label_start, "");
-    lv_obj_set_pos(ui_Chart_x_label_start, 50, 375);
+    if (ui_Chart_x_label_start != NULL) {
+        lv_label_set_text(ui_Chart_x_label_start, "");
+        lv_obj_set_pos(ui_Chart_x_label_start, 50, 375);
+    }
 
     ui_Chart_x_label_middle = lv_label_create(ui_Main_screen);
-    lv_label_set_text(ui_Chart_x_label_middle, "");
-    lv_obj_set_pos(ui_Chart_x_label_middle, 225, 375);
+    if (ui_Chart_x_label_middle != NULL) {
+        lv_label_set_text(ui_Chart_x_label_middle, "");
+        lv_obj_set_pos(ui_Chart_x_label_middle, 225, 375);
+    }
 
     ui_Chart_x_label_end = lv_label_create(ui_Main_screen);
-    lv_label_set_text(ui_Chart_x_label_end, "");
-    lv_obj_set_pos(ui_Chart_x_label_end, 395, 375);
+    if (ui_Chart_x_label_end != NULL) {
+        lv_label_set_text(ui_Chart_x_label_end, "");
+        lv_obj_set_pos(ui_Chart_x_label_end, 395, 375);
+    }
 
-    //Add data to sensor valid chart
-    create_all_sensor_valid_progress_bars(); // default 14 days sensor
+    // Initialize sensor validity progress bars
+    create_all_sensor_valid_progress_bars();
 }
 
+/**
+ * @brief Initializes the debug screen
+ * 
+ * Creates a debug screen displaying:
+ * - System time
+ * - IP address
+ * - Data refresh countdown
+ * - Sensor information
+ * - Debug values
+ */
 void ui_Debug_screen_init(void)
 {
     ui_Debug_screen = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Debug_screen, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_clear_flag(ui_Debug_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui_Debug_screen, lv_color_black(), LV_PART_MAIN);
     
-    ui_Label_DebugInfo = lv_label_create(ui_Debug_screen);
-    lv_obj_set_style_text_color(ui_Label_DebugInfo, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_DebugInfo, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_DebugInfo, &JetBrainsMonoLight32, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_DebugInfo, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_DebugInfo, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_DebugInfo, LV_TEXT_ALIGN_CENTER, 100, 30);
-    lv_label_set_text(ui_Label_DebugInfo,"Debug Screen" );
+    // Debug screen title
+    ui_Label_DebugInfo = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight32,
+                                              COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 100, 30);
+    if (ui_Label_DebugInfo != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugInfo, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugInfo, "Debug Screen");
+    }
 
-    ui_Label_DebugDataRefresh = lv_label_create(ui_Debug_screen);
-    lv_obj_set_style_text_color(ui_Label_DebugDataRefresh, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_DebugDataRefresh, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_DebugDataRefresh, &JetBrainsMonoLight20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_DebugDataRefresh, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_DebugDataRefresh, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_DebugDataRefresh, LV_TEXT_ALIGN_CENTER, 10, 100);
-    lv_label_set_text(ui_Label_DebugDataRefresh, "DataRefreshIn: " );
+    // Data refresh countdown
+    ui_Label_DebugDataRefresh = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                     COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 100);
+    if (ui_Label_DebugDataRefresh != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugDataRefresh, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugDataRefresh, "DataRefreshIn: ");
+    }
 
-    ui_Label_DebugIP = lv_label_create(ui_Debug_screen);
-    lv_obj_set_style_text_color(ui_Label_DebugIP, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_DebugIP, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_DebugIP, &JetBrainsMonoLight20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_DebugIP, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_DebugIP, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_DebugIP, LV_TEXT_ALIGN_CENTER, 10, 120);
-    lv_label_set_text(ui_Label_DebugIP, "IP: " );
+    // IP address display
+    ui_Label_DebugIP = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                            COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 120);
+    if (ui_Label_DebugIP != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugIP, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugIP, "IP: ");
+    }
 
-    ui_Label_DebugTime = lv_label_create(ui_Debug_screen);
-    lv_obj_set_style_text_color(ui_Label_DebugTime, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_DebugTime, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_DebugTime, &JetBrainsMonoLight20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_DebugTime, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_DebugTime, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_DebugTime, LV_TEXT_ALIGN_CENTER, 10, 140);
-    lv_label_set_text(ui_Label_DebugTime, "ESP32 Time: " );
+    // System time display
+    ui_Label_DebugTime = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                              COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 140);
+    if (ui_Label_DebugTime != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugTime, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugTime, "ESP32 Time: ");
+    }
 
-    ui_Label_DebugSensor = lv_label_create(ui_Debug_screen);
-    lv_obj_set_style_text_color(ui_Label_DebugSensor, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_DebugSensor, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_DebugSensor, &JetBrainsMonoLight20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_DebugSensor, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_DebugSensor, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_DebugSensor, LV_TEXT_ALIGN_CENTER, 10, 160);
-    lv_label_set_text(ui_Label_DebugSensor, "Sensor: " );
+    // Sensor information
+    ui_Label_DebugSensor = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 160);
+    if (ui_Label_DebugSensor != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugSensor, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugSensor, "Sensor: ");
+    }
 
-    ui_Label_DebugSensorTimestamp = lv_label_create(ui_Debug_screen);
-    lv_obj_set_style_text_color(ui_Label_DebugSensorTimestamp, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_DebugSensorTimestamp, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_DebugSensorTimestamp, &JetBrainsMonoLight20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_DebugSensorTimestamp, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_DebugSensorTimestamp, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_DebugSensorTimestamp, LV_TEXT_ALIGN_CENTER, 10, 200);
-    lv_label_set_text(ui_Label_DebugSensorTimestamp, "SensorTimestamp: " );
+    // Sensor timestamp
+    ui_Label_DebugSensorTimestamp = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                         COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 200);
+    if (ui_Label_DebugSensorTimestamp != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugSensorTimestamp, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugSensorTimestamp, "SensorTimestamp: ");
+    }
 
-    ui_Label_DebugSensorState = lv_label_create(ui_Debug_screen);
-    lv_obj_set_style_text_color(ui_Label_DebugSensorState, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_DebugSensorState, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_DebugSensorState, &JetBrainsMonoLight20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_DebugSensorState, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_DebugSensorState, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_DebugSensorState, LV_TEXT_ALIGN_CENTER, 10, 220);
-    lv_label_set_text(ui_Label_DebugSensorState, "SensorState: " );
+    // Sensor state
+    ui_Label_DebugSensorState = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                     COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 220);
+    if (ui_Label_DebugSensorState != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugSensorState, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugSensorState, "SensorState: ");
+    }
 
-    ui_Label_DebugSensorValue = lv_label_create(ui_Debug_screen);
-    lv_obj_set_style_text_color(ui_Label_DebugSensorValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_DebugSensorValue, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_DebugSensorValue, &JetBrainsMonoLight20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_DebugSensorValue, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_DebugSensorValue, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_DebugSensorValue, LV_TEXT_ALIGN_CENTER, 10, 240);
-    lv_label_set_text(ui_Label_DebugSensorValue, "SensorState: " );
+    // Sensor value
+    ui_Label_DebugSensorValue = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                     COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 240);
+    if (ui_Label_DebugSensorValue != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugSensorValue, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugSensorValue, "SensorValue: ");
+    }
 
-    ui_Label_DebugTest = lv_label_create(ui_Debug_screen);
-    lv_obj_set_style_text_color(ui_Label_DebugTest, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_DebugTest, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_DebugTest, &JetBrainsMonoLight72, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_DebugTest, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_DebugTest, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_DebugTest, LV_TEXT_ALIGN_CENTER, 20, 280);
-    lv_label_set_text(ui_Label_DebugTest, "↓ ↘️ → ↗️ ↑" );
-
+    // Test label with trend arrows
+    ui_Label_DebugTest = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight72,
+                                              COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 20, 280);
+    if (ui_Label_DebugTest != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugTest, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugTest, "↓ ↘️ → ↗️ ↑");
+    }
 }
 
-void ui_Login_screen_init(void){
+/**
+ * @brief Initializes the login screen
+ * 
+ * Creates login screen with:
+ * - Email input field
+ * - Password input field
+ * - On-screen keyboard
+ * - Login button
+ */
+void ui_Login_screen_init(void)
+{
     ui_Login_screen = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_Login_screen, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_clear_flag(ui_Login_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui_Login_screen, lv_color_black(), LV_PART_MAIN);
 
-    ui_Label_LoginInfo = lv_label_create(ui_Login_screen);
-    lv_obj_set_style_text_color(ui_Label_LoginInfo, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_LoginInfo, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_LoginInfo, &JetBrainsMonoLight32, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_LoginInfo, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(ui_Label_LoginInfo, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_LoginInfo, LV_TEXT_ALIGN_CENTER, 120, 30);
-    lv_label_set_text(ui_Label_LoginInfo,"LLU Login" );
+    // Login screen title
+    ui_Label_LoginInfo = create_styled_label(ui_Login_screen, &JetBrainsMonoLight32,
+                                              COLOR_WHITE, LOGIN_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 120, 30);
+    if (ui_Label_LoginInfo != NULL) {
+        lv_obj_set_style_text_align(ui_Label_LoginInfo, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_LoginInfo, "LLU Login");
+    }
 
-    /*Create a keyboard to use it with an of the text areas*/
+    // Create on-screen keyboard
     ui_kb = lv_keyboard_create(ui_Login_screen);
     lv_obj_set_size(ui_kb, 400, 180);
     lv_obj_align(ui_kb, LV_ALIGN_CENTER, 0, 40);
 
-    /*Create a text area. The keyboard will write here*/
+    // Email input text area
     ui_ta_email = lv_textarea_create(ui_Login_screen);
     lv_obj_align(ui_ta_email, LV_TEXT_ALIGN_CENTER, 0, 80);
     lv_obj_set_style_text_font(ui_ta_email, &JetBrainsMonoLight16, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_textarea_set_placeholder_text(ui_ta_email, "user@example.com");
     lv_obj_set_size(ui_ta_email, 200, 40);
 
-    /*Create a text area. The keyboard will write here*/
+    // Password input text area
     ui_ta_password = lv_textarea_create(ui_Login_screen);
     lv_obj_align(ui_ta_password, LV_TEXT_ALIGN_CENTER, 0, 140);
     lv_obj_set_style_text_font(ui_ta_password, &JetBrainsMonoLight16, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -533,91 +717,131 @@ void ui_Login_screen_init(void){
     lv_textarea_set_password_mode(ui_ta_password, true);
     lv_obj_set_size(ui_ta_password, 200, 40);
 
-    // Login-Button erstellen
+    // Login button
     btn_login = lv_btn_create(ui_Login_screen);
     lv_obj_set_size(btn_login, 100, 50);
     lv_obj_align(btn_login, LV_ALIGN_CENTER, 0, 180);
 
     btn_label = lv_label_create(btn_login);
-    lv_label_set_text(btn_label, "Login");
-    lv_obj_center(btn_label);
+    if (btn_label != NULL) {
+        lv_label_set_text(btn_label, "Login");
+        lv_obj_center(btn_label);
+    }
 }
 
+/**
+ * @brief Initializes the firmware update screen
+ * 
+ * Creates screen for displaying firmware update progress with:
+ * - Update status message
+ * - Progress percentage display
+ */
 void ui_FWUpdate_screen_init(void)
 {
     ui_FWUpdate_screen = lv_obj_create(NULL);
-    lv_obj_clear_flag(ui_FWUpdate_screen, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_clear_flag(ui_FWUpdate_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui_FWUpdate_screen, lv_color_black(), LV_PART_MAIN);
 
-    ui_Label_FWUpdateInfo = lv_label_create(ui_FWUpdate_screen);
-    lv_obj_set_style_text_color(ui_Label_FWUpdateInfo, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_FWUpdateInfo, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_FWUpdateInfo, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_FWUpdateInfo, &JetBrainsMonoLight36, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_FWUpdateInfo, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(ui_Label_FWUpdateInfo, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_FWUpdateInfo, LV_ALIGN_CENTER, 0, -100);
-    lv_label_set_text(ui_Label_FWUpdateInfo, "FW Update ..." );
+    // Update info message
+    ui_Label_FWUpdateInfo = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight36,
+                                                 COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -100);
+    if (ui_Label_FWUpdateInfo != NULL) {
+        lv_label_set_text(ui_Label_FWUpdateInfo, "FW Update ...");
+    }
 
-    
-    // Prozentanzeige innerhalb des Fortschrittsbalkens
-    ui_Label_FWUpdateProgress_percent = lv_label_create(ui_FWUpdate_screen);
-    lv_obj_set_style_text_color(ui_Label_FWUpdateProgress_percent, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label_FWUpdateProgress_percent, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_FWUpdateProgress_percent, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_Label_FWUpdateProgress_percent, &JetBrainsMonoLight72, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui_Label_FWUpdateProgress_percent, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(ui_Label_FWUpdateProgress_percent, 400);                               /*Set smaller width to make the lines wrap*/
-    lv_obj_align(ui_Label_FWUpdateProgress_percent, LV_ALIGN_CENTER, 0, 50);
-    lv_label_set_text(ui_Label_FWUpdateProgress_percent, "0%");
+    // Progress percentage display
+    ui_Label_FWUpdateProgress_percent = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight72,
+                                                             COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 50);
+    if (ui_Label_FWUpdateProgress_percent != NULL) {
+        lv_label_set_text(ui_Label_FWUpdateProgress_percent, "0%");
+    }
 }
 
-void ui_btn_debug_screen_init(lv_obj_t * parent){
-//WireGuard
+/**
+ * @brief Initializes debug screen buttons
+ * 
+ * Creates control buttons on debug screen:
+ * - WireGuard toggle button
+ * - MQTT toggle button
+ * - OTA update button
+ * 
+ * @param[in] parent Parent object to attach buttons to (should be ui_Debug_screen)
+ */
+void ui_btn_debug_screen_init(lv_obj_t * parent)
+{
+    if (parent == NULL) {
+        return;
+    }
+
+    // WireGuard button
     ui_btn_wireguard = lv_btn_create(parent);
     lv_obj_align(ui_btn_wireguard, LV_ALIGN_CENTER, -115, 150);
     lv_obj_add_flag(ui_btn_wireguard, LV_OBJ_FLAG_CHECKABLE);
 
     ui_btn_label_wireguard = lv_label_create(ui_btn_wireguard);
-    lv_obj_center(ui_btn_label_wireguard);
-    lv_label_set_text(ui_btn_label_wireguard, "WG");
+    if (ui_btn_label_wireguard != NULL) {
+        lv_obj_center(ui_btn_label_wireguard);
+        lv_label_set_text(ui_btn_label_wireguard, "WG");
+    }
 
-//MQTT
+    // MQTT button
     ui_btn_mqtt = lv_btn_create(parent);
     lv_obj_align(ui_btn_mqtt, LV_ALIGN_CENTER, 5, 150);
     lv_obj_add_flag(ui_btn_mqtt, LV_OBJ_FLAG_CHECKABLE);    
     
     ui_btn_label_mqtt = lv_label_create(ui_btn_mqtt);
-    lv_obj_center(ui_btn_label_mqtt);
-    lv_label_set_text(ui_btn_label_mqtt, "MQTT");
+    if (ui_btn_label_mqtt != NULL) {
+        lv_obj_center(ui_btn_label_mqtt);
+        lv_label_set_text(ui_btn_label_mqtt, "MQTT");
+    }
 
-//OTA Update
+    // OTA Update button
     ui_btn_ota_update = lv_btn_create(parent);
     lv_obj_align(ui_btn_ota_update, LV_ALIGN_CENTER, 130, 150);
     lv_obj_add_flag(ui_btn_ota_update, LV_OBJ_FLAG_CHECKABLE);    
     
     ui_btn_label_ota_update = lv_label_create(ui_btn_ota_update);
-    lv_obj_center(ui_btn_label_ota_update);
-    lv_label_set_text(ui_btn_label_ota_update, "OTA");
+    if (ui_btn_label_ota_update != NULL) {
+        lv_obj_center(ui_btn_label_ota_update);
+        lv_label_set_text(ui_btn_label_ota_update, "OTA");
+    }
 }
 
-//----------------[Init]-----------------------
+///////////////////// MAIN INITIALIZATION ////////////////////
 
+/**
+ * @brief Main UI initialization function
+ * 
+ * Initializes the complete user interface:
+ * - Sets up default theme
+ * - Initializes all screens
+ * - Initializes buttons
+ * - Loads welcome screen as default
+ * 
+ * @note Should be called once during system startup after LVGL initialization
+ */
 void ui_init(void)
 {
+    // Setup default theme
     lv_disp_t * dispp = lv_disp_get_default();
-    lv_theme_t * theme = lv_theme_default_init(dispp, lv_palette_main(LV_PALETTE_GREY), lv_palette_main(LV_PALETTE_GREY), true, LV_FONT_DEFAULT);
+    lv_theme_t * theme = lv_theme_default_init(dispp, 
+                                                lv_palette_main(LV_PALETTE_GREY), 
+                                                lv_palette_main(LV_PALETTE_GREY), 
+                                                true, 
+                                                LV_FONT_DEFAULT);
     
     lv_disp_set_theme(dispp, theme);
+
+    // Initialize all screens
     ui_Welcome_screen_init();
     ui_Main_screen_init();
     ui_Debug_screen_init();
     ui_Login_screen_init();
     ui_FWUpdate_screen_init();
-    //.... more screen inits...
     
-    //.... init buttons 
+    // Initialize debug screen buttons
     ui_btn_debug_screen_init(ui_Debug_screen);
 
+    // Load welcome screen as default
     lv_disp_load_scr(ui_Welcome_screen);
 }
