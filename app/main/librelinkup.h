@@ -38,7 +38,7 @@
  * @brief Global configuration and debug settings
  * @{
  */
-#define VERSION_LIBRELINKUP_LIB 1.0 ///< Library version identifier
+#define VERSION_LIBRELINKUP_LIB 1.1 ///< Library version identifier
 #define DBGprint_LLU Serial.printf("[%08dms][%s][%s] ",millis(),__FILE__,__func__); ///< Debug output formatter
 #define LIBRELINKUP_DEBUG 0         ///< Global debug flag (0=disabled)
 /** @} */
@@ -66,13 +66,13 @@ enum TimeCodeState : uint8_t {
  * @brief Sensor lifecycle states
  */
 enum SensorState : uint8_t {
-    SENSOR_NOT_AVAILABLE = 0, ///< No sensor detected
-    SENSOR_NOT_STARTED = 1,   ///< Sensor paired but inactive
-    SENSOR_STARTING = 2,      ///< Warm-up phase (60 mins)
-    SENSOR_READY = 3,         ///< Active and reporting
-    SENSOR_EXPIRED = 4,       ///< End of 14-day lifecycle
-    SENSOR_SHUT_DOWN = 5,     ///< Manual deactivation
-    SENSOR_FAILURE = 6,       ///< Hardware malfunction
+    SENSOR_NOT_AVAILABLE = 0,       ///< No sensor detected
+    SENSOR_NOT_STARTED = 1,         ///< Sensor paired but inactive
+    SENSOR_STARTING = 2,            ///< Warm-up phase (60 mins)
+    SENSOR_READY = 3,               ///< Active and reporting
+    SENSOR_EXPIRED = 4,             ///< End of 14-day lifecycle
+    SENSOR_SHUT_DOWN = 5,           ///< Manual deactivation
+    SENSOR_FAILURE = 6,             ///< Hardware malfunction
 };
 /** @} */
 
@@ -81,9 +81,9 @@ enum SensorState : uint8_t {
  * @brief Global configuration of Glucose data
  * @{
  */
-#define DATA_POINTS 141 +1          // 12 Stunden * 12 Punkte pro Stunde (5 Minuten Intervalle) +1 for last point
-#define INTERVAL_SECONDS 300        // 5 Minuten in Sekunden
-#define REQUIRED_DATA_POINTS 141    // Anzahl der vollständigen Daten vom Server
+#define DATA_POINTS 141 +1          /// 12 Stunden * 12 Punkte pro Stunde (5 Minuten Intervalle) +1 for last point
+#define INTERVAL_SECONDS 300        /// 5 minuten in seconds
+#define REQUIRED_DATA_POINTS 141    /// count of max. historical data points
 /** @} */
 
 
@@ -230,9 +230,6 @@ public:
     String url_user_auth = "/llu/auth/login";    ///< Authentication endpoint
     String url_user_tou = "/auth/continue/tou";  ///< Terms of use endpoint
 
-    //uint16_t graph_data[GRAPHDATAARRAYSIZE+GRAPHDATAARRAYSIZE_PLUS_ONE] = {0}; ///< Glucose history buffer
-    //uint32_t timestamp[GRAPHDATAARRAYSIZE+GRAPHDATAARRAYSIZE_PLUS_ONE] = {0};  ///< Glucose history buffer
-    
     struct {
         uint16_t glucoseMeasurement = 0;            ///< Current measurement (mg/dL)
         uint8_t trendArrow = 0;                     ///< Trend direction code
@@ -258,11 +255,10 @@ public:
         String sensor_id = "";                      ///< Active sensor ID
         String sensor_sn = "";                      ///< Active sensor serialsensor_state
         String LIBRE3PLUS_SERIAL_START = "0J000000";///< Libre 3 Plus serial prefix
-        uint32_t sensor_runtime = 0; //UNIXTIME14DAYS;   ///< lifetime set to 14 days  
+        uint32_t sensor_runtime = 0;                ///< lifetime set to 0 as default  
         uint32_t sensor_activation_time = 0;        ///< Activation timestamp                
     } llu_sensor_data;
         
-    
     
     int8_t timezone = 1;                    ///< UTC offset (UTC+1 default)
     bool sensor_reconnect = 0;              ///< Reconnection flag

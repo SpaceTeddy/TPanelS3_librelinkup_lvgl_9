@@ -197,10 +197,7 @@ static std::shared_ptr<uuid::console::Commands> commands = std::make_shared<uuid
 static uuid::telnet::TelnetService telnet{commands};
 
 //------------------------------[ uuid log configuration ]------------------
-#include "logger.h"
-
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
-
 
 //------------------------------[ WireGuard configuration ]----------------------
 #include <WireGuard-ESP32.h>
