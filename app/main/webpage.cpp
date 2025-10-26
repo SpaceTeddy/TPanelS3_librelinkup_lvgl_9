@@ -39,20 +39,9 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
 // ---- External symbols from the project (provided elsewhere) -------------
 extern SETTINGS settings;           ///< Global configuration storage
+extern TPanelS3 tpanels3;           ///< TPanelS3 hardware interface instance
 extern String availableNetworks;    ///< JSON produced by Wi-Fi scan task
 
-/**
- * @brief Sets the LCD backlight brightness.
- * @param value Brightness value (driver-specific scale).
- * @return The effective brightness value that was applied.
- */
-uint8_t set_trgb_backlight_brightness(uint8_t value);
-
-/**
- * @brief Enables or disables the WireGuard interface.
- * @param enable true to enable, false to disable.
- */
-void setup_wg(bool enable);
 
 // ---- Local state (only used in this file) --------------------------------
 static String username;
@@ -208,7 +197,7 @@ static void handleSetBrightness(AsyncWebServerRequest *request) {
         Serial.printf("WebPage brightness slider feedback: %d\n", brightness);
 
         settings.config.brightness = brightness;
-        TPanelS3::set_backlight_brightness(brightness);
+        tpanels3.set_backlight_brightness(brightness);
 
         request->send(200, "application/json", "{\"brightness\": " + String(brightness) + "}");
     } else {

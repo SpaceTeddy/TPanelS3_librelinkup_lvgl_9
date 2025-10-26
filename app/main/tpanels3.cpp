@@ -19,8 +19,6 @@
 
 // Arduino_GFX (panel + bus)
 #include "Arduino_GFX_Library.h"
-// Pfad relativ zum Lib-Root (der ist bereits im Include-Pfad)
-#include "../libraries/Arduino_GFX-1.4.6/src/display/Arduino_RGB_Display.h"
 
 // Touch controller
 // Ensure the correct touch model is defined before TouchLib.h
@@ -31,9 +29,6 @@
 
 // Pins/timings for your board (must define LCD_* and XL95X5_* symbols, etc.)
 #include "pin_config.h"
-
-// ST7701 init sequence (comes from your Arduino_GFX setup)
-extern const uint8_t st7701_type9_init_operations[];
 
 // -------------------- Static state (translation-unit scope) --------------------
 

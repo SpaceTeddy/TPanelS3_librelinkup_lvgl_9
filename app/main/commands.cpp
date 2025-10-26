@@ -15,6 +15,7 @@
 
 extern SETTINGS settings;
 extern LIBRELINKUP librelinkup;
+extern TPanelS3 tpanels3;
 extern WiFiClient mqttClient;
 extern PubSubClient mqtt_client;
 extern MQTT mqtt;
@@ -230,7 +231,7 @@ void otaSettingCommand(uuid::console::Shell &shell, const std::vector<std::strin
 void trgbBrightnessCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
     int brightness = parseArgument(arguments, 0, settings.config.brightness);
     settings.config.brightness = brightness;
-    TPanelS3::set_backlight_brightness(brightness);
+    tpanels3.set_backlight_brightness(brightness);
     shell.printfln(F("Brightness set to %d"), brightness);
 }
 

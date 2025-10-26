@@ -67,6 +67,7 @@ uint8_t esp_status_counter_llu_retou = 0;     ///< LibreLinkUp terms of use acce
 ///////////////////// TPanelS3 SELECTION ////////////////////
 
 #include "tpanels3.h"
+TPanelS3 tpanels3;  ///< TPanelS3 hardware interface instance
 
 ///////////////////// BACKLIGHT CONTROL ////////////////////
 
@@ -522,7 +523,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         }
 
         if(strcmp(cmd, "brightness") == 0){
-            settings.config.brightness = TPanelS3::set_backlight_brightness(parameter1);
+            settings.config.brightness = tpanels3.set_backlight_brightness(parameter1);
             config_sleep_timer_backup = millis();
             logger.notice("TRGB sleep timer: %d , MQTT Brightness Setting: %d",
                          config_sleep_timer_backup, parameter1);
@@ -2079,11 +2080,11 @@ void setup_tpanels3() {
     );
 
     // --- initialize display & touch hardware ---
-    TPanelS3::initTPanelS3();
-    TPanelS3::setRotation(0);     // optional: 0=portrait, 1=landscape, etc.
+    tpanels3.initTPanelS3();
+    tpanels3.setRotation(0);     // optional: 0=portrait, 1=landscape, etc.
 
     // Set initial backlight brightness to 45%
-    TPanelS3::set_backlight_brightness(45);  // Set to 45%
+    tpanels3.set_backlight_brightness(45);  // Set to 45%
 
     // Initialize UI screens
     ui_init();

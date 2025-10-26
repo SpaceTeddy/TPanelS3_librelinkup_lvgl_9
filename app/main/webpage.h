@@ -4,9 +4,6 @@
 #pragma once
 #include <ESPAsyncWebServer.h>
 
-
-
-
 /**
  * Registriert alle HTTP-Routen/Handler am Server.
  * Ruft das EINMAL nach dem Erzeugen des AsyncWebServer auf (z. B. in setup_OTA(true)).
