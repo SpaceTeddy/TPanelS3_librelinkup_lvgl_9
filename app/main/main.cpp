@@ -64,211 +64,9 @@ uint8_t esp_status_counter_llu_retou = 0;     ///< LibreLinkUp terms of use acce
 /// Debug print macro with timestamp and function name
 #define DBGprint Serial.printf("[%09lu ms][%s][%s] ", (unsigned long)millis(), __FILE__, __func__)
 
-///////////////////// TOUCH CONTROLLER SELECTION ////////////////////
+///////////////////// TPanelS3 SELECTION ////////////////////
 
-// Uncomment the touch controller your hardware uses
-// #define TOUCH_MODULES_GT911
-// #define TOUCH_MODULES_CST_SELF
-#define TOUCH_MODULES_CST_MUTUAL  ///< CST3240 mutual capacitance touch controller
-// #define TOUCH_MODULES_ZTW622
-// #define TOUCH_MODULES_L58
-// #define TOUCH_MODULES_FT3267
-// #define TOUCH_MODULES_FT5x06
-
-#include "TouchLib.h"
-
-/// Touch interrupt flag, set by ISR when touch event occurs
-volatile bool Touch_Int_Flag = false;
-
-/// Touch controller instance on I2C bus
-TouchLib touch(Wire, TOUCH_SDA, TOUCH_SCL, CST3240_ADDRESS);
-
-///////////////////// DISPLAY DRIVER CONFIGURATION ////////////////////
-
-/**
- * @brief Data bus for XL9535 I2C expander controlling SPI to display
- * 
- * The TPanel uses an XL9535 I2C GPIO expander to create a virtual SPI bus
- * for controlling the ST7701 display driver.
- */
-Arduino_DataBus *bus = new Arduino_XL9535SWSPI(
-    IIC_SDA,      // I2C SDA pin
-    IIC_SCL,      // I2C SCL pin
-    -1,           // XL9535 PWD (not used)
-    XL95X5_CS,    // XL9535 CS pin
-    XL95X5_SCLK,  // XL9535 SCLK pin
-    XL95X5_MOSI   // XL9535 MOSI pin
-);
-
-/**
- * @brief RGB parallel interface panel configuration
- * 
- * Configures the ESP32-S3's RGB parallel interface for direct LCD control.
- * Uses 16-bit color (RGB565) with specific timing parameters for the panel.
- */
-Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
-    -1,           // DE (data enable, not used)
-    LCD_VSYNC,    // VSYNC pin
-    LCD_HSYNC,    // HSYNC pin
-    LCD_PCLK,     // Pixel clock pin
-    LCD_B0, LCD_B1, LCD_B2, LCD_B3, LCD_B4,  // Blue data pins
-    LCD_G0, LCD_G1, LCD_G2, LCD_G3, LCD_G4, LCD_G5,  // Green data pins
-    LCD_R0, LCD_R1, LCD_R2, LCD_R3, LCD_R4,  // Red data pins
-    1,   // HSYNC polarity (1 = active high)
-    20,  // HSYNC front porch
-    2,   // HSYNC pulse width
-    0,   // HSYNC back porch
-    1,   // VSYNC polarity (1 = active high)
-    30,  // VSYNC front porch
-    8,   // VSYNC pulse width
-    1,   // VSYNC back porch
-    1,   // PCLK active negative
-    6000000L,  // Preferred pixel clock speed (6 MHz)
-    false,     // Use big endian (false for little endian)
-    0,   // DE idle high
-    0    // PCLK idle high
-);
-
-/**
- * @brief Main display driver instance
- * 
- * Combines the RGB panel interface with the ST7701 initialization sequence.
- */
-Arduino_RGB_Display *gfx = new Arduino_RGB_Display(
-    LCD_WIDTH,    // Display width in pixels
-    LCD_HEIGHT,   // Display height in pixels
-    rgbpanel,     // RGB panel driver
-    0,            // Initial rotation (0°)
-    true,         // Auto flush enabled
-    bus,          // Data bus
-    -1,           // RST pin (not used)
-    st7701_type9_init_operations,  // ST7701 init sequence
-    sizeof(st7701_type9_init_operations)
-);
-
-///////////////////// LVGL CONFIGURATION ////////////////////
-
-#if LVGL_VERSION_MAJOR == 9 && LVGL_VERSION_MINOR >= 0
-    lv_draw_buf_t disp_buf;   ///< LVGL 9.x draw buffer
-    lv_display_t * disp_drv;  ///< LVGL 9.x display driver
-    lv_indev_t * indev_drv;   ///< LVGL 9.x input device driver
-#elif LVGL_VERSION_MAJOR == 8 && LVGL_VERSION_MINOR >= 3  
-    lv_disp_draw_buf_t disp_buf;  ///< LVGL 8.x draw buffer
-    lv_disp_drv_t disp_drv;       ///< LVGL 8.x display driver
-    lv_indev_drv_t indev_drv;     ///< LVGL 8.x input device driver
-#endif
-
-///////////////////// DISPLAY FUNCTIONS ////////////////////
-
-/**
- * @brief Sets the display rotation
- * 
- * @param[in] r Rotation value (0=0°, 1=90°, 2=180°, 3=270°)
- */
-void setRotation(uint8_t r) {
-    if (gfx) {
-        gfx->setRotation(r);
-    }
-}
-
-/**
- * @brief LVGL display flush callback
- * 
- * Called by LVGL when a screen region needs to be redrawn.
- * Transfers the pixel buffer to the display hardware.
- * 
- * @param[in] disp   LVGL display object
- * @param[in] area   Screen area to update
- * @param[in] px_map Pixel data buffer
- */
-static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-    uint32_t w = (area->x2 - area->x1 + 1);
-    uint32_t h = (area->y2 - area->y1 + 1);
-
-    #if LV_COLOR_16_SWAP
-    gfx->draw16bitBeRGBBitmap(area->x1, area->y1, (uint16_t*)px_map, w, h);
-    #else
-    gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t*)px_map, w, h);
-    #endif
-
-    lv_display_flush_ready(disp);
-}
-
-/**
- * @brief LVGL touchpad read callback
- * 
- * Called by LVGL to read touch input state.
- * Reads touch coordinates from the CST3240 controller.
- * 
- * @param[in]  indev_driver LVGL input device
- * @param[out] data         Touch data structure to populate
- */
-void my_touchpad_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
-{
-    if (Touch_Int_Flag == true)
-    {
-        touch.read();
-        TP_Point t = touch.getPoint(0);
-
-        if ((touch.getPointNum() == 1) && (t.pressure > 0) && (t.state != 0))
-        {
-            data->state = LV_INDEV_STATE_PR;
-
-            // Set the coordinates
-            data->point.x = t.x;
-            data->point.y = t.y;
-
-            Serial.printf("Touch X: %d Y: %d ", t.x, t.y);
-            Serial.printf("Static: %d ", t.state);
-            Serial.printf("Pressure: %d", t.pressure);
-            Serial.println();
-        }
-
-        Touch_Int_Flag = false;
-    }
-    else
-    {
-        data->state = LV_INDEV_STATE_REL;
-    }
-}
-
-/**
- * @brief Initializes LVGL library
- * 
- * Sets up:
- * - LVGL tick source
- * - Display buffers in PSRAM
- * - Display driver with flush callback
- * - Touch input driver
- * 
- * @note Requires PSRAM to be available
- */
-void lvgl_initialization(void)
-{
-    lv_init();
-    lv_tick_set_cb([](){ return (uint32_t)millis(); });
-
-    // Allocate draw buffers from PSRAM
-    lv_color_t *buf1 = (lv_color_t*) heap_caps_malloc(
-            LCD_WIDTH * LCD_HEIGHT * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
-    assert(buf1);
-    lv_color_t *buf2 = (lv_color_t*) heap_caps_malloc(
-            LCD_WIDTH * LCD_HEIGHT * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
-    assert(buf2);
-
-    // Initialize the display buffer
-    lv_display_t *disp = lv_display_create(LCD_WIDTH, LCD_HEIGHT);
-    lv_display_set_buffers(disp, buf1, buf2, LCD_WIDTH * LCD_HEIGHT, 
-                          LV_DISPLAY_RENDER_MODE_PARTIAL);
-    lv_display_set_flush_cb(disp, my_disp_flush);
-
-    Serial.println("Register display driver to LVGL");
-
-    // Initialize the input device driver
-    lv_indev_t *indev = lv_indev_create();
-    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(indev, my_touchpad_read);
-}
+#include "tpanels3.h"
 
 ///////////////////// BACKLIGHT CONTROL ////////////////////
 
@@ -608,23 +406,7 @@ void esp_status(){
 
 ///////////////////// BACKLIGHT CONTROL ////////////////////
 
-/**
- * @brief Sets TPanel backlight brightness using PWM
- * 
- * The TPanel backlight chip has 16 adjustment levels (0-15).
- * Uses LEDC PWM with 8-bit resolution for smooth dimming.
- * 
- * @param[in] value Brightness level (0-255, 0=off, 255=max)
- * @return The brightness value that was set
- */
-uint8_t set_trgb_backlight_brightness(uint8_t value)
-{
-    ledcSetup(0, 15000, 8);      // Channel 0, 15kHz, 8-bit resolution
-    ledcAttachPin(LCD_BL, 0);    // Attach backlight pin to channel 0
-    ledcWrite(0, value);         // Set brightness value
-    
-    return value;
-}
+
 
 ///////////////////// MQTT FUNCTIONS ////////////////////
 
@@ -740,7 +522,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         }
 
         if(strcmp(cmd, "brightness") == 0){
-            settings.config.brightness = set_trgb_backlight_brightness(parameter1);
+            settings.config.brightness = TPanelS3::set_backlight_brightness(parameter1);
             config_sleep_timer_backup = millis();
             logger.notice("TRGB sleep timer: %d , MQTT Brightness Setting: %d",
                          config_sleep_timer_backup, parameter1);
@@ -2296,36 +2078,12 @@ void setup_tpanels3() {
         1                   // Core (0 or 1)
     );
 
-    // Initialize backlight PWM pin
-    pinMode(LCD_BL, OUTPUT);
-    set_trgb_backlight_brightness(45);  // Set to 45%
+    // --- initialize display & touch hardware ---
+    TPanelS3::initTPanelS3();
+    TPanelS3::setRotation(0);     // optional: 0=portrait, 1=landscape, etc.
 
-    // Initialize I2C for touch controller
-    Wire.begin(IIC_SDA, IIC_SCL);
-    
-    // Reset touch controller
-    gfx->XL_digitalWrite(XL95X5_TOUCH_RST, LOW);
-    delay(200);
-    gfx->XL_digitalWrite(XL95X5_TOUCH_RST, HIGH);
-    delay(200);
-
-    // Configure touch interrupt pin
-    attachInterrupt(
-        TOUCH_INT,
-        []
-        {
-            Touch_Int_Flag = true;
-        },
-        FALLING); 
-
-    touch.init();
-    
-    // Initialize LCD
-    gfx->begin();
-    gfx->fillScreen(BLACK);
-
-    // Initialize LVGL
-    lvgl_initialization();
+    // Set initial backlight brightness to 45%
+    TPanelS3::set_backlight_brightness(45);  // Set to 45%
 
     // Initialize UI screens
     ui_init();

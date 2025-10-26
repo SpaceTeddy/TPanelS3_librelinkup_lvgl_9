@@ -8,6 +8,7 @@
 #include <ESP32Ping.h>
 #include <LittleFS.h>
 #include <lvgl.h>
+#include "tpanels3.h"
 
 #include <cstdarg> // for va_list, va_start, va_end
 #include <cstdio>  // for vsnprintf
@@ -229,7 +230,7 @@ void otaSettingCommand(uuid::console::Shell &shell, const std::vector<std::strin
 void trgbBrightnessCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
     int brightness = parseArgument(arguments, 0, settings.config.brightness);
     settings.config.brightness = brightness;
-    set_trgb_backlight_brightness(brightness);
+    TPanelS3::set_backlight_brightness(brightness);
     shell.printfln(F("Brightness set to %d"), brightness);
 }
 

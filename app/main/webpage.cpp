@@ -26,6 +26,7 @@
 
 #include "webpage.h"                ///< Embedded HTML (e.g., index_html)
 #include "settings.h"               ///< SETTINGS (persistent configuration)
+#include "tpanels3.h"               ///< TPanelS3 display management
 
 //------------------------[ uuid logger ]-----------------------------------
 /**
@@ -207,7 +208,7 @@ static void handleSetBrightness(AsyncWebServerRequest *request) {
         Serial.printf("WebPage brightness slider feedback: %d\n", brightness);
 
         settings.config.brightness = brightness;
-        set_trgb_backlight_brightness(brightness);
+        TPanelS3::set_backlight_brightness(brightness);
 
         request->send(200, "application/json", "{\"brightness\": " + String(brightness) + "}");
     } else {
