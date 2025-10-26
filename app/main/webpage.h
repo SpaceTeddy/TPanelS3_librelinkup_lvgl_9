@@ -1,6 +1,24 @@
 #ifndef webpage_H
 #define webpage_H
 
+#pragma once
+#include <ESPAsyncWebServer.h>
+
+
+
+
+/**
+ * Registriert alle HTTP-Routen/Handler am Server.
+ * Ruft das EINMAL nach dem Erzeugen des AsyncWebServer auf (z. B. in setup_OTA(true)).
+ */
+void register_webpage_routes(AsyncWebServer& server);
+
+/**
+ * HTML-Seite für die Web-Oberfläche des LibreLinkup Clients.
+ * Enthält Formulare für Login, WiFi-Verbindung, OTA-Updates, WireGuard-Konfiguration,
+ * MQTT-Einstellungen und Helligkeitssteuerung.
+ */
+
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML>
 <html>

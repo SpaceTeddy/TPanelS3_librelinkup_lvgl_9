@@ -287,215 +287,6 @@ void scanWiFiTask(void * parameter) {
 //---------------------------[ Webpage ]-------------------------------
 #include "webpage.h"
 
-String username;
-String password;
-String wifi_bssid;
-String wifi_password;
-
-void handleRoot(AsyncWebServerRequest *request) {
-    request->send(200, "text/html", index_html);    
-}
-
-void handleLogin(AsyncWebServerRequest *request) {
-    if (request->hasParam("username", true)) {
-        username = request->getParam("username", true)->value();
-    }
-    if (request->hasParam("password", true)) {
-        password = request->getParam("password", true)->value();
-    }
-    settings.config.login_email    = username;
-    settings.config.login_password = password;
-    settings.saveConfiguration(settings.config_filename, settings.config);    
-    
-    request->send(200, "text/html", "Login erfolgreich!<br><a href='/'>Zurueck</a>");
-}
-
-void handleScan(AsyncWebServerRequest *request) {
-   request->send(200, "application/json", availableNetworks);
-}
-
-void handleConnect(AsyncWebServerRequest *request) {
-    if (request->hasParam("networks", true)) {
-        wifi_bssid = request->getParam("networks", true)->value();
-        settings.config.wifi_bssid = wifi_bssid;
-    }
-    if (request->hasParam("wifiPassword", true)) {
-        wifi_password = request->getParam("wifiPassword", true)->value();
-        settings.config.wifi_password = wifi_password;
-    }
-
-    // save login data to config file
-    settings.saveConfiguration(settings.config_filename, settings.config);
-    // ESP32 restart
-    ESP.restart();
-}
-
-void handleStatus(AsyncWebServerRequest *request) {
-
-    settings.loadConfiguration("/config.json", settings.config);
-    
-    DynamicJsonDocument json_config(256);
-
-    // Füge die Konfigurationswerte in das JSON-Dokument ein
-    json_config["ota_update"] = settings.config.ota_update;
-    json_config["wg_mode"]    = settings.config.wg_mode;
-    json_config["mqtt_mode"]  = settings.config.mqtt_mode;
-    json_config["brightness"] = settings.config.brightness;
-
-    // Erstelle den JSON-String
-    String jsonResponse;
-    serializeJson(json_config, jsonResponse);
-
-    // Sende die JSON-Antwort
-    request->send(200, "application/json", jsonResponse);
-
-    json_config.clear();
-}
-
-void handleToggleFeature(AsyncWebServerRequest *request) {
-    if (request->hasParam("feature") && request->hasParam("status")) {
-        String feature = request->getParam("feature")->value();
-        int status = request->getParam("status")->value().toInt();
-
-        Serial.printf("Feature: %s, Status: %d\n", feature.c_str(), status);
-
-        // Überprüfen und anwenden der Feature-Einstellungen
-        if (feature == "ota_update") {
-            settings.config.ota_update = status;
-            logger.notice("OTA_Update: %d", settings.config.ota_update);
-            if(status == 1){
-                //start OTA Web server
-                server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-                request->send(200, "text/plain", "ESP32 LibreLinkup Client");
-                });
-                ElegantOTA.begin(&server);    // Start ElegantOTA
-                server.begin();
-            }else if(status == 0){
-                server.end();                    // Stop Server
-            }
-        } else if (feature == "wg_mode") {
-            settings.config.wg_mode = status;
-            logger.notice("wg_mode: %d", settings.config.wg_mode);
-            setup_wg(settings.config.wg_mode);
-        } else if (feature == "mqtt_mode") {
-            settings.config.mqtt_mode = status;
-            logger.notice("mqtt_mode: %d", settings.config.mqtt_mode);
-        } else {
-            request->send(400, "application/json", "{\"error\": \"Unknown feature\"}");
-            return;
-        }
-
-        // Speichere die aktualisierte Konfiguration
-        //settings.saveConfiguration("/config.json", settings.config);
-
-        // Sende eine erfolgreiche Antwort zurück
-        request->send(200, "application/json", "{\"status\": \"updated\"}");
-    } else {
-        request->send(400, "application/json", "{\"error\": \"Missing parameters\"}");
-    }
-}
-
-void handleSetBrightness(AsyncWebServerRequest *request) {
-    if (request->hasParam("value")) {  // Überprüfe den URL-Parameter
-        int brightness = request->getParam("value")->value().toInt();
-        Serial.printf("WebPage brightness slider feedback: %d\n", brightness);
-
-        // Aktualisiere Helligkeit und speichere Konfiguration
-        settings.config.brightness = brightness;
-        set_trgb_backlight_brightness(brightness);
-        //settings.saveConfiguration("/config.json", settings.config);
-
-        // Bestätigung an den Client senden
-        request->send(200, "application/json", "{\"brightness\": " + String(brightness) + "}");
-    } else {
-        request->send(400, "application/json", "{\"error\": \"Invalid parameters\"}");
-    }
-}
-
-void handleConfigureWireGuard(AsyncWebServerRequest *request) {
-    String privateKey, publicKey, presharedKey, ipAddress, endpoint, allowedIPs;
-    int endpointPort = 0;
-
-    if (request->hasParam("privateKey", true)) {
-        privateKey = request->getParam("privateKey", true)->value();
-    }
-    if (request->hasParam("publicKey", true)) {
-        publicKey = request->getParam("publicKey", true)->value();
-    }
-    if (request->hasParam("presharedKey", true)) {
-        presharedKey = request->getParam("presharedKey", true)->value();
-    }
-    if (request->hasParam("ipAddress", true)) {
-        ipAddress = request->getParam("ipAddress", true)->value();
-    }
-    if (request->hasParam("endpoint", true)) {
-        endpoint = request->getParam("endpoint", true)->value();
-    }
-    if (request->hasParam("endpointPort", true)) {
-        endpointPort = request->getParam("endpointPort", true)->value().toInt();
-    }
-    if (request->hasParam("allowedIPs", true)) {
-        allowedIPs = request->getParam("allowedIPs", true)->value();
-    }
-
-    // Sicherstellen, dass alle erforderlichen Parameter vorhanden sind
-    if (!privateKey.isEmpty() && !publicKey.isEmpty() && !presharedKey.isEmpty() && 
-        !ipAddress.isEmpty() && !endpoint.isEmpty() && endpointPort > 0 && !allowedIPs.isEmpty()) {
-
-        settings.config.wgPrivateKey = privateKey;
-        settings.config.wgPublicKey = publicKey;
-        settings.config.wgPresharedKey = presharedKey;
-        settings.config.wgIpAddress = ipAddress;
-        //settings.config.wgIpAddress.replace('.', ',');  //converts . to , for localip();
-        settings.config.wgEndpoint = endpoint;
-        settings.config.wgEndpointPort = endpointPort;
-        settings.config.wgAllowedIPs = allowedIPs;
-
-        logger.notice("WireGuard configuration parsed and saved");
-
-        settings.saveConfiguration(settings.config_filename, settings.config);
-
-        request->send(200, "application/json", "{\"status\": \"WireGuard configuration saved\"}");
-    } else {
-        logger.notice("Missing WireGuard parameters in request");
-        request->send(400, "application/json", "{\"error\": \"Missing parameters\"}");
-    }
-}
-
-void handleConfigureMQTT(AsyncWebServerRequest *request) {
-    String server, username, password;
-    int port = 0;
-
-    if (request->hasParam("server", true)) {
-        server = request->getParam("server", true)->value();
-    }
-    if (request->hasParam("port", true)) {
-        port = request->getParam("port", true)->value().toInt();
-    }
-    if (request->hasParam("username", true)) {
-        username = request->getParam("username", true)->value();
-    }
-    if (request->hasParam("password", true)) {
-        password = request->getParam("password", true)->value();
-    }
-
-    if (!server.isEmpty() && port > 0) {
-        settings.config.mqttServer = server;
-        settings.config.mqtt_port = port;
-        settings.config.mqttUsername = username;
-        settings.config.mqttPassword = password;
-
-        logger.notice("MQTT configuration parsed and saved");
-
-        settings.saveConfiguration(settings.config_filename, settings.config);
-
-        request->send(200, "application/json", "{\"status\": \"MQTT configuration saved\"}");
-    } else {
-        logger.notice("Missing 'server' or 'port' parameters in request");
-        request->send(400, "application/json", "{\"error\": \"Missing server or port parameters\"}");
-    }
-}
-
 //-------------------------[ OTA Update ]-------------------------------
 void onOTAStart() {
     // Log when OTA has started
@@ -626,7 +417,6 @@ void setup_mqtt(void);
 //------------------------------------------------------------------------------
 
 //---------------------------[helper functions]---------------------------------
-
 
 //--------------------------[esp_status functions]--------------------------------
 void esp_status(){
@@ -1830,17 +1620,8 @@ void setup_mqtt() {
 //Setup OTA
 void setup_OTA(bool mode){
     
-    if(mode == true){
-        server.on("/", HTTP_GET, handleRoot);
-        server.on("/scan", HTTP_GET, handleScan);
-        server.on("/login", HTTP_POST, handleLogin);
-        server.on("/connect", HTTP_POST, handleConnect);
-        server.on("/status", HTTP_GET, handleStatus);
-        server.on("/toggle", HTTP_POST, handleToggleFeature);
-        server.on("/setBrightness", HTTP_POST, handleSetBrightness);
-        server.on("/configureWireGuard", HTTP_POST, handleConfigureWireGuard);
-        server.on("/configureMQTT", HTTP_POST, handleConfigureMQTT);
 
+    if(mode == 1){
         xTaskCreatePinnedToCore(        // Separaten Task für den WiFi-Scan starten
             scanWiFiTask,               // Funktion
             "WiFi Scan Task",           // Name des Tasks
@@ -1850,6 +1631,9 @@ void setup_OTA(bool mode){
             &wifiScanHandle,            // Task-Handle
             1                           // Core 1 verwenden
         );
+
+        // Routen auslagern
+        register_webpage_routes(server);
 
         ElegantOTA.begin(&server);      // Start ElegantOTA
         ElegantOTA.onStart(onOTAStart);
