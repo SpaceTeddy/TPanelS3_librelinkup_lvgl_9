@@ -28,7 +28,19 @@ enum GlucoseLabelColor : uint8_t {
     COLOR_RED = 4,
     COLOR_BLUE = 5,
 };
+
+/**
+ * @brief enable UART IPC communication
+ */
+void setup_UART_IPC(void);
+
 /** @} */
+
+/**
+ * @brief Sets up mDNS for the ESP32.
+ */
+void setup_mdns(void);
+
 
 /**
  * @brief Displays ESP32 system status information.
@@ -48,6 +60,19 @@ void setup_wg(bool enable);
 void setup_wifi();
 
 /**
+ * @brief Configures OTA (Over-the-Air) updates.
+ * 
+ * @param mode Set to `true` to enable OTA updates, `false` to disable.
+ */
+void setup_OTA(bool mode);
+
+/**
+ * @brief Initializes MQTT communication.
+ */
+void setup_mqtt(void);
+
+
+/**
  * @brief Sets the brightness of the TRGB backlight.
  * 
  * @param value Brightness level (0-255).
@@ -55,12 +80,6 @@ void setup_wifi();
  */
 uint8_t set_trgb_backlight_brightness(uint8_t value);
 
-/**
- * @brief Configures OTA (Over-the-Air) updates.
- * 
- * @param mode Set to `true` to enable OTA updates, `false` to disable.
- */
-void setup_OTA(bool mode);
 
 /**
  * @brief Draws the glucose data chart.

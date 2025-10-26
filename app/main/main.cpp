@@ -23,8 +23,6 @@ HELPER helper;
 HardwareSerial SerialPort(2); // use UART2
 char UART_IPC_DATA1 = 0;
 
-void setup_UART_IPC(void);
-
 /*******************************************************************************
  * Start of misc setting
  *
@@ -182,7 +180,6 @@ TaskHandle_t LvglTaskHandle = NULL; //
 #include <ESPmDNS.h>
 String hostname_base = "librelinkup_";
 String hostname = "";
-void setup_mdns(void);
 
 //------------------------------[ uuid console configuration ]--------------------
 #include "commands.h"
@@ -219,8 +216,6 @@ IPAddress                 local_ip(192,168,0,103);                          // [
 
 //char endpoint_address[] = "vpn0.ddnss.de";                                  // [Peer] Endpoint
 //int  endpoint_port       = 50614;                                           // [Peer] Endpoint port
-
-void setup_wg(bool enable);
 
 //------------------------------[ HBC1 Value calculation ]--------------------------
 #include "hba1c.h"
@@ -292,7 +287,7 @@ void onOTAStart() {
     // Log when OTA has started
     Serial.println("OTA update started!");
     logger.notice("OTA Update Progress has started");
-    vTaskSuspend(wifiScanHandle);     // Task pausieren
+    vTaskSuspend(wifiScanHandle);       // Task pausieren
     //vTaskResume(wifiScanHandle);      // Task fortsetzen
     ota_in_progress = 1;
 }
@@ -347,8 +342,6 @@ void onOTAEnd(bool success) {
     }
 }
 
-//uint8_t elegant_ota_server_state = 0;
-void setup_OTA(bool mode);
 
 //------------------------------[ Software timer ]--------------------------
 const uint64_t timer_250ms = 250;               //Timer1 250ms
@@ -413,7 +406,6 @@ PubSubClient mqtt_client(mqttClient);
 
 DynamicJsonDocument json_mqtt(256);
 
-void setup_mqtt(void);
 //------------------------------------------------------------------------------
 
 //---------------------------[helper functions]---------------------------------
@@ -647,7 +639,7 @@ int16_t get_last_valid_x_position(lv_obj_t *chart, lv_chart_series_t *series) {
     return -1; // Kein gültiger Punkt gefunden
 }
 
-static void highlight_last_point() {
+static void highlight_last_point(){
     const uint8_t x_pos_offset = 24;
     const uint8_t y_pos_offset = 12;
 
@@ -687,8 +679,7 @@ static void highlight_last_point() {
     lv_obj_move_foreground(ui_Chart_Glucose_5Min_last_point_marker);
 }
 
-static void brightness_on_off_cb(lv_event_t * event)
-{
+static void brightness_on_off_cb(lv_event_t * event) {
     //DBGprint; Serial.println("LCD Clicked");
     logger.notice("Button Longpress for Brightness ON/OFF triggered!");
 
@@ -716,8 +707,7 @@ static void brightness_on_off_cb(lv_event_t * event)
     }
 }
 
-static void touch_gesture_cb(lv_event_t * event)
-{
+static void touch_gesture_cb(lv_event_t * event) {
     // Aktuelles Eingabegerät und Position holen
     lv_indev_t * indev = lv_event_get_indev(event);
     if(!indev) return;
@@ -774,7 +764,7 @@ static void touch_gesture_cb(lv_event_t * event)
     }
 }
 
-static void btn_wireguard_cb(lv_event_t * event){
+static void btn_wireguard_cb(lv_event_t * event) {
     lv_event_code_t code = lv_event_get_code(event);
 
     if(code == LV_EVENT_CLICKED) {
@@ -790,8 +780,7 @@ static void btn_wireguard_cb(lv_event_t * event){
     }
 }
 
-static void ta_event_cb(lv_event_t * e)
-{
+static void ta_event_cb(lv_event_t * e){
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t *ui_kb = (lv_obj_t *)lv_event_get_target(e);
 
@@ -800,7 +789,7 @@ static void ta_event_cb(lv_event_t * e)
     }
 }
 
-static void btn_mqtt_cb(lv_event_t * event){
+static void btn_mqtt_cb(lv_event_t * event) {
     lv_event_code_t code = lv_event_get_code(event);
 
     if(code == LV_EVENT_CLICKED) {
@@ -823,7 +812,7 @@ static void btn_mqtt_cb(lv_event_t * event){
     }
 }
 
-static void btn_ota_cb(lv_event_t * event){
+static void btn_ota_cb(lv_event_t * event) {
     lv_event_code_t code = lv_event_get_code(event);
 
     if(code == LV_EVENT_CLICKED) {
@@ -939,7 +928,7 @@ static void touch_event_cb(lv_event_t * e) {
 //------------------------------------------------------------------------------
 
 // lcd status indication
-void lcd_status_indication(bool on_off, uint8_t color){
+void lcd_status_indication(bool on_off, uint8_t color) {
     if(on_off == 0){
         lv_label_set_text(ui_Label_LiebreViewAPIActivity, " " );
     }else if(on_off == 1){
@@ -965,7 +954,7 @@ void lcd_status_indication(bool on_off, uint8_t color){
 }
 
 //---------------------------[librelinkup functions]---------------------------------
-void draw_chart_sensor_valid(){
+void draw_chart_sensor_valid() {
 
     // draw valid days chart
     if(librelinkup.sensor_livetime.sensor_valid_days > 0 && librelinkup.sensor_livetime.sensor_valid_hours >= 0){
@@ -1117,7 +1106,7 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate) {
     }
 }
 
-void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color, uint16_t _glucose_value, String _trendarrow, String _trendmessage, int16_t delta){
+void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color, uint16_t _glucose_value, String _trendarrow, String _trendmessage, int16_t delta) {
     
     if(mode == 0){
         if(_glucose_measurement_color == COLOR_WHITE){
@@ -1352,13 +1341,13 @@ void update_glucose_data() {
     }
 }
 
-void update_glucose_json_logging(){
+void update_glucose_json_logging() {
     uint32_t unixtime_now = librelinkup.get_epoch_time();
     hba1c.addGlucoseValue(unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement);
     logger.debug("addGlucoseValue to LittleFS: %d / %d", unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement );
 }
 
-void glucose_statistics(){
+void glucose_statistics() {
     uint8_t data_count = librelinkup.check_graphdata();
     float mean_glucose_value_from_history = hba1c.calculateGlucoseMeanFromHistory(librelinkup.llu_sensor_history_data.graph_data, data_count);
     float mean_glucose_value_from_json = hba1c.calculateGlucoseMeanFromJson(today_json_filename);
@@ -1398,7 +1387,7 @@ void LoopTask(void *pvParameters) {
 
 //---------------------------[Setup Hardware]--------------------------------
 // setup Serial
-void setup_serial(){
+void setup_serial() {
     Serial.begin(115200); 
     Serial.setTxTimeoutMs(1);  // workaround for blocking output if no host is connected to native USB CDC
     Serial.println();
@@ -1406,21 +1395,21 @@ void setup_serial(){
 }
 
 // setup UART IPC
-void setup_UART_IPC(){
+void setup_UART_IPC() {
     SerialPort.begin(115200, SERIAL_8N1, ESP32H2_RX, ESP32H2_TX);
     Serial.println();
     DBGprint; Serial.println(F("Init SerialPort for IPC"));
 }
 
 // setup LittleFS
-void setup_littlefs(){
+void setup_littlefs() {
     if(!LittleFS.begin()){
         DBGprint;Serial.println("An Error has occurred while mounting SPIFFS");
         return;
     }
 }
 
-void setup_tpanels3(){
+void setup_tpanels3() {
 
     // LV_Tick Task
     xTaskCreatePinnedToCore(
@@ -1475,7 +1464,7 @@ void setup_tpanels3(){
  }
 
 // setup config
-void setup_load_system_config(){
+void setup_load_system_config() {
     settings.loadConfiguration(settings.config_filename, settings.config);
     librelinkup.timezone = settings.config.timezone;
 }
@@ -1539,7 +1528,7 @@ void setup_wifi() {
 }
 
 // setup Wireguard Client
-void setup_wg(bool enable){
+void setup_wg(bool enable) {
 
     if (enable == 1){
         IPAddress local_ip = helper.parseIPAddress(settings.config.wgIpAddress);
@@ -1582,7 +1571,7 @@ void setup_wg(bool enable){
 }
 
 // setup MDNS
-void setup_mdns(){
+void setup_mdns() {
     //use mdns for host name resolution
     hostname = hostname_base + helper.get_flashmemory_id();
     if (!MDNS.begin(hostname.c_str())) { 
@@ -1594,7 +1583,7 @@ void setup_mdns(){
 }
 
 // setup librelinkup
-void setup_librelinkup(){
+void setup_librelinkup() {
   if(settings.config.login_email == "" || settings.config.login_password == ""){
     lv_disp_load_scr(ui_Login_screen);
   }
@@ -1618,9 +1607,8 @@ void setup_mqtt() {
 }
 
 //Setup OTA
-void setup_OTA(bool mode){
+void setup_OTA(bool mode) {
     
-
     if(mode == 1){
         xTaskCreatePinnedToCore(        // Separaten Task für den WiFi-Scan starten
             scanWiFiTask,               // Funktion
@@ -1651,13 +1639,13 @@ void setup_OTA(bool mode){
 }
 
 //Setup Console
-void setup_uuid_console(){
+void setup_uuid_console() {
     registerCommands(commands);
     telnet.start();
 }
 
 //Setup Task for loop funktions
-void setup_task(){
+void setup_task() {
     // **Loop Task in separatem Task starten**
     xTaskCreatePinnedToCore(
         LoopTask,         // Funktionsname
@@ -1671,7 +1659,6 @@ void setup_task(){
 }
 
 //-----------------------------------------------------------------------------
-
 
 void setup()
 {
