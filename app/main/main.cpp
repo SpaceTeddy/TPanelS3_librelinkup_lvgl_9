@@ -594,7 +594,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
 ///////////////////// LVGL FUNCTIONS ////////////////////
 
-const int LVGL_TICK_RATE_MS = 1;  ///< LVGL tick increment interval
+const int LVGL_TICK_RATE_MS = 10;  ///< LVGL tick increment interval
 
 /**
  * @brief LVGL tick task for FreeRTOS
@@ -2544,7 +2544,7 @@ void loop()
 {
     // NOTE: All other continuous loops run inside LoopTask().
     // Keep this loop short to maintain UI responsiveness.
-
+    
     // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
     if (SerialPort.available() > 0)
     {
