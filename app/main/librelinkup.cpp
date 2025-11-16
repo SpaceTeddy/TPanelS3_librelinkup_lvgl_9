@@ -769,7 +769,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
         int code = https.GET();
         //DBGprint_LLU;Serial.printf("HTTP Code: [%d]\r\n", code);
-        logger.debug("HTTP Code: [%d]\r\n", code);
+        //logger.debug("HTTP Code: [%d]\r\n", code);
 
         if (code > 0) {
             if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
