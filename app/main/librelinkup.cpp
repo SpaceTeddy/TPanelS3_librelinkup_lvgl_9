@@ -71,9 +71,14 @@ uint32_t LIBRELINKUP::convertToMillis(uint8_t hours, uint8_t minutes, uint8_t se
  */
 uint8_t LIBRELINKUP::begin(uint8_t use_cert){
     
+    IPAddress api_ip;
+    WiFi.hostByName(base_url, api_ip); // DNS lookup
+    logger.info("API Server IP: %s", api_ip.toString().c_str());
+
     // setup http client
     https.useHTTP10(true);
     llu_client->setTimeout(10000); //10 sec timeout
+    llu_client->setNoDelay(true); // disable Nagle algorithm
 
     if(use_cert == 0){
         llu_client->setInsecure();
@@ -609,7 +614,6 @@ uint16_t LIBRELINKUP::get_connection_data(void){
 
     // get API graph data from LibreView server 
     if(https.begin(*llu_client, base_url + url_connection)) {
-        //delay(10);        
         vTaskDelay(pdMS_TO_TICKS(10));
 
         // Add LLU default headers
@@ -756,7 +760,6 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
     // get API graph data from LibreView server 
     if(https.begin(*llu_client, base_url + url_graph)) {
-        //delay(10);
         vTaskDelay(pdMS_TO_TICKS(10));        
 
         // Add LLU default headers
@@ -766,6 +769,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
         int code = https.GET();
         //DBGprint_LLU;Serial.printf("HTTP Code: [%d]\r\n", code);
+        logger.debug("HTTP Code: [%d]\r\n", code);
 
         if (code > 0) {
             if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
@@ -929,7 +933,6 @@ void LIBRELINKUP::check_https_connection(const char* url){
     // Test server connection
     // get API graph data from LibreView server 
     if(https.begin(*llu_client, url)) {
-        //delay(10);
         vTaskDelay(pdMS_TO_TICKS(10));    
 
         https.addHeader("User-Agent", "Mozilla/5.0");
