@@ -2140,6 +2140,7 @@ void setup_wifi() {
     // Set station mode
     WiFi.mode(WIFI_STA);
     WiFi.setTxPower(WIFI_POWER_11dBm);  // +10dBm
+    WiFi.setSleep(false); // Disable power save mode
      
     // Register WiFi network
     wifiMulti.addAP(settings.config.wifi_bssid.c_str(), 
