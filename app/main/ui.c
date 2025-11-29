@@ -262,46 +262,72 @@ void create_sensor_valid_progress_bar(ProgressBarUI *ui, lv_obj_t *parent,
  * 
  * @note Automatically hides label when remaining reaches 0
  */
-void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining) {
+void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining_raw)
+{
+    bool sensor_expired = (remaining_raw < 0);
+    int remaining = remaining_raw;
+
+    // Normales Clamping, aber expired merken wir uns über sensor_expired
     if (remaining > ui->total_blocks) remaining = ui->total_blocks;
     if (remaining < 0) remaining = 0;
 
     // Farben setzen
     for (int i = 0; i < ui->total_blocks; i++) {
+
+        // Sensor abgelaufen -> ALLES grau, unabhängig von remaining
+        if (sensor_expired) {
+            lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(80, 80, 80), 0); // grau
+            continue;
+        }
+
         if (i < remaining) {
-            if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS && remaining > 3){ // days mode
-                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(100, 200, 100), 0); // green
+            // Klammern korrigiert: Days-Mode
+            if ((ui->total_blocks == BLOCKS_VALID_14DAYS ||
+                 ui->total_blocks == BLOCKS_VALID_15DAYS) &&
+                remaining > 3)
+            {
+                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(100, 200, 100), 0); // grün
             }
-            else if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS && remaining <= 3){ // last 3 days
-                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 200, 0), 0); // yellow
+            else if ((ui->total_blocks == BLOCKS_VALID_14DAYS ||
+                      ui->total_blocks == BLOCKS_VALID_15DAYS) &&
+                     remaining <= 3)
+            {
+                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 200, 0), 0); // gelb
             }
-            else{
-                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 0, 0), 0); // red
+            else {
+                lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(200, 0, 0), 0);   // rot
             }
-            
         } else {
-            lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(80, 80, 80), 0); // Grau
+            lv_obj_set_style_bg_color(ui->blocks[i], lv_color_make(80, 80, 80), 0);     // grau
         }
     }
 
-    // set label text
+    // Label zunächst leeren
     lv_label_set_text_fmt(ui->label, " ");
     lv_timer_handler();
 
-    if(ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS){
+    // Sensor abgelaufen → Label ausblenden, Text komplett weg
+    if (sensor_expired) {
+        lv_label_set_text(ui->label, "");
+        lv_obj_add_flag(ui->label, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    // Normale Texte
+    if (ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS) {
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d days", remaining);
-    }else if(ui->total_blocks == BLOCKS_VALID_HOURS){
+    } else if (ui->total_blocks == BLOCKS_VALID_HOURS) {
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d hours", remaining);
-    }else if(ui->total_blocks == BLOCKS_VALID_MINUTES){
+    } else if (ui->total_blocks == BLOCKS_VALID_MINUTES) {
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d minutes", remaining);
     }
-    
+
+    // remaining==0 aber nicht expired (falls du das irgendwann brauchst)
     if (remaining <= 0) {
-        lv_label_set_text(ui->label, "");                      // Text löschen
-        lv_obj_add_flag(ui->label, LV_OBJ_FLAG_HIDDEN);        // optional: Label verstecken
-    }
-    else {
-        lv_obj_clear_flag(ui->label, LV_OBJ_FLAG_HIDDEN);      // sicherstellen, dass es wieder sichtbar ist
+        lv_label_set_text(ui->label, "");
+        lv_obj_add_flag(ui->label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(ui->label, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -410,19 +436,41 @@ void create_all_sensor_valid_progress_bars()
  * @param[in] ui    Pointer to ProgressBarUI structure
  * @param[in] value New remaining value to display
  */
-void update_chart_valid_values(ProgressBarUI *ui, int value) 
+void update_chart_valid_values(ProgressBarUI *ui, int value)
 {
-    if (ui == NULL || ui->bar == NULL) {
+    bool expired = (value < 0);
+
+    if (expired)
+    {
+        // Sensor expired -> all bars grey
+        update_sensor_valid_progress_bar(&dayBar14,  -1);
+        update_sensor_valid_progress_bar(&dayBar15,  -1);
+        update_sensor_valid_progress_bar(&hourBar,   -1);
+        update_sensor_valid_progress_bar(&minuteBar, -1);
+
+        // optional: all labels hidden
+        lv_obj_add_flag(dayBar14.label,   LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(dayBar15.label,   LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(hourBar.label,    LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(minuteBar.label,  LV_OBJ_FLAG_HIDDEN);
+
         return;
     }
 
+    // normal mode → show active bar
+    switch_sensor_valid_progress_bar(ui, 0);
+
+    // redirect to correct bar update
     if (ui->bar == dayBar14.bar) {
         update_sensor_valid_progress_bar(&dayBar14, value);
-    } else if (ui->bar == dayBar15.bar) {
+    }
+    else if (ui->bar == dayBar15.bar) {
         update_sensor_valid_progress_bar(&dayBar15, value);
-    } else if (ui->bar == hourBar.bar) {
+    }
+    else if (ui->bar == hourBar.bar) {
         update_sensor_valid_progress_bar(&hourBar, value);
-    } else if (ui->bar == minuteBar.bar) {
+    }
+    else if (ui->bar == minuteBar.bar) {
         update_sensor_valid_progress_bar(&minuteBar, value);
     }
 }

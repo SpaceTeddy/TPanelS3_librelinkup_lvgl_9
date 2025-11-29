@@ -1224,37 +1224,60 @@ void lcd_status_indication(bool on_off, uint8_t color) {
  * @see switch_sensor_valid_progress_bar()
  * @see update_chart_valid_values()
  */
-void draw_chart_sensor_valid() {
+void draw_chart_sensor_valid() 
+{
+    int days    = librelinkup.sensor_livetime.sensor_valid_days;
+    int hours   = librelinkup.sensor_livetime.sensor_valid_hours;
+    int minutes = librelinkup.sensor_livetime.sensor_valid_minutes;
 
-    // Draw valid days chart
-    if(librelinkup.sensor_livetime.sensor_valid_days > 0 && 
-       librelinkup.sensor_livetime.sensor_valid_hours >= 0){
-        // Check if sensor is 14-day or 15-day type
+    bool expired = (days < 0 || hours < 0 || minutes < 0);
+
+    // --------------------------
+    // SENSOR EXPIRED
+    // --------------------------
+    if (expired) {
+        switch_sensor_valid_progress_bar(NULL, -1);   // versteckt alle Balken
+        update_chart_valid_values(&dayBar14, -1);
+        update_chart_valid_values(&dayBar15, -1);
+        update_chart_valid_values(&hourBar, -1);
+        update_chart_valid_values(&minuteBar, -1);
+        return;
+    }
+
+    // --------------------------
+    // DAYS MODE
+    // --------------------------
+    if (days > 0) {
+
         if(librelinkup.llu_sensor_data.sensor_runtime == 14*86400){
             switch_sensor_valid_progress_bar(&dayBar14, 0);
-            update_chart_valid_values(&dayBar14, librelinkup.sensor_livetime.sensor_valid_days + 1);
-        }else if(librelinkup.llu_sensor_data.sensor_runtime == 15*86400){
-            switch_sensor_valid_progress_bar(&dayBar15, 0);
-            update_chart_valid_values(&dayBar15, librelinkup.sensor_livetime.sensor_valid_days + 1);
+            update_chart_valid_values(&dayBar14, days);
         }
+        else if(librelinkup.llu_sensor_data.sensor_runtime == 15*86400){
+            switch_sensor_valid_progress_bar(&dayBar15, 0);
+            update_chart_valid_values(&dayBar15, days);
+        }
+
+        return;
     }
-    // Less than 1 day: switch to hours
-    else if(librelinkup.sensor_livetime.sensor_valid_days == 0 && 
-           (librelinkup.sensor_livetime.sensor_valid_hours > 0 && 
-            librelinkup.sensor_livetime.sensor_valid_hours < 24)){
+
+    // --------------------------
+    // HOURS MODE
+    // --------------------------
+    if (days == 0 && hours > 0) {
         switch_sensor_valid_progress_bar(&hourBar, 1);
-        update_chart_valid_values(&hourBar, librelinkup.sensor_livetime.sensor_valid_hours + 1);   
+        update_chart_valid_values(&hourBar, hours);
+        return;
     }
-    // Less than 1 hour: switch to minutes
-    else if(librelinkup.sensor_livetime.sensor_valid_days == 0 && 
-           librelinkup.sensor_livetime.sensor_valid_hours == 0 && 
-           librelinkup.sensor_livetime.sensor_valid_minutes < 60){
+
+    // --------------------------
+    // MINUTES MODE
+    // --------------------------
+    if (days == 0 && hours == 0 && minutes > 0) {
         switch_sensor_valid_progress_bar(&minuteBar, 2);
-        update_chart_valid_values(&minuteBar, librelinkup.sensor_livetime.sensor_valid_minutes + 1);
+        update_chart_valid_values(&minuteBar, minutes);
+        return;
     }
-    
-    lv_timer_handler();
-    delay(5);
 }
 
 /**
@@ -2522,6 +2545,28 @@ void setup()
         lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
     }, LV_EVENT_FOCUSED, NULL);
     // ------------------------------------------------------------------------
+
+        lv_disp_load_scr(ui_Main_screen);
+
+    librelinkup.sensor_livetime.sensor_valid_days = 2;
+    librelinkup.sensor_livetime.sensor_valid_hours = 0;
+    librelinkup.sensor_livetime.sensor_valid_minutes = 0;
+    draw_chart_sensor_valid();
+    delay(3000);
+
+    librelinkup.sensor_livetime.sensor_valid_days = 0;
+    librelinkup.sensor_livetime.sensor_valid_hours = 5;
+    draw_chart_sensor_valid();
+    delay(3000);
+
+    librelinkup.sensor_livetime.sensor_valid_days = 0;
+    librelinkup.sensor_livetime.sensor_valid_hours = 0;
+    librelinkup.sensor_livetime.sensor_valid_minutes = 35;
+    draw_chart_sensor_valid();
+    delay(3000);
+
+    librelinkup.sensor_livetime.sensor_valid_days = -1;
+    draw_chart_sensor_valid();
 
     // ------------------------ Initial data & UI push -------------------------
     update_glucose_data();          ///< First data fetch from LibreLinkUp backend
