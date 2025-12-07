@@ -1879,6 +1879,19 @@ void update_glucose_data() {
                      glucose_delta);
 
         // Update all display elements
+        /*
+        static uint8_t counter = 5;
+        counter--;
+        if(counter < 4){
+            librelinkup.sensor_livetime.sensor_valid_days = 0;
+            librelinkup.sensor_livetime.sensor_valid_hours = 0;
+            librelinkup.sensor_livetime.sensor_valid_minutes = 50;
+        }
+        if(counter == 0){
+            counter = 5;
+        }
+        */
+
         draw_chart_sensor_valid();
         draw_labels(true, librelinkup.llu_glucose_data.measurement_color, 
                    librelinkup.llu_glucose_data.glucoseMeasurement,
