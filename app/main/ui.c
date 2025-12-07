@@ -308,17 +308,25 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining_raw)
 
     // Sensor abgelaufen → Label ausblenden, Text komplett weg
     if (sensor_expired) {
-        lv_label_set_text(ui->label, "");
         lv_obj_add_flag(ui->label, LV_OBJ_FLAG_HIDDEN);
+        lv_timer_handler();
         return;
     }
 
     // Normale Texte
     if (ui->total_blocks == BLOCKS_VALID_14DAYS || ui->total_blocks == BLOCKS_VALID_15DAYS) {
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d days", remaining);
+        lv_obj_add_flag(hourBar.label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(minuteBar.label, LV_OBJ_FLAG_HIDDEN);
     } else if (ui->total_blocks == BLOCKS_VALID_HOURS) {
+        lv_obj_add_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(dayBar15.label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(minuteBar.label, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d hours", remaining);
     } else if (ui->total_blocks == BLOCKS_VALID_MINUTES) {
+        lv_obj_add_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(dayBar15.label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(hourBar.label, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text_fmt(ui->label, "Sensor exp. in %d minutes", remaining);
     }
 

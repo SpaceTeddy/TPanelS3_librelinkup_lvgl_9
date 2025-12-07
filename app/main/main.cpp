@@ -2546,28 +2546,7 @@ void setup()
     }, LV_EVENT_FOCUSED, NULL);
     // ------------------------------------------------------------------------
 
-        lv_disp_load_scr(ui_Main_screen);
-
-    librelinkup.sensor_livetime.sensor_valid_days = 2;
-    librelinkup.sensor_livetime.sensor_valid_hours = 0;
-    librelinkup.sensor_livetime.sensor_valid_minutes = 0;
-    draw_chart_sensor_valid();
-    delay(3000);
-
-    librelinkup.sensor_livetime.sensor_valid_days = 0;
-    librelinkup.sensor_livetime.sensor_valid_hours = 5;
-    draw_chart_sensor_valid();
-    delay(3000);
-
-    librelinkup.sensor_livetime.sensor_valid_days = 0;
-    librelinkup.sensor_livetime.sensor_valid_hours = 0;
-    librelinkup.sensor_livetime.sensor_valid_minutes = 35;
-    draw_chart_sensor_valid();
-    delay(3000);
-
-    librelinkup.sensor_livetime.sensor_valid_days = -1;
-    draw_chart_sensor_valid();
-
+    
     // ------------------------ Initial data & UI push -------------------------
     update_glucose_data();          ///< First data fetch from LibreLinkUp backend
     update_five_minute_counter();   ///< Prime 5-minute chart refresh counter
