@@ -241,7 +241,7 @@ void create_sensor_valid_progress_bar(ProgressBarUI *ui, lv_obj_t *parent,
     ui->label = lv_label_create(parent);
     if (ui->label != NULL) {
         lv_label_set_text(ui->label, label_text);
-        lv_obj_set_style_text_font(ui->label, &JetBrainsMonoLight16, 0);
+        lv_obj_set_style_text_font(ui->label, &JetBrainsMonoLight24, 0);
         lv_obj_set_style_text_color(ui->label, lv_color_white(), 0);
         lv_obj_align(ui->label, LV_ALIGN_CENTER, x, y + block_size + 10);
     }
