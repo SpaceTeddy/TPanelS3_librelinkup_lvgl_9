@@ -1226,9 +1226,9 @@ void lcd_status_indication(bool on_off, uint8_t color) {
  */
 void draw_chart_sensor_valid() 
 {
-    int days    = librelinkup.sensor_livetime.sensor_valid_days;
-    int hours   = librelinkup.sensor_livetime.sensor_valid_hours;
-    int minutes = librelinkup.sensor_livetime.sensor_valid_minutes;
+    int days    = librelinkup.sensor_livetime.sensor_valid_days + 1;    // +1 for display same like app
+    int hours   = librelinkup.sensor_livetime.sensor_valid_hours + 1;   // +1 for display same like app
+    int minutes = librelinkup.sensor_livetime.sensor_valid_minutes + 1; // +1 for display same like app
 
     bool expired = (days < 0 || hours < 0 || minutes < 0);
 
