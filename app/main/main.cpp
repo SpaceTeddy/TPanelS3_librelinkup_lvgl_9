@@ -353,7 +353,7 @@ MQTT mqtt;  ///< MQTT configuration and helper class
 WiFiClient mqttClient;  ///< WiFi client for MQTT connection
 PubSubClient mqtt_client(mqttClient);  ///< MQTT client instance
 
-DynamicJsonDocument json_mqtt(256);  ///< JSON document for MQTT messages
+DynamicJsonDocument json_mqtt(1024);  ///< JSON document for MQTT messages
 
 ///////////////////// HELPER FUNCTIONS ////////////////////
 
@@ -431,7 +431,24 @@ void mqtt_publish(){
     serializeJson(json_mqtt, mqtt.mqtt_buffer);
     json_mqtt.clear();
     mqtt_client.publish((mqtt.mqtt_base + mqtt.mqtt_client_name + mqtt.mqtt_client_data).c_str(), 
-                       mqtt.mqtt_buffer);
+                        mqtt.mqtt_buffer,
+                        false);
+
+    // Publish LibreLinkup Raw JSON data for graphing
+    const String& payload = librelinkup.get_last_graph_json();
+    const String topic = mqtt.mqtt_base + mqtt.mqtt_client_name + "/data_raw";
+
+    logger.debug("raw len=%u topic=%s", (unsigned)payload.length(), topic.c_str());
+    logger.debug("mqtt connected=%d buffer=%u",
+                mqtt_client.connected(),
+                mqtt_client.getBufferSize());   // falls deine PubSubClient-Version das hat
+
+    bool ok = mqtt_client.publish(topic.c_str(),
+                                (const uint8_t*)payload.c_str(),
+                                payload.length(),
+                                false);  // retain nach Wunsch
+
+    logger.debug("raw publish ok=%d state=%d", ok, mqtt_client.state());
 
     // Publish network status
     json_mqtt["IP"]   = WiFi.localIP().toString();
@@ -451,7 +468,8 @@ void mqtt_publish(){
     
     json_mqtt.clear();
     mqtt_client.publish((mqtt.mqtt_base + mqtt.mqtt_client_name + mqtt.mqtt_client_network).c_str(), 
-                       mqtt.mqtt_buffer);
+                       mqtt.mqtt_buffer,
+                       false);
 }
 
 /**
@@ -2372,7 +2390,7 @@ void setup_mqtt() {
     
     mqtt_client.setServer(mqtt.mqtt_server, mqtt.mqtt_port);
     mqtt_client.setCallback(mqtt_callback);
-    mqtt_client.setBufferSize(512);
+    mqtt_client.setBufferSize(9216);
     
     mqtt.mqtt_client_name = "/" + helper.get_flashmemory_id();
     logger.notice("setup mqtt ... client name: %s", mqtt.mqtt_client_name.c_str());

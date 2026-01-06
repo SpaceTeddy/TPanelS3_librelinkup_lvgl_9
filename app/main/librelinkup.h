@@ -144,6 +144,8 @@ private:
         if (accountId.length()) https.addHeader("Account-ID", accountId);
     }
 
+    String last_graph_json;
+    
 public:
 
     /**
@@ -410,6 +412,12 @@ public:
      * @return HTTP status code
      */
     uint16_t get_graph_data(void);
+
+    /**
+     * @brief Getter für MQTT
+     * @return 
+     */
+    const String& get_last_graph_json() const;
 
     /**
      * @brief Download root certificate

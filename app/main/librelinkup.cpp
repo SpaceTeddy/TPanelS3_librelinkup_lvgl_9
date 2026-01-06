@@ -811,12 +811,16 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 (*json_filter)["data"]["graphData"][0]["isHigh"] = true;
                 (*json_filter)["data"]["graphData"][0]["isLow"] = true;
                 */
-
+                
                 // Deserialize the document with json_filter setting. keep buffer size in mind.
                 deserializeJson((*json_librelinkup), https.getStream(), DeserializationOption::Filter(*json_filter));
                 
                 // Print the result
                 //serializeJsonPretty((*json_librelinkup), Serial); Serial.println();
+
+                // getter of json data
+                last_graph_json = "";
+                serializeJson((*json_librelinkup), last_graph_json);
 
                 llu_glucose_data.glucoseMeasurement          = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"].as<int>();
                 llu_glucose_data.trendArrow                  = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"].as<int>();
@@ -919,6 +923,11 @@ uint16_t LIBRELINKUP::get_graph_data(void){
     }
 
     return result;
+}
+
+// get last graph json data as String
+const String& LIBRELINKUP::get_last_graph_json() const {
+    return last_graph_json;
 }
 
 // get WiFiClientSecure client pointer
