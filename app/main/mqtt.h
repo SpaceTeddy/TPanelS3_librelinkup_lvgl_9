@@ -57,6 +57,7 @@ public:
      */
     char mqtt_buffer[255]; ///< Buffer for MQTT messages
     String mqtt_base = "librelinkup"; ///< Base MQTT topic
+    String mqtt_master_id = "MASTER"; ///< master client ID for master mode
     String mqtt_client_data = "/data"; ///< Topic for client data
     String mqtt_client_name = ""; ///< Client name
     String mqtt_subscibe_toppic = "/cmd"; ///< Subscription topic for commands

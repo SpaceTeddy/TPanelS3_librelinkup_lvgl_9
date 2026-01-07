@@ -52,6 +52,7 @@ class SETTINGS {
             uint8_t ota_update = 1;           /**< Flag to enable/disable OTA updates (1 = enabled, 0 = disabled) */
             uint8_t wg_mode = 0;              /**< Flag to enable/disable WireGuard VPN (1 = enabled, 0 = disabled) */
             uint8_t mqtt_mode = 1;            /**< Flag to enable/disable MQTT (1 = enabled, 0 = disabled) */
+            uint8_t mqtt_master_mode = 1;     /**< Flag to enable/disable MQTT Master Mode (1 = enabled, 0 = disabled) */
             uint8_t brightness = 50;          /**< Display brightness level (0-255) */
             uint16_t telnet_port = 23;        /**< Telnet port number */
             

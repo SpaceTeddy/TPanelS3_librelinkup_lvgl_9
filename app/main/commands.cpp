@@ -436,6 +436,27 @@ void mqttClientSettingCommand(uuid::console::Shell &shell, const std::vector<std
     }
 }
 
+void mqttMasterModeCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
+    
+    if (!arguments.empty()) {
+        String mqtt_argument = arguments[0].c_str();
+        if(mqtt_argument == "enable"){
+            settings.config.mqtt_master_mode = 1;
+            mqtt_client.unsubscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
+            shell.println(F("MQTT Master Mode enabled."));
+        }
+        else if((mqtt_argument == "disable")){
+            settings.config.mqtt_master_mode = 0;
+            shell.println(F("MQTT Master Mode disabled, activating Client mode..."));
+            mqtt_client.unsubscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
+            mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
+        }
+        else {
+            shell.printfln("invalid argument: %s",mqtt_argument);
+        }
+    }
+}
+
 void wgSettingCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
     if (!arguments.empty()) {
         String wireguard_argument = arguments[0].c_str();
@@ -569,6 +590,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("llu")}, uuid::flash_string_vector{F("\t<value>\n\r\t<user_id>\n\r\t<user_token>\n\r\t<auth>\n\r\t<tou>\n\r\t<sensor_id>\n\r\t<sensor_sn>\n\r\t<sensor_type>\n\r\t<timestamp>\n\r\t<history>\n\r\t<graphdata>\n\r\t<graph_redraw>\n\r\t<get_graphdata>\n\r\t<statistics>")}, lluCommand);
     commands->add_command(uuid::flash_string_vector{F("ping")}, PingCommand);
     commands->add_command(uuid::flash_string_vector{F("mqtt_client")}, uuid::flash_string_vector{F("<enable|disable>")}, mqttClientSettingCommand);
+    commands->add_command(uuid::flash_string_vector{F("mqtt_master_mode")}, uuid::flash_string_vector{F("<enable|disable>")}, mqttMasterModeCommand);
     commands->add_command(uuid::flash_string_vector{F("wireguard")}, uuid::flash_string_vector{F("<enable|disable>")}, wgSettingCommand);
     commands->add_command(uuid::flash_string_vector{F("download_ca_to_file")}, uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")}, downloadRootCaToFileCommand);
     commands->add_command(uuid::flash_string_vector{F("download_ca_from_url")}, uuid::flash_string_vector{F("<https_url>"), F("<littlefs_path>")}, downloadRootCaFromURLToFileCommand);

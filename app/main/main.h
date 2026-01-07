@@ -69,7 +69,7 @@ void setup_OTA(bool mode);
 /**
  * @brief Initializes MQTT communication.
  */
-void setup_mqtt(void);
+bool setup_mqtt(void);
 
 
 /**

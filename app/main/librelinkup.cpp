@@ -737,19 +737,13 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
     check_client();
 
-    // resets previuos timestamp
-    llu_glucose_data.str_measurement_timestamp = "";
-    // delete all historical glucose data
-    memset(llu_sensor_history_data.graph_data,0,GRAPHDATAARRAYSIZE);
-    memset(llu_sensor_history_data.timestamp,0,GRAPHDATAARRAYSIZE);
-
     // get user ID and Token, if AuthToken not already pulled 
-    if(llu_login_data.user_id == "" || llu_login_data.user_token == "" || llu_login_data.user_token == "null"){
+    if (llu_login_data.user_id == "" || llu_login_data.user_token == "" || llu_login_data.user_token == "null") {
         logger.debug("Auth User: no user_id available!");
-        DBGprint_LLU;Serial.println("Auth User: no user_id available!");
-        auth_user(settings.config.login_email,settings.config.login_password);
-        if(llu_login_data.user_login_status == 4){
-            DBGprint_LLU;Serial.println("LLU Login: Tou required");
+        DBGprint_LLU; Serial.println("Auth User: no user_id available!");
+        auth_user(settings.config.login_email, settings.config.login_password);
+        if (llu_login_data.user_login_status == 4) {
+            DBGprint_LLU; Serial.println("LLU Login: Tou required");
             logger.debug("LLU Login: Tou required");
             tou_user();
         }
@@ -759,7 +753,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
     url_graph = "/llu/connections/" + llu_login_data.user_id + "/graph";
 
     // get API graph data from LibreView server 
-    if(https.begin(*llu_client, base_url + url_graph)) {
+    if (https.begin(*llu_client, base_url + url_graph)) {
         vTaskDelay(pdMS_TO_TICKS(10));        
 
         // Add LLU default headers
@@ -768,118 +762,59 @@ uint16_t LIBRELINKUP::get_graph_data(void){
         https.addHeader("Account-ID", llu_login_data.account_id);
 
         int code = https.GET();
-        //DBGprint_LLU;Serial.printf("HTTP Code: [%d]\r\n", code);
-        //logger.debug("HTTP Code: [%d]\r\n", code);
 
         if (code > 0) {
             if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
-                // The filter: it contains "true" for each value we want to keep
+                // JSON filter
                 (*json_filter)["data"]["connection"]["targetLow"] = true;
                 (*json_filter)["data"]["connection"]["targetHigh"] = true;
-                
+
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"] = true;
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"] = true;
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"] = true;
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"] = true;
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["Timestamp"] = true;
-                
+
                 (*json_filter)["data"]["connection"]["patientDevice"]["ll"] = true;
                 (*json_filter)["data"]["connection"]["patientDevice"]["hl"] = true;
                 (*json_filter)["data"]["connection"]["patientDevice"]["fixedLowAlarmValues"]["mgdl"] = true;
-                
+
                 (*json_filter)["data"]["connection"]["status"] = true;
                 (*json_filter)["data"]["connection"]["country"] = true;
                 (*json_filter)["data"]["connection"]["sensor"]["sn"] = true;
                 (*json_filter)["data"]["connection"]["sensor"]["deviceId"] = true;
                 (*json_filter)["data"]["connection"]["sensor"]["a"] = true;
-                
+
                 (*json_filter)["data"]["activeSensors"][0]["sensor"]["deviceId"] = true;
                 (*json_filter)["data"]["activeSensors"][0]["sensor"]["sn"] = true;
                 (*json_filter)["data"]["activeSensors"][0]["sensor"]["a"] = true;
                 (*json_filter)["data"]["activeSensors"][0]["sensor"]["pt"] = true;
 
-                /*
-                (*json_filter)["ticket"]["token"] = true; // token does not change. 
-                (*json_filter)["ticket"]["expires"] = true;
-                */
-
                 (*json_filter)["data"]["graphData"][0]["ValueInMgPerDl"] = true;
                 (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
-                /*
-                (*json_filter)["data"]["graphData"][0]["MeasurementColor"] = true;
-                (*json_filter)["data"]["graphData"][0]["isHigh"] = true;
-                (*json_filter)["data"]["graphData"][0]["isLow"] = true;
-                */
-                
-                // Deserialize the document with json_filter setting. keep buffer size in mind.
-                deserializeJson((*json_librelinkup), https.getStream(), DeserializationOption::Filter(*json_filter));
-                
-                // Print the result
-                //serializeJsonPretty((*json_librelinkup), Serial); Serial.println();
 
-                // getter of json data
+                // Deserialize with filter
+                //DeserializationError err = deserializeJson((*json_librelinkup), https.getStream(),
+                //                                          DeserializationOption::Filter(*json_filter));
+                String body = https.getString();  // liest komplette Response
+                DeserializationError err = deserializeJson((*json_librelinkup), body,
+                                          DeserializationOption::Filter(*json_filter));
+                if (err) {
+                    logger.debug("HTTPS deserialize failed: %s", err.c_str());
+                    json_filter->clear();
+                    json_librelinkup->clear();
+                    https.end();
+                    return 0;
+                }
+
+                // keep raw JSON as string (your getter)
                 last_graph_json = "";
                 serializeJson((*json_librelinkup), last_graph_json);
 
-                llu_glucose_data.glucoseMeasurement          = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"].as<int>();
-                llu_glucose_data.trendArrow                  = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"].as<int>();
-                llu_glucose_data.measurement_color           = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"].as<int>();
-                llu_glucose_data.str_TrendMessage            = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"].as<String>();
-                llu_glucose_data.str_measurement_timestamp   = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["Timestamp"].as<String>();
+                // ONE parser for both sources
+                bool ok = parse_graph_json_doc();
 
-                llu_glucose_data.glucosetargetLow            = (*json_librelinkup)["data"]["connection"]["targetLow"].as<int>();
-                llu_glucose_data.glucosetargetHigh           = (*json_librelinkup)["data"]["connection"]["targetHigh"].as<int>();
-                llu_glucose_data.glucoseAlarmLow             = (*json_librelinkup)["data"]["connection"]["patientDevice"]["ll"].as<int>();
-                llu_glucose_data.glucoseAlarmHigh            = (*json_librelinkup)["data"]["connection"]["patientDevice"]["hl"].as<int>();
-                llu_glucose_data.glucosefixedLowAlarmValues  = (*json_librelinkup)["data"]["connection"]["patientDevice"]["fixedLowAlarmValues"]["mgdl"].as<int>();
-
-                llu_login_data.connection_country          = (*json_librelinkup)["data"]["connection"]["country"].as<String>();
-                llu_login_data.connection_status           = (*json_librelinkup)["data"]["connection"]["status"].as<int>();
-                llu_sensor_data.sensor_sn_non_active        = (*json_librelinkup)["data"]["connection"]["sensor"]["sn"].as<String>();
-                llu_sensor_data.sensor_id_non_active        = (*json_librelinkup)["data"]["connection"]["sensor"]["deviceId"].as<String>();
-                llu_sensor_data.sensor_non_activ_unixtime   = (*json_librelinkup)["data"]["connection"]["sensor"]["a"].as<uint32_t>();
-                
-                llu_sensor_data.sensor_id                   = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["deviceId"].as<String>();
-                llu_sensor_data.sensor_sn                   = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["sn"].as<String>();
-                llu_sensor_data.sensor_state                = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["pt"].as<int>();
-                llu_sensor_data.sensor_activation_time      = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["a"].as<int>();
-                /*
-                user_token                  = (*json_librelinkup)["ticket"]["token"].as<String>();     // token does not change.
-                user_token_expires          = (*json_librelinkup)["ticket"]["expires"].as<uint32_t>();
-                */
-                
-                // get historical glucose data (timestamp and value)
-                for(uint8_t i=0;i<GRAPHDATAARRAYSIZE;i++){
-                    llu_sensor_history_data.graph_data[i] = (*json_librelinkup)["data"]["graphData"][i]["ValueInMgPerDl"].as<uint16_t>();
-                    if(llu_sensor_history_data.graph_data[i] == 0){
-                        llu_sensor_history_data.timestamp[i] = 0;
-                    }else{
-                        String timestampStr = (*json_librelinkup)["data"]["graphData"][i]["Timestamp"].as<String>();
-                        time_t ts = parseTimestamp(timestampStr.c_str());
-                        llu_sensor_history_data.timestamp[i]  = ts;
-                    }
-                    //DBGprint_LLU;Serial.print("librelinkup_graph_data:");Serial.println(graph_data[i]);
-                }
-                
-                // add current glucosemeasurement to last position (142)
-                llu_sensor_history_data.graph_data[((GRAPHDATAARRAYSIZE+GRAPHDATAARRAYSIZE_PLUS_ONE)-1)] = llu_glucose_data.glucoseMeasurement;
-
-                //DBGprint_LLU;Serial.print("glucoseMeasurement: ");Serial.print(glucoseMeasurement);
-                if(llu_glucose_data.trendArrow == 0){
-                llu_glucose_data.str_trendArrow = "no Data";
-                }else if(llu_glucose_data.trendArrow == 1){
-                    llu_glucose_data.str_trendArrow = "↓";
-                }else if(llu_glucose_data.trendArrow == 2){
-                    llu_glucose_data.str_trendArrow = "↘";
-                }else if(llu_glucose_data.trendArrow == 3){
-                    llu_glucose_data.str_trendArrow = "→";
-                }else if(llu_glucose_data.trendArrow == 4){
-                    llu_glucose_data.str_trendArrow = "↗";
-                }else if(llu_glucose_data.trendArrow == 5){
-                    llu_glucose_data.str_trendArrow = "↑";
-                }
-                
                 Json_Buffer_Info buffer_info;
                 buffer_info = helper.getBufferSize(&(*json_filter));
                 logger.debug("json_filter     : Used Bytes / Total Capacity: %d / %d", buffer_info.usedCapacity, buffer_info.totalCapacity);
@@ -888,41 +823,140 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 logger.debug("json_librelinkup: Used Bytes / Total Capacity: %d / %d", buffer_info.usedCapacity, buffer_info.totalCapacity);
 
                 json_filter->clear();
-                json_librelinkup->clear();                                          //clears the data object
+                json_librelinkup->clear();
+
+                result = ok ? 1 : 0;
             }
-            result = 1;
+
             https_llu_api_fetch_time = millis() - https_api_time_measure;
         }
         else {
             DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
             logger.debug("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
             result = 0;
-                        
-            if (code == HTTP_CODE_UNAUTHORIZED){    //Token Auth Error handling
+
+            if (code == HTTP_CODE_UNAUTHORIZED) {
                 DBGprint_LLU; Serial.println("Error, wrong Token -> reauthorization...");
                 logger.debug("Error, wrong Token -> reauthorization...");
                 json_filter->clear();
                 json_librelinkup->clear();
-                auth_user(settings.config.login_email,settings.config.login_password);
+                auth_user(settings.config.login_email, settings.config.login_password);
                 result = get_graph_data();
             }
         }
+
         // Free https resources
         https.end();
 
-    }else{
+    } else {
         result = 0;
     }
 
-    //check if client is still connected
-    if(llu_client->connected()){
-        DBGprint_LLU;Serial.printf("LLU client still connected: %d\r\n",llu_client->connected());
-        logger.debug("LLU client still connected: %d\r\n",llu_client->connected());
+    // check if client is still connected
+    if (llu_client->connected()) {
+        DBGprint_LLU; Serial.printf("LLU client still connected: %d\r\n", llu_client->connected());
+        logger.debug("LLU client still connected: %d\r\n", llu_client->connected());
         llu_client->flush();
         llu_client->stop();
     }
 
     return result;
+}
+
+// ingest_graph_json from external source
+bool LIBRELINKUP::ingest_graph_json(const uint8_t* data, size_t len) {
+
+    if (!data || len == 0) return false;
+
+    DeserializationError err = deserializeJson(*json_librelinkup, data, len);
+    if (err) {
+        logger.debug("ingest_graph_json: deserialize failed: %s", err.c_str());
+        json_librelinkup->clear();
+        return false;
+    }
+
+    // keep raw JSON as string (optional but helpful)
+    last_graph_json = "";
+    serializeJson(*json_librelinkup, last_graph_json);
+
+    bool ok = parse_graph_json_doc();
+
+    json_librelinkup->clear();
+    return ok;
+}
+
+// parse_graph_json_doc from internal json_librelinkup
+bool LIBRELINKUP::parse_graph_json_doc() {
+
+    // resets previous timestamp
+    llu_glucose_data.str_measurement_timestamp = "";
+
+    // delete all historical glucose data
+    memset(llu_sensor_history_data.graph_data, 0, GRAPHDATAARRAYSIZE);
+    memset(llu_sensor_history_data.timestamp,  0, GRAPHDATAARRAYSIZE);
+
+    // --- Parse current measurement ---
+    llu_glucose_data.glucoseMeasurement        = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"].as<int>();
+    llu_glucose_data.trendArrow                = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"].as<int>();
+    llu_glucose_data.measurement_color         = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"].as<int>();
+    llu_glucose_data.str_TrendMessage          = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"].as<String>();
+    llu_glucose_data.str_measurement_timestamp = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["Timestamp"].as<String>();
+
+    // --- Parse targets/alarms ---
+    llu_glucose_data.glucosetargetLow          = (*json_librelinkup)["data"]["connection"]["targetLow"].as<int>();
+    llu_glucose_data.glucosetargetHigh         = (*json_librelinkup)["data"]["connection"]["targetHigh"].as<int>();
+    llu_glucose_data.glucoseAlarmLow           = (*json_librelinkup)["data"]["connection"]["patientDevice"]["ll"].as<int>();
+    llu_glucose_data.glucoseAlarmHigh          = (*json_librelinkup)["data"]["connection"]["patientDevice"]["hl"].as<int>();
+    llu_glucose_data.glucosefixedLowAlarmValues= (*json_librelinkup)["data"]["connection"]["patientDevice"]["fixedLowAlarmValues"]["mgdl"].as<int>();
+
+    // --- Parse connection/sensor info ---
+    llu_login_data.connection_country        = (*json_librelinkup)["data"]["connection"]["country"].as<String>();
+    llu_login_data.connection_status         = (*json_librelinkup)["data"]["connection"]["status"].as<int>();
+
+    llu_sensor_data.sensor_sn_non_active     = (*json_librelinkup)["data"]["connection"]["sensor"]["sn"].as<String>();
+    llu_sensor_data.sensor_id_non_active     = (*json_librelinkup)["data"]["connection"]["sensor"]["deviceId"].as<String>();
+    llu_sensor_data.sensor_non_activ_unixtime= (*json_librelinkup)["data"]["connection"]["sensor"]["a"].as<uint32_t>();
+
+    llu_sensor_data.sensor_id                = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["deviceId"].as<String>();
+    llu_sensor_data.sensor_sn                = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["sn"].as<String>();
+    llu_sensor_data.sensor_state             = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["pt"].as<int>();
+    llu_sensor_data.sensor_activation_time   = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["a"].as<int>();
+
+    // --- Parse historical glucose data ---
+    for (uint8_t i = 0; i < GRAPHDATAARRAYSIZE; i++) {
+        llu_sensor_history_data.graph_data[i] =
+            (*json_librelinkup)["data"]["graphData"][i]["ValueInMgPerDl"].as<uint16_t>();
+
+        if (llu_sensor_history_data.graph_data[i] == 0) {
+            llu_sensor_history_data.timestamp[i] = 0;
+        } else {
+            String timestampStr =
+                (*json_librelinkup)["data"]["graphData"][i]["Timestamp"].as<String>();
+            time_t ts = parseTimestamp(timestampStr.c_str());
+            llu_sensor_history_data.timestamp[i] = ts;
+        }
+    }
+
+    // add current glucosemeasurement to last position (142)
+    llu_sensor_history_data.graph_data[(GRAPHDATAARRAYSIZE + GRAPHDATAARRAYSIZE_PLUS_ONE - 1)] =
+        llu_glucose_data.glucoseMeasurement;
+
+    // --- Trend arrow mapping ---
+    if (llu_glucose_data.trendArrow == 0) {
+        llu_glucose_data.str_trendArrow = "no Data";
+    } else if (llu_glucose_data.trendArrow == 1) {
+        llu_glucose_data.str_trendArrow = "↓";
+    } else if (llu_glucose_data.trendArrow == 2) {
+        llu_glucose_data.str_trendArrow = "↘";
+    } else if (llu_glucose_data.trendArrow == 3) {
+        llu_glucose_data.str_trendArrow = "→";
+    } else if (llu_glucose_data.trendArrow == 4) {
+        llu_glucose_data.str_trendArrow = "↗";
+    } else if (llu_glucose_data.trendArrow == 5) {
+        llu_glucose_data.str_trendArrow = "↑";
+    }
+
+    return true;
 }
 
 // get last graph json data as String

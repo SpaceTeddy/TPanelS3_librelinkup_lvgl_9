@@ -52,6 +52,8 @@ char UART_IPC_DATA1 = 0;  ///< Buffer for received UART data
 
 SETTINGS settings;  ///< Settings manager instance
 
+bool flag_mqtt_master_rx = true; // for first run
+
 /// @name System Status Counters
 /// @{
 uint8_t esp_status_counter_wifi_restart = 0;  ///< WiFi reconnection counter
@@ -430,26 +432,30 @@ void mqtt_publish(){
     
     serializeJson(json_mqtt, mqtt.mqtt_buffer);
     json_mqtt.clear();
-    mqtt_client.publish((mqtt.mqtt_base + mqtt.mqtt_client_name + mqtt.mqtt_client_data).c_str(), 
+    mqtt_client.publish((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_client_data).c_str(), 
                         mqtt.mqtt_buffer,
                         false);
 
     // Publish LibreLinkup Raw JSON data for graphing
-    const String& payload = librelinkup.get_last_graph_json();
-    const String topic = mqtt.mqtt_base + mqtt.mqtt_client_name + "/data_raw";
+    if(settings.config.mqtt_master_mode == true){
+        // In master mode, do not publish raw data
+        const String& payload = librelinkup.get_last_graph_json();
+        const String topic = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw";
+        /*
+        logger.debug("raw len=%u topic=%s", (unsigned)payload.length(), topic.c_str());
+        logger.debug("mqtt connected=%d buffer=%u",
+                    mqtt_client.connected(),
+                    mqtt_client.getBufferSize());   // falls deine PubSubClient-Version das hat
+        */
+        bool ok = mqtt_client.publish(topic.c_str(),
+                                    (const uint8_t*)payload.c_str(),
+                                    payload.length(),
+                                    true);  // retain nach Wunsch
 
-    logger.debug("raw len=%u topic=%s", (unsigned)payload.length(), topic.c_str());
-    logger.debug("mqtt connected=%d buffer=%u",
-                mqtt_client.connected(),
-                mqtt_client.getBufferSize());   // falls deine PubSubClient-Version das hat
-
-    bool ok = mqtt_client.publish(topic.c_str(),
-                                (const uint8_t*)payload.c_str(),
-                                payload.length(),
-                                false);  // retain nach Wunsch
-
-    logger.debug("raw publish ok=%d state=%d", ok, mqtt_client.state());
-
+        //logger.debug("raw publish ok=%d state=%d", ok, mqtt_client.state());
+        return;
+    }
+    
     // Publish network status
     json_mqtt["IP"]   = WiFi.localIP().toString();
     if(settings.config.wg_mode == 1){
@@ -467,7 +473,7 @@ void mqtt_publish(){
     buffer_info = helper.getBufferSize(&json_mqtt);
     
     json_mqtt.clear();
-    mqtt_client.publish((mqtt.mqtt_base + mqtt.mqtt_client_name + mqtt.mqtt_client_network).c_str(), 
+    mqtt_client.publish((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_client_network).c_str(), 
                        mqtt.mqtt_buffer,
                        false);
 }
@@ -497,97 +503,105 @@ void update_mqtt_publish(){
  * @param[in] length  Payload length
  */
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-  
-    mqtt.mqtt_incomming_cmd = "";
 
-    // Build command string from payload
-    for (unsigned int i=0; i<length; i++) {
-        mqtt.mqtt_incomming_cmd += (char)payload[i];
-    }
+    String t(topic);
 
-    // Parse JSON command
-    DeserializationError error = deserializeJson(json_mqtt, mqtt.mqtt_incomming_cmd);
+    // ---------- TOPICS ----------
+    String topic_raw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw";
+    String topic_cmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
 
-    if (error) {
-        DBGprint;
-        Serial.print(F("deserializeJson() failed: "));
-        Serial.println(error.f_str());
+    logger.debug("MQTT RX topic=%s len=%u", t.c_str(), (unsigned)length);
+
+    // =========================================================
+    // 1) RAW DATA vom MASTER (Client-Mode)
+    // =========================================================
+    if(settings.config.mqtt_master_mode == false){
+        if (t == topic_raw) {
+
+            logger.debug("MQTT raw data received");
+
+            bool ok = librelinkup.ingest_graph_json(payload, length);
+            logger.debug("MQTT ingest ok=%d len=%u", ok, (unsigned)length);
+
+            // do the glucose data update in client mode
+            //update_glucose_data();        ///< Fetch and render latest values
+            //update_five_minute_counter(); ///< Advance 5-minute chart cadence
+            //update_mqtt_publish();        ///< Push telemetry if MQTT enabled
+            flag_mqtt_master_rx = true;
+            return; // <<< GANZ WICHTIG
+        }
         return;
     }
-    else {
-        // Extract command parameters
-        const char* cmd  = json_mqtt["cmd"];
-        float parameter1 = json_mqtt["parameter1"];
-        float parameter2 = json_mqtt["parameter2"];
-        
-        DBGprint;
-        Serial.print(F("CMD:"));
-        Serial.print(cmd);
-        Serial.print(" ");
-        Serial.print(F("parameter1:"));
-        Serial.print(parameter1);
-        Serial.print(" ");
-        Serial.print(F("parameter2:"));
-        Serial.println(parameter2);
-        
-        json_mqtt.clear();
-        bool cmd_ok = 0;
+    
 
-        // Process commands
-        if(strcmp(cmd, "reset") == 0){
-            ESP.restart();
-            cmd_ok = 1;
+    // =========================================================
+    // 2) COMMANDS (dein bestehender Code)
+    // =========================================================
+    if (t == topic_cmd) {
+
+        mqtt.mqtt_incomming_cmd = "";
+
+        // Payload → String
+        for (unsigned int i = 0; i < length; i++) {
+            mqtt.mqtt_incomming_cmd += (char)payload[i];
+        }
+
+        DeserializationError error = deserializeJson(json_mqtt, mqtt.mqtt_incomming_cmd);
+        if (error) {
+            logger.notice("CMD deserialize failed: %s", error.f_str());
+            mqtt.mqtt_incomming_cmd = "";
             return;
         }
 
-        if(strcmp(cmd, "brightness") == 0){
-            settings.config.brightness = tpanels3.set_backlight_brightness(parameter1);
-            config_sleep_timer_backup = millis();
-            logger.notice("TRGB sleep timer: %d , MQTT Brightness Setting: %d",
-                         config_sleep_timer_backup, parameter1);
-            cmd_ok = 1;
+        const char* cmd  = json_mqtt["cmd"];
+        float parameter1 = json_mqtt["parameter1"] | 0;
+        float parameter2 = json_mqtt["parameter2"] | 0;
+
+        logger.notice("CMD=%s p1=%.2f p2=%.2f", cmd, parameter1, parameter2);
+
+        bool cmd_ok = false;
+
+        // ---------- COMMAND HANDLING ----------
+        if (strcmp(cmd, "reset") == 0) {
+            cmd_ok = true;
+            ESP.restart();
         }
 
-        if(strcmp(cmd, "ota_server_mode") == 0){
-            if(parameter1 == 1){
+        else if (strcmp(cmd, "brightness") == 0) {
+            settings.config.brightness = tpanels3.set_backlight_brightness(parameter1);
+            config_sleep_timer_backup = millis();
+            cmd_ok = true;
+        }
+
+        else if (strcmp(cmd, "ota_server_mode") == 0) {
+            if (parameter1 == 1) {
                 settings.config.ota_update = 1;
-                // Start OTA web server
                 server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
                     request->send(200, "text/plain", "ESP32 LibreLinkup Client");
                 });
                 ElegantOTA.begin(&server);
                 server.begin();
-                cmd_ok = 1;
-            }else if(parameter1 == 0){
+                cmd_ok = true;
+            } else {
                 settings.config.ota_update = 0;
                 server.end();
-                cmd_ok = 1;
-            }   
+                cmd_ok = true;
+            }
         }
 
-        if(strcmp(cmd, "wg_mode") == 0){
-            if(parameter1 == 1){
-                settings.config.wg_mode = 1;
-                setup_wg(1);  // Start WireGuard
-                cmd_ok = 1;
-            }else if(parameter1 == 0){
-                settings.config.wg_mode = 0;
-                setup_wg(0);  // Stop WireGuard
-                cmd_ok = 1;
-            }   
+        else if (strcmp(cmd, "wg_mode") == 0) {
+            settings.config.wg_mode = (parameter1 == 1);
+            setup_wg(settings.config.wg_mode);
+            cmd_ok = true;
         }
 
-        if(strcmp(cmd, "mqtt_mode") == 0){
-            if(parameter1 == 1){
-                settings.config.mqtt_mode = 1;
-                cmd_ok = 1;
-            }else if(parameter1 == 0){
-                settings.config.mqtt_mode = 0;
-                cmd_ok = 1;
-            }   
+        else if (strcmp(cmd, "mqtt_mode") == 0) {
+            settings.config.mqtt_mode = (parameter1 == 1);
+            cmd_ok = true;
         }
 
-        // Send command acknowledgment back to broker
+        // ---------- ACK ----------
+        json_mqtt.clear();
         json_mqtt["cmd"]        = cmd;
         json_mqtt["parameter1"] = parameter1;
         json_mqtt["parameter2"] = parameter2;
@@ -596,18 +610,23 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         serializeJson(json_mqtt, mqtt.mqtt_buffer);
         json_mqtt.clear();
 
-        mqtt_client.publish((mqtt.mqtt_base + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_rec_toppic).c_str(), 
-                           mqtt.mqtt_buffer);
+        mqtt_client.publish(
+            (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_rec_toppic).c_str(),
+            mqtt.mqtt_buffer
+        );
+
         mqtt.mqtt_incomming_cmd = "";
+
+        // optional: Status-Update nach Command
+        mqtt_publish();
+
+        return;
     }
-    
-    if(mqtt.mqtt_incomming_cmd != ""){
-        DBGprint;
-        Serial.println(F("mqtt command received"));
-    }
-    
-    // Send updated data back to broker
-    mqtt_publish();
+
+    // =========================================================
+    // 3) UNBEKANNTE TOPICS
+    // =========================================================
+    logger.debug("MQTT topic ignored");
 }
 
 ///////////////////// LVGL FUNCTIONS ////////////////////
@@ -933,7 +952,7 @@ static void btn_mqtt_cb(lv_event_t * event) {
         }else if(mqtt.mqtt_enable == 1){
             mqtt.mqtt_enable = 0;
             logger.debug("MQTT client disconnected");
-            mqtt_client.unsubscribe((mqtt.mqtt_base + mqtt.mqtt_client_name + 
+            mqtt_client.unsubscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + 
                                     mqtt.mqtt_subscibe_toppic).c_str());
             mqtt_client.disconnect();
         }
@@ -1850,9 +1869,16 @@ void update_glucose_data() {
     lcd_status_indication(1, 1);  // Show activity indicator
 
     // Fetch graph data from API
-    if (librelinkup.get_graph_data() == 0) {
-        handle_llu_api_error();
-        return;
+    if(settings.config.mqtt_master_mode == true){
+        logger.debug("Fetch graph data (master mode)...");
+        if (librelinkup.get_graph_data() == 0) {
+            handle_llu_api_error();
+            return;
+        }
+        //settings.config.mqtt_master_mode = false; // Currently unused
+    }else{
+        logger.debug("Fetch graph data (client mode)...");
+
     }
 
     lcd_status_indication(0, 1);  // Hide activity indicator
@@ -2386,21 +2412,51 @@ void setup_librelinkup() {
  * 
  * @see mqtt_callback()
  */
-void setup_mqtt() {
-    
+bool setup_mqtt() {
+
     mqtt_client.setServer(mqtt.mqtt_server, mqtt.mqtt_port);
     mqtt_client.setCallback(mqtt_callback);
     mqtt_client.setBufferSize(9216);
-    
-    mqtt.mqtt_client_name = "/" + helper.get_flashmemory_id();
-    logger.notice("setup mqtt ... client name: %s", mqtt.mqtt_client_name.c_str());
-    
-    if (!mqtt_client.connected()){
-        mqtt_client.connect((mqtt.mqtt_base + mqtt.mqtt_client_name).c_str(), 
-                           mqtt.mqtt_user, mqtt.mqtt_password);
-        mqtt_client.subscribe((mqtt.mqtt_base + mqtt.mqtt_client_name + 
-                              mqtt.mqtt_subscibe_toppic).c_str());
+
+    // Client-ID: NUR eine ID, keine Slashes, kein mqtt_base!
+    mqtt.mqtt_client_name = helper.get_flashmemory_id();  // z.B. "4B431EEB"
+    const String clientId = mqtt.mqtt_client_name;
+
+    logger.notice("MQTT: connecting... clientId=%s", clientId.c_str());
+
+    // Versuche z.B. 30x (3 Sekunden)
+    for (int i = 0; i < 30; i++) {
+
+        if (mqtt_client.connected()) break;
+
+        bool ok = mqtt_client.connect(clientId.c_str(), mqtt.mqtt_user, mqtt.mqtt_password);
+        logger.debug("MQTT connect try=%d ok=%d state=%d", i, ok, mqtt_client.state());
+
+        if (ok) break;
+
+        delay(100);
     }
+
+    if (!mqtt_client.connected()) {
+        logger.debug("MQTT: connect failed permanently, state=%d", mqtt_client.state());
+        return false;
+    }
+
+    logger.notice("MQTT: connected");
+
+    String subCmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
+    String subRaw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw";
+
+    mqtt_client.unsubscribe(subCmd.c_str());
+    mqtt_client.unsubscribe(subRaw.c_str());
+
+    bool s1 = mqtt_client.subscribe(subCmd.c_str());
+    bool s2 = mqtt_client.subscribe(subRaw.c_str());
+
+    logger.notice("MQTT subscribe cmd: %s ok=%d", subCmd.c_str(), s1);
+    logger.notice("MQTT subscribe raw: %s ok=%d", subRaw.c_str(), s2);
+
+    return (s1 && s2);
 }
 
 /**
@@ -2613,6 +2669,13 @@ void loop()
     lv_timer_handler();
     delay(1);
 
+    if(flag_mqtt_master_rx == true){
+        flag_mqtt_master_rx = false;
+        update_glucose_data();        ///< Fetch and render latest values
+        update_five_minute_counter(); ///< Advance 5-minute chart cadence
+        update_mqtt_publish();        ///< Push telemetry if MQTT enabled
+    }
+
     // ----------------------------- Software timers ---------------------------
     // 250 ms tick: enter FW update screen when OTA starts
     if (millis() - g_timer_250ms_backup > timer_250ms) {
@@ -2690,9 +2753,9 @@ void loop()
 
         if (ota_in_progress == 0) {
             if (!mqtt_client.connected() && mqtt.mqtt_enable == 1) {
-                mqtt_client.connect((mqtt.mqtt_base + mqtt.mqtt_client_name).c_str(),
+                mqtt_client.connect((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name).c_str(),
                                     mqtt.mqtt_user, mqtt.mqtt_password);
-                mqtt_client.subscribe((mqtt.mqtt_base + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
+                
 
                 if (!mqtt_client.connected()) {
                     DBGprint; Serial.printf("mqtt_client reconnect...failed!\n");
@@ -2700,6 +2763,8 @@ void loop()
                 } else {
                     DBGprint; Serial.printf("mqtt_client reconnect...success!\n");
                     logger.notice("mqtt_client reconnect...success!\r\n");
+                    mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
+                    mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
                 }
             }
         }
@@ -2719,7 +2784,7 @@ void loop()
     if (millis() - g_timer_60000ms_backup > timer_60000ms) {
         g_timer_60000ms_backup = millis();
 
-        if (ota_in_progress == 0) {
+        if (ota_in_progress == 0 && settings.config.mqtt_master_mode == 1) {
             update_glucose_data();        ///< Fetch and render latest values
             update_five_minute_counter(); ///< Advance 5-minute chart cadence
             update_mqtt_publish();        ///< Push telemetry if MQTT enabled

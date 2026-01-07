@@ -144,8 +144,12 @@ private:
         if (accountId.length()) https.addHeader("Account-ID", accountId);
     }
 
+    // parse graph json document  
+    bool parse_graph_json_doc();  // ONE parser for both sources
+
+    // last fetched graph json data
     String last_graph_json;
-    
+
 public:
 
     /**
@@ -412,6 +416,13 @@ public:
      * @return HTTP status code
      */
     uint16_t get_graph_data(void);
+
+    /**
+     * @brief Fetch glucose graph data
+     * @return HTTP status code
+     */
+    bool ingest_graph_json(const uint8_t* data, size_t len); // MQTT payload parse (Client)
+
 
     /**
      * @brief Getter für MQTT
