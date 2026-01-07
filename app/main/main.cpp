@@ -453,7 +453,6 @@ void mqtt_publish(){
                                     true);  // retain nach Wunsch
 
         //logger.debug("raw publish ok=%d state=%d", ok, mqtt_client.state());
-        return;
     }
     
     // Publish network status
@@ -524,16 +523,12 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
             logger.debug("MQTT ingest ok=%d len=%u", ok, (unsigned)length);
 
             // do the glucose data update in client mode
-            //update_glucose_data();        ///< Fetch and render latest values
-            //update_five_minute_counter(); ///< Advance 5-minute chart cadence
-            //update_mqtt_publish();        ///< Push telemetry if MQTT enabled
             flag_mqtt_master_rx = true;
             return; // <<< GANZ WICHTIG
         }
         return;
     }
     
-
     // =========================================================
     // 2) COMMANDS (dein bestehender Code)
     // =========================================================
@@ -554,8 +549,8 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         }
 
         const char* cmd  = json_mqtt["cmd"];
-        float parameter1 = json_mqtt["parameter1"] | 0;
-        float parameter2 = json_mqtt["parameter2"] | 0;
+        float parameter1 = json_mqtt["parameter1"];
+        float parameter2 = json_mqtt["parameter2"];
 
         logger.notice("CMD=%s p1=%.2f p2=%.2f", cmd, parameter1, parameter2);
 
@@ -2451,7 +2446,12 @@ bool setup_mqtt() {
     mqtt_client.unsubscribe(subRaw.c_str());
 
     bool s1 = mqtt_client.subscribe(subCmd.c_str());
-    bool s2 = mqtt_client.subscribe(subRaw.c_str());
+    bool s2 = false;
+
+    if(settings.config.mqtt_master_mode == false){
+        s2 = mqtt_client.subscribe(subRaw.c_str());
+        logger.notice("MQTT unsubscribe raw: %s ok=%d", subRaw.c_str(), s2);
+    }
 
     logger.notice("MQTT subscribe cmd: %s ok=%d", subCmd.c_str(), s1);
     logger.notice("MQTT subscribe raw: %s ok=%d", subRaw.c_str(), s2);
@@ -2764,7 +2764,10 @@ void loop()
                     DBGprint; Serial.printf("mqtt_client reconnect...success!\n");
                     logger.notice("mqtt_client reconnect...success!\r\n");
                     mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
-                    mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
+                    
+                    if(settings.config.mqtt_master_mode == false){
+                        mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
+                    }
                 }
             }
         }
