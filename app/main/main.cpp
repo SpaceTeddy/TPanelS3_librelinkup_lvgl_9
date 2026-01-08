@@ -235,6 +235,11 @@ void onOTAStart() {
     logger.notice("OTA Update Progress has started");
     vTaskSuspend(wifiScanHandle);  // Pause WiFi scan task
     ota_in_progress = 1;
+    if (ota_in_progress == 1 && lv_screen_active() != ui_FWUpdate_screen) {
+            lv_disp_load_scr(ui_FWUpdate_screen);
+            lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
+            lv_timer_handler();
+        }
 }
 
 /**
@@ -256,6 +261,7 @@ void onOTAProgress(size_t current, size_t final) {
         
         if(ota_in_progress == 1){
             update_ota_progress_screen(progress);
+            logger.notice("FWUpdate Progress: %.2f%% (%d / %d Bytes)", progress, current, final);
         }  
     }
 }
@@ -270,6 +276,7 @@ void onOTAProgress(size_t current, size_t final) {
  * @param[in] success True if update succeeded, false otherwise
  */
 void onOTAEnd(bool success) {
+    vTaskResume(LvglTaskHandle);
     if(success == 0){
         // Update failed - return to main screen
         lv_disp_load_scr(ui_Main_screen);
@@ -509,24 +516,22 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     String topic_raw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw";
     String topic_cmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
 
-    logger.debug("MQTT RX topic=%s len=%u", t.c_str(), (unsigned)length);
+    logger.notice("MQTT RX topic=%s len=%u", t.c_str(), (unsigned)length);
 
     // =========================================================
     // 1) RAW DATA vom MASTER (Client-Mode)
     // =========================================================
-    if(settings.config.mqtt_master_mode == false){
-        if (t == topic_raw) {
+    
+    if (t == topic_raw && settings.config.mqtt_master_mode == false) {
 
-            logger.debug("MQTT raw data received");
+        logger.notice("MQTT raw data received");
 
-            bool ok = librelinkup.ingest_graph_json(payload, length);
-            logger.debug("MQTT ingest ok=%d len=%u", ok, (unsigned)length);
+        bool ok = librelinkup.ingest_graph_json(payload, length);
+        //logger.debug("MQTT ingest ok=%d len=%u", ok, (unsigned)length);
 
-            // do the glucose data update in client mode
-            flag_mqtt_master_rx = true;
-            return; // <<< GANZ WICHTIG
-        }
-        return;
+        // do the glucose data update in client mode
+        flag_mqtt_master_rx = true;
+        return; // <<< GANZ WICHTIG
     }
     
     // =========================================================
@@ -2003,24 +2008,24 @@ void glucose_statistics() {
         librelinkup.llu_sensor_history_data.graph_data, data_count, 
         mean_glucose_value_from_history);
     
-    logger.notice("========== Glucose Statistics =============");
-    logger.notice("Current glucose value        : %d mg/dl", 
+    logger.debug("========== Glucose Statistics =============");
+    logger.debug("Current glucose value        : %d mg/dl", 
                  librelinkup.llu_glucose_data.glucoseMeasurement);
-    logger.notice("Mean of history glucose value: %.0f mg/dl", 
+    logger.debug("Mean of history glucose value: %.0f mg/dl", 
                  mean_glucose_value_from_history);
-    logger.notice("Mean of weekly glucose value : %.0f mg/dl", 
+    logger.debug("Mean of weekly glucose value : %.0f mg/dl", 
                  mean_glucose_weekly_value_from_json);
-    logger.notice("HbA1c-Value of history data  : %.2f %%", 
+    logger.debug("HbA1c-Value of history data  : %.2f %%", 
                  hba1c.calculate_hba1c(mean_glucose_value_from_history));
-    logger.notice("TIR-Value of history data    : %.2f %%", 
+    logger.debug("TIR-Value of history data    : %.2f %%", 
                  hba1c.calculate_time_in_range(
                      librelinkup.llu_sensor_history_data.graph_data, 
                      data_count, 70, 180));
-    logger.notice("Std-Dev of history data      : %.2f σ", std_dev);
-    logger.notice("Glucose variability (CV)     : %.2f %%", 
+    logger.debug("Std-Dev of history data      : %.2f σ", std_dev);
+    logger.debug("Glucose variability (CV)     : %.2f %%", 
                  hba1c.calculate_coefficient_of_variation(std_dev, 
                      mean_glucose_value_from_history));
-    logger.notice("===========================================");
+    logger.debug("===========================================");
 }
 
 ///////////////////// FREERTOS BACKGROUND TASKS ////////////////////
@@ -2050,7 +2055,7 @@ void LoopTask(void *pvParameters) {
         // ElegantOTA update handling
         ElegantOTA.loop();
         
-        if(ota_in_progress == 0){
+        //if(ota_in_progress == 0){
             // MQTT client keep-alive
             mqtt_client.loop();
 
@@ -2059,7 +2064,7 @@ void LoopTask(void *pvParameters) {
             telnet.loop();
             Shell::loop_all();
             yield();
-        }
+        //}
         
         vTaskDelay(pdMS_TO_TICKS(10));  // Don't block task scheduler
     }
@@ -2654,44 +2659,42 @@ void setup()
  */
 void loop()
 {
-    // NOTE: All other continuous loops run inside LoopTask().
-    // Keep this loop short to maintain UI responsiveness.
-    
-    // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
-    if (SerialPort.available() > 0)
-    {
-        UART_IPC_DATA1 = SerialPort.read();
-        DBGprint; Serial.print(UART_IPC_DATA1);
-        logger.notice("UART_IPC: %c", UART_IPC_DATA1);
-    }
-
-    // --- LVGL: let the GUI process pending work ------------------------------
-    lv_timer_handler();
-    delay(1);
-
-    if(flag_mqtt_master_rx == true){
-        flag_mqtt_master_rx = false;
-        update_glucose_data();        ///< Fetch and render latest values
-        update_five_minute_counter(); ///< Advance 5-minute chart cadence
-        update_mqtt_publish();        ///< Push telemetry if MQTT enabled
-    }
-
-    // ----------------------------- Software timers ---------------------------
-    // 250 ms tick: enter FW update screen when OTA starts
-    if (millis() - g_timer_250ms_backup > timer_250ms) {
-        g_timer_250ms_backup = millis();
-
-        if (ota_in_progress == 1 && lv_screen_active() != ui_FWUpdate_screen) {
-            lv_disp_load_scr(ui_FWUpdate_screen);
-            lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
+    // Only run main loop if no OTA update in progress
+    if (ota_in_progress == false) {    
+        
+        // NOTE: All other continuous loops run inside LoopTask().
+        // Keep this loop short to maintain UI responsiveness.
+        
+        // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
+        if (SerialPort.available() > 0)
+        {
+            UART_IPC_DATA1 = SerialPort.read();
+            DBGprint; Serial.print(UART_IPC_DATA1);
+            logger.notice("UART_IPC: %c", UART_IPC_DATA1);
         }
-    }
 
-    // 1 s tick: update debug view labels if visible (and not during OTA)
-    if (millis() - g_timer_1000ms_backup > timer_1000ms) {
-        g_timer_1000ms_backup = millis();
+        // --- LVGL: let the GUI process pending work ------------------------------
+        lv_timer_handler();
+        delay(1);
 
-        if (ota_in_progress == 0) {
+        // --- Main logic cadence: check for new MQTT master data ---------------
+        if(flag_mqtt_master_rx == true){
+            flag_mqtt_master_rx = false;
+            update_glucose_data();        ///< Fetch and render latest values
+            update_five_minute_counter(); ///< Advance 5-minute chart cadence
+            update_mqtt_publish();        ///< Push telemetry if MQTT enabled
+        }
+
+        // ----------------------------- Software timers ---------------------------
+        // 250 ms tick:
+        if (millis() - g_timer_250ms_backup > timer_250ms) {
+            g_timer_250ms_backup = millis();
+        }
+
+        // 1 s tick: update debug view labels if visible (and not during OTA)
+        if (millis() - g_timer_1000ms_backup > timer_1000ms) {
+            g_timer_1000ms_backup = millis();
+
             if (lv_scr_act() == ui_Debug_screen) {
                 // Data refresh countdown (from the 60 s cadence below)
                 uint64_t time_delta = (59 - (((millis() - g_timer_60000ms_backup)))/1000);
@@ -2713,9 +2716,9 @@ void loop()
                 String sensor_valid_time = "Valid: ";
                 char buf_label1[35];
                 snprintf(buf_label1, sizeof(buf_label1), "%dDays %dHours %dMinutes",
-                         librelinkup.sensor_livetime.sensor_valid_days,
-                         librelinkup.sensor_livetime.sensor_valid_hours,
-                         librelinkup.sensor_livetime.sensor_valid_minutes);
+                        librelinkup.sensor_livetime.sensor_valid_days,
+                        librelinkup.sensor_livetime.sensor_valid_hours,
+                        librelinkup.sensor_livetime.sensor_valid_minutes);
                 sensor_valid_time += buf_label1;
                 lv_label_set_text(ui_Label_DebugSensorTimestamp, sensor_valid_time.c_str());
 
@@ -2739,24 +2742,21 @@ void loop()
                 else                          snprintf(buf_label_delta, sizeof(buf_label_delta),  "%d mg/dL", glucose_delta);
 
                 String str_sensor_value = String("Sensor Value: ")
-                                          + String(librelinkup.llu_glucose_data.glucoseMeasurement)
-                                          + librelinkup.llu_glucose_data.str_trendArrow + " "
-                                          + buf_label_delta;
+                                        + String(librelinkup.llu_glucose_data.glucoseMeasurement)
+                                        + librelinkup.llu_glucose_data.str_trendArrow + " "
+                                        + buf_label_delta;
                 lv_label_set_text(ui_Label_DebugSensorValue, str_sensor_value.c_str());
             }
         }
-    }
 
-    // 5 s tick: MQTT auto-reconnect (if enabled) outside of OTA
-    if (millis() - g_timer_5000ms_backup > timer_5000ms) {
-        g_timer_5000ms_backup = millis();
+        // 5 s tick: MQTT auto-reconnect (if enabled) outside of OTA
+        if (millis() - g_timer_5000ms_backup > timer_5000ms) {
+            g_timer_5000ms_backup = millis();
 
-        if (ota_in_progress == 0) {
             if (!mqtt_client.connected() && mqtt.mqtt_enable == 1) {
                 mqtt_client.connect((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name).c_str(),
                                     mqtt.mqtt_user, mqtt.mqtt_password);
                 
-
                 if (!mqtt_client.connected()) {
                     DBGprint; Serial.printf("mqtt_client reconnect...failed!\n");
                     logger.notice("mqtt_client reconnect...failed!\r\n");
@@ -2771,58 +2771,58 @@ void loop()
                 }
             }
         }
-    }
 
-    // 10 s tick (reserved)
-    if (millis() - g_timer_10000ms_backup > timer_10000ms) {
-        g_timer_10000ms_backup = millis();
-    }
-
-    // 30 s tick (reserved)
-    if (millis() - g_timer_30000ms_backup > timer_30000ms) {
-        g_timer_30000ms_backup = millis();
-    }
-
-    // 60 s cadence: pull new LibreLinkUp data & refresh visuals (if not in OTA)
-    if (millis() - g_timer_60000ms_backup > timer_60000ms) {
-        g_timer_60000ms_backup = millis();
-
-        if (ota_in_progress == 0 && settings.config.mqtt_master_mode == 1) {
-            update_glucose_data();        ///< Fetch and render latest values
-            update_five_minute_counter(); ///< Advance 5-minute chart cadence
-            update_mqtt_publish();        ///< Push telemetry if MQTT enabled
-        }
-    }
-
-    // 120 s tick (reserved)
-    if (millis() - g_timer_120000ms_backup > timer_120000ms) {
-        g_timer_120000ms_backup = millis();
-    }
-
-    // 60 min inactivity: dim/backlight off and Wi-Fi health check
-    if (millis() - config_sleep_timer_backup > config_sleep_timer) {
-        config_sleep_timer_backup = millis();
-
-        // Optional: settings.saveConfiguration("/config.json", settings.config);
-
-        // Check connectivity and try to recover if offline
-        internet_status = helper.check_internet_status();
-        if (internet_status != 1) {
-            DBGprint; Serial.println("Client offline -> reconnect to WiFi");
-            logger.notice("Client offline -> reconnect to WiFi");
-            esp_status_counter_wifi_restart++;
-            WiFi.disconnect();
-            delay(2000);
-            WiFi.reconnect();
+        // 10 s tick (reserved)
+        if (millis() - g_timer_10000ms_backup > timer_10000ms) {
+            g_timer_10000ms_backup = millis();
         }
 
-        // Fade backlight down to 0
-        for (uint8_t i = settings.config.brightness; i > 0; i--) {
-            ledcWrite(0, i);
-            delay(30);
+        // 30 s tick (reserved)
+        if (millis() - g_timer_30000ms_backup > timer_30000ms) {
+            g_timer_30000ms_backup = millis();
         }
-        settings.config.brightness = 0;
-        logger.notice("TRGB sleep timer: %d , Brightness Setting: %d ",
-                      config_sleep_timer_backup, settings.config.brightness);
+
+        // 60 s cadence: pull new LibreLinkUp data & refresh visuals (if not in OTA)
+        if (millis() - g_timer_60000ms_backup > timer_60000ms) {
+            g_timer_60000ms_backup = millis();
+
+            if (settings.config.mqtt_master_mode == 1) {
+                update_glucose_data();        ///< Fetch and render latest values
+                update_five_minute_counter(); ///< Advance 5-minute chart cadence
+                update_mqtt_publish();        ///< Push telemetry if MQTT enabled
+            }
+        }
+
+        // 120 s tick (reserved)
+        if (millis() - g_timer_120000ms_backup > timer_120000ms) {
+            g_timer_120000ms_backup = millis();
+        }
+
+        // 60 min inactivity: dim/backlight off and Wi-Fi health check
+        if (millis() - config_sleep_timer_backup > config_sleep_timer) {
+            config_sleep_timer_backup = millis();
+
+            // Optional: settings.saveConfiguration("/config.json", settings.config);
+
+            // Check connectivity and try to recover if offline
+            internet_status = helper.check_internet_status();
+            if (internet_status != 1) {
+                DBGprint; Serial.println("Client offline -> reconnect to WiFi");
+                logger.notice("Client offline -> reconnect to WiFi");
+                esp_status_counter_wifi_restart++;
+                WiFi.disconnect();
+                delay(2000);
+                WiFi.reconnect();
+            }
+
+            // Fade backlight down to 0
+            for (uint8_t i = settings.config.brightness; i > 0; i--) {
+                ledcWrite(0, i);
+                delay(30);
+            }
+            settings.config.brightness = 0;
+            logger.notice("TRGB sleep timer: %d , Brightness Setting: %d ",
+                        config_sleep_timer_backup, settings.config.brightness);
+        }
     }
 }
