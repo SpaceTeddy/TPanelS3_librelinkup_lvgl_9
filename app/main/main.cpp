@@ -511,6 +511,10 @@ void update_mqtt_publish(){
  */
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
+    if (ota_in_progress == true) {
+        return;   // <<< ignor all
+    }
+    
     String t(topic);
 
     // ---------- TOPICS ----------
