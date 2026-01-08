@@ -134,7 +134,7 @@ private:
         https.addHeader("Content-Type", "application/json");
         https.addHeader("version", "4.16.0");
         https.addHeader("product", "llu.ios");
-        https.addHeader("Connection", "keep-alive");
+        https.addHeader("Connection", "close");
         https.addHeader("Pragma", "no-cache");
         https.addHeader("Cache-Control", "no-cache");
     }
