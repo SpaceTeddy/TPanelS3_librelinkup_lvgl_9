@@ -170,7 +170,7 @@ void HBA1C::loadJsonFromFile(const char* filename, DynamicJsonDocument &jsonDoc)
         return;
     }
 
-    logger.notice("📂 Lade Datei %s...", filename);
+    logger.debug("📂 Lade Datei %s...", filename);
 
     jsonDoc.clear();
     DeserializationError error = deserializeJson(jsonDoc, file);
@@ -302,7 +302,7 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
         return 0;
     }
 
-    logger.notice("📂 Lade Datei %s...", filename);
+    logger.debug("📂 Lade Datei %s...", filename);
 
     globalJsonDoc->clear();
     DeserializationError error = deserializeJson(*globalJsonDoc, file);
@@ -314,7 +314,7 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
     }
 
     if (!globalJsonDoc->is<JsonArray>()) {
-        logger.notice("⚠️  Datei %s enthält kein JSON-Array!", filename);
+        logger.err("⚠️  Datei %s enthält kein JSON-Array!", filename);
         return 0;
     }
 
@@ -331,7 +331,7 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
     }
 
     count += local_count;
-    logger.notice("📄 Datei %s verarbeitet: %d Werte gefunden.", filename, local_count);
+    logger.debug("📄 Datei %s verarbeitet: %d Werte gefunden.", filename, local_count);
     globalJsonDoc->clear();
     return sum;
 }
@@ -428,17 +428,17 @@ float HBA1C::calculateGlucoseMeanForLast7Days() {
         // **Prüfen, ob Datei innerhalb der letzten 7 Tage liegt**
         double diff_days = difftime(now, file_time) / (60 * 60 * 24);
         if (diff_days >= 0 && diff_days <= 7) {
-            logger.notice("📂 Einbeziehen: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
+            logger.debug("📂 Einbeziehen: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
             sum += processJsonFile(filepath.c_str(), count);
         } else {
-            logger.notice("📂 Ignoriert: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
+            logger.debug("📂 Ignoriert: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
         }
 
         file = root.openNextFile();
     }
 
     if (count == 0) {
-        logger.notice("⚠️  Keine Glucose-Daten in den letzten 7 Tagen gefunden!");
+        logger.debug("⚠️  Keine Glucose-Daten in den letzten 7 Tagen gefunden!");
         return 0.0;
     }
 
