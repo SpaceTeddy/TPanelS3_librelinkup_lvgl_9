@@ -337,6 +337,12 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
             }
             shell.printfln(F("LLU Sensor Type: %s"), sensor_type_str.c_str());
         }
+        else if((llu_argument == "sensor_expiry")){
+            shell.printfln("LLU Sensor Expiry: %dDays %dHours %dMinutes",
+                        librelinkup.sensor_livetime.sensor_valid_days,
+                        librelinkup.sensor_livetime.sensor_valid_hours,
+                        librelinkup.sensor_livetime.sensor_valid_minutes);
+        }
         else if((llu_argument == "timestamp")){
             shell.printfln(F("LLU Timestamp: %s"), librelinkup.llu_glucose_data.str_measurement_timestamp.c_str());
         }
@@ -589,7 +595,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("print_raw_json_file")}, uuid::flash_string_vector{F("<filename>")}, debugRawFileContentsCommand);
     commands->add_command(uuid::flash_string_vector{F("llu_login_data")}, uuid::flash_string_vector{F("<email@domain.com>"), F("<password>")}, LLULoginDataCommand);    
     commands->add_command(uuid::flash_string_vector{F("llu_sensor_type")}, uuid::flash_string_vector{F("<Libre3|Libre3Plus>")}, lluSensorTypeCommand);
-    commands->add_command(uuid::flash_string_vector{F("llu")}, uuid::flash_string_vector{F("\t<value>\n\r\t<user_id>\n\r\t<user_token>\n\r\t<auth>\n\r\t<tou>\n\r\t<sensor_id>\n\r\t<sensor_sn>\n\r\t<sensor_type>\n\r\t<timestamp>\n\r\t<history>\n\r\t<graphdata>\n\r\t<graph_redraw>\n\r\t<get_graphdata>\n\r\t<statistics>")}, lluCommand);
+    commands->add_command(uuid::flash_string_vector{F("llu")}, uuid::flash_string_vector{F("\t<value>\n\r\t<user_id>\n\r\t<user_token>\n\r\t<auth>\n\r\t<tou>\n\r\t<sensor_id>\n\r\t<sensor_sn>\n\r\t<sensor_type>\n\r\t<sensor_expiry>\n\r\t<timestamp>\n\r\t<history>\n\r\t<graphdata>\n\r\t<graph_redraw>\n\r\t<get_graphdata>\n\r\t<statistics>")}, lluCommand);
     commands->add_command(uuid::flash_string_vector{F("ping")}, PingCommand);
     commands->add_command(uuid::flash_string_vector{F("mqtt_client")}, uuid::flash_string_vector{F("<enable|disable>")}, mqttClientSettingCommand);
     commands->add_command(uuid::flash_string_vector{F("mqtt_master_mode")}, uuid::flash_string_vector{F("<enable|disable>")}, mqttMasterModeCommand);
