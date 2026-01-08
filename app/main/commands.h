@@ -1,9 +1,15 @@
 /**
  * @file commands.h
- * @brief Command registration and utility functions for handling console commands.
+ * @brief Console/Telnet command registration and argument parsing helpers.
  *
- * This file provides the function declarations for registering commands,
- * parsing arguments, and handling command-line interactions.
+ * This module exposes functions to register interactive commands (e.g. via uuid::console /
+ * Telnet console) and small helpers to parse arguments safely.
+ *
+ * Typical usage:
+ * @code
+ * auto cmds = std::make_shared<uuid::console::Commands>();
+ * registerCommands(cmds);
+ * @endcode
  */
 
 #pragma once
@@ -27,24 +33,35 @@
 #include "helper.h"
 
 /**
- * @brief Registers available console commands.
+ * @defgroup console_commands Console Commands
+ * @brief Command handlers and utilities for interactive control via console/telnet.
+ * @{
+ */
+
+/**
+ * @brief Register all available console commands.
  *
- * This function registers commands that can be executed via the console.
- * Commands are added to the given command registry.
+ * Adds command handlers (callbacks) to the provided command registry. These commands can
+ * then be executed by a user through the console/telnet interface.
  *
- * @param commands Shared pointer to the command registry.
+ * @param commands Shared pointer to the uuid command registry.
+ *
+ * @note The concrete set of commands is defined in commands.cpp.
+ * @note Handlers typically depend on other modules (MQTT, LibreLinkUp, HBA1C, settings).
  */
 void registerCommands(std::shared_ptr<uuid::console::Commands> commands);
 
 /**
- * @brief Parses an integer argument from a command argument list.
+ * @brief Parse an integer argument from a vector of command arguments.
  *
- * This helper function extracts an integer value from the specified argument index.
- * If the index is out of range or parsing fails, a default value is returned.
+ * This helper reads the argument at @p index and converts it to an integer.
+ * If the index is out of range or conversion fails, @p defaultValue is returned.
  *
- * @param arguments The vector containing command arguments.
- * @param index The index of the argument to parse.
- * @param defaultValue The default value to return if parsing fails.
- * @return Parsed integer value or defaultValue if parsing fails.
+ * @param arguments Vector containing command arguments (argv-like).
+ * @param index Index of the argument to parse.
+ * @param defaultValue Value returned on missing/invalid argument.
+ * @return Parsed integer value, or @p defaultValue on error.
  */
 int parseArgument(const std::vector<std::string> &arguments, size_t index, int defaultValue);
+
+/** @} */ // end of console_commands
