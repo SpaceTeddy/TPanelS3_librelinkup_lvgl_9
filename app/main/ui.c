@@ -303,7 +303,7 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining_raw)
     }
 
     // Label zunächst leeren
-    lv_label_set_text_fmt(ui->label, " ");
+    //lv_label_set_text_fmt(ui->label, "");
     lv_timer_handler();
 
     // Sensor abgelaufen → Label ausblenden, Text komplett weg
