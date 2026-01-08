@@ -76,9 +76,11 @@ uint8_t LIBRELINKUP::begin(uint8_t use_cert){
     logger.info("API Server IP: %s", api_ip.toString().c_str());
 
     // setup http client
-    https.useHTTP10(true);
+    https.useHTTP10(false); // use HTTP/1.1
+    https.setTimeout(10000); //10 sec timeout
+    https.setReuse(false);
     llu_client->setTimeout(10000); //10 sec timeout
-    llu_client->setNoDelay(true); // disable Nagle algorithm
+    llu_client->setNoDelay(false); // disable Nagle algorithm
 
     if(use_cert == 0){
         llu_client->setInsecure();
@@ -762,7 +764,8 @@ uint16_t LIBRELINKUP::get_graph_data(void){
         https.addHeader("Account-ID", llu_login_data.account_id);
 
         int code = https.GET();
-
+        logger.debug("HTTP code=%d size=%d", code, https.getSize());
+        
         if (code > 0) {
             if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
@@ -795,11 +798,13 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
 
                 // Deserialize with filter
-                //DeserializationError err = deserializeJson((*json_librelinkup), https.getStream(),
-                //                                          DeserializationOption::Filter(*json_filter));
+                /*DeserializationError err = deserializeJson((*json_librelinkup), https.getStream(),
+                                                          DeserializationOption::Filter(*json_filter));
+                */
                 String body = https.getString();  // liest komplette Response
                 DeserializationError err = deserializeJson((*json_librelinkup), body,
                                           DeserializationOption::Filter(*json_filter));
+
                 if (err) {
                     logger.debug("HTTPS deserialize failed: %s", err.c_str());
                     json_filter->clear();
