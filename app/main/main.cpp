@@ -396,6 +396,7 @@ void esp_status(){
     logger.notice("LLU count reTou : %d", esp_status_counter_llu_retou);
     logger.notice("OTA Server      : %d", settings.config.ota_update);
     logger.notice("MQTT Mode       : %d", settings.config.mqtt_mode);
+    logger.notice("MQTT Master Mode: %d", settings.config.mqtt_master_mode);
     logger.notice("WG Mode         : %d", settings.config.wg_mode);   
     logger.notice("Local Time      : %s", helper.get_esp_time_date().c_str());
     logger.notice("TimeZone        : %d", settings.config.timezone);
@@ -1724,7 +1725,6 @@ void handle_invalid_timestamp() {
         if (invalid_timestamp_counter == 10) {
             invalid_timestamp_counter = 0;
             logger.notice("invalid_timestamp_counter out of range! -> call restart");
-            // esp_restart();  // Currently disabled
         }
     }
 }
