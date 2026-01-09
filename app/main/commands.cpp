@@ -637,13 +637,13 @@ void mqttMasterModeCommand(uuid::console::Shell &shell, const std::vector<std::s
         String mqtt_argument = arguments[0].c_str();
         if (mqtt_argument == "enable") {
             settings.config.mqtt_master_mode = 1;
-            mqtt_client.unsubscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
+            mqtt_client.unsubscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data).c_str());
             shell.println(F("MQTT Master Mode enabled."));
         } else if ((mqtt_argument == "disable")) {
             settings.config.mqtt_master_mode = 0;
             shell.println(F("MQTT Master Mode disabled, activating Client mode..."));
-            mqtt_client.unsubscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
-            mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
+            mqtt_client.unsubscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data).c_str());
+            mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data).c_str());
         } else {
             shell.printfln("invalid argument: %s", mqtt_argument);
         }
