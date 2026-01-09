@@ -448,7 +448,7 @@ void mqtt_publish(){
     if(settings.config.mqtt_master_mode == true){
         // In master mode, do not publish raw data
         const String& payload = librelinkup.get_last_graph_json();
-        const String topic = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw";
+        const String topic = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
         /*
         logger.debug("raw len=%u topic=%s", (unsigned)payload.length(), topic.c_str());
         logger.debug("mqtt connected=%d buffer=%u",
@@ -518,7 +518,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     String t(topic);
 
     // ---------- TOPICS ----------
-    String topic_raw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw";
+    String topic_raw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
     String topic_cmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
 
     logger.notice("MQTT RX topic=%s len=%u", t.c_str(), (unsigned)length);
@@ -2449,7 +2449,7 @@ bool setup_mqtt() {
     logger.notice("MQTT: connected");
 
     String subCmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
-    String subRaw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw";
+    String subRaw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
 
     mqtt_client.unsubscribe(subCmd.c_str());
     mqtt_client.unsubscribe(subRaw.c_str());
@@ -2770,7 +2770,7 @@ void loop()
                     mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
                     
                     if(settings.config.mqtt_master_mode == false){
-                        mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + "/data_raw").c_str());
+                        mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data).c_str());
                     }
                 }
             }
@@ -2792,9 +2792,9 @@ void loop()
 
             if (settings.config.mqtt_master_mode == 1) {
                 update_glucose_data();        ///< Fetch and render latest values
-                update_five_minute_counter(); ///< Advance 5-minute chart cadence
                 update_mqtt_publish();        ///< Push telemetry if MQTT enabled
             }
+            update_five_minute_counter(); ///< Advance 5-minute chart cadence
         }
 
         // 120 s tick (reserved)
