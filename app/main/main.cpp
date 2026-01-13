@@ -1266,17 +1266,16 @@ void lcd_status_indication(bool on_off, uint8_t color) {
  * @see switch_sensor_valid_progress_bar()
  * @see update_chart_valid_values()
  */
-void draw_chart_sensor_valid() 
+void draw_chart_sensor_valid()
 {
-    int days    = librelinkup.sensor_livetime.sensor_valid_days + 1;    // +1 for display same like app
-    int hours   = librelinkup.sensor_livetime.sensor_valid_hours + 1;   // +1 for display same like app
-    int minutes = librelinkup.sensor_livetime.sensor_valid_minutes + 1; // +1 for display same like app
+    // Rohwerte (wie berechnet)
+    int rawDays    = librelinkup.sensor_livetime.sensor_valid_days;
+    int rawHours   = librelinkup.sensor_livetime.sensor_valid_hours;
+    int rawMinutes = librelinkup.sensor_livetime.sensor_valid_minutes;
 
-    bool expired = (days < 0 || hours < 0 || minutes < 0);
+    // Expired/invalid detection (before +1!)
+    bool expired = (rawDays < 0) || (rawHours < 0) || (rawMinutes < 0);
 
-    // --------------------------
-    // SENSOR EXPIRED
-    // --------------------------
     if (expired) {
         switch_sensor_valid_progress_bar(NULL, -1);   // hide all bars
         update_chart_valid_values(&dayBar14, -1);
@@ -1286,27 +1285,33 @@ void draw_chart_sensor_valid()
         return;
     }
 
+    // Displayvalues ("+1 like App")
+    int days    = rawDays + 1;
+    int hours   = rawHours + 1;
+    int minutes = rawMinutes + 1;
+
     // --------------------------
     // DAYS MODE
     // --------------------------
-    if (librelinkup.sensor_livetime.sensor_valid_days > 0) {
-        // 14 or 15 days sensor
-        if(librelinkup.llu_sensor_data.sensor_runtime == 14*86400){
+    if (rawDays > 0) {
+        if (librelinkup.llu_sensor_data.sensor_runtime == 14 * 86400) {
             switch_sensor_valid_progress_bar(&dayBar14, 0);
             update_chart_valid_values(&dayBar14, days);
-        }
-        else if(librelinkup.llu_sensor_data.sensor_runtime == 15*86400){
+        } else if (librelinkup.llu_sensor_data.sensor_runtime == 15 * 86400) {
+            switch_sensor_valid_progress_bar(&dayBar15, 0);
+            update_chart_valid_values(&dayBar15, days);
+        } else {
+            // Fallback: if runtime unknown
             switch_sensor_valid_progress_bar(&dayBar15, 0);
             update_chart_valid_values(&dayBar15, days);
         }
-
         return;
     }
 
     // --------------------------
     // HOURS MODE
     // --------------------------
-    if (librelinkup.sensor_livetime.sensor_valid_days == 0 && librelinkup.sensor_livetime.sensor_valid_hours > 0) {
+    if (rawHours > 0) {
         switch_sensor_valid_progress_bar(&hourBar, 1);
         update_chart_valid_values(&hourBar, hours);
         return;
@@ -1315,11 +1320,14 @@ void draw_chart_sensor_valid()
     // --------------------------
     // MINUTES MODE
     // --------------------------
-    if (librelinkup.sensor_livetime.sensor_valid_days == 0 && librelinkup.sensor_livetime.sensor_valid_hours ==  0 && librelinkup.sensor_livetime.sensor_valid_minutes > 0) {
+    if (rawMinutes >= 0) {
         switch_sensor_valid_progress_bar(&minuteBar, 2);
         update_chart_valid_values(&minuteBar, minutes);
         return;
     }
+
+    // (optional) falls alles 0 ist und du lieber "expired" zeigen willst:
+    // switch_sensor_valid_progress_bar(NULL, -1);
 }
 
 /**
