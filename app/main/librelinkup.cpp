@@ -25,20 +25,15 @@ extern SETTINGS settings;                   // Deklariert die globale Instanz au
 #include <string.h>
 
 // Globale JSON-Pointer
-#define LIBRELINKUP_JSON_BUFFER_SIZE        12000 //6144
-#define LIBRELINKUP_FILTER_JSON_BUFFER_SIZE 1024
+#define LIBRELINKUP_JSON_BUFFER_SIZE        16384 //6144
+#define LIBRELINKUP_FILTER_JSON_BUFFER_SIZE 2048  //1024
 
 
 // DynamicJsonDocument mit dem PSRAM-Speicher initialisieren
 DynamicJsonDocument* json_librelinkup = new DynamicJsonDocument(LIBRELINKUP_JSON_BUFFER_SIZE);
 DynamicJsonDocument* json_filter = new DynamicJsonDocument(LIBRELINKUP_FILTER_JSON_BUFFER_SIZE);
 
-/*
-// Aufräumen falls nötig
-  json_librelinkup->~DynamicJsonDocument(); // Destruktor manuell aufrufen
-  heap_caps_free(psramPtr_librelinkup);
-*/
-
+// HTTP Client und Secure Client für LibreLinkUp API
 WiFiClientSecure *llu_client = new WiFiClientSecure;
 HTTPClient https;
 
@@ -777,6 +772,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"] = true;
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"] = true;
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"] = true;
+                (*json_filter)["data"]["connection"]["glucoseMeasurement"]["FactoryTimestamp"] = true;
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["Timestamp"] = true;
 
                 (*json_filter)["data"]["connection"]["patientDevice"]["ll"] = true;
@@ -795,6 +791,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 (*json_filter)["data"]["activeSensors"][0]["sensor"]["pt"] = true;
 
                 (*json_filter)["data"]["graphData"][0]["ValueInMgPerDl"] = true;
+                (*json_filter)["data"]["graphData"][0]["FactoryTimestamp"] = true;
                 (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
 
                 // Deserialize with filter
