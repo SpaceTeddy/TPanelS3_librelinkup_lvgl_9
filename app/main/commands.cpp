@@ -139,19 +139,32 @@ void LLULoginDataCommand(uuid::console::Shell &shell, const std::vector<std::str
  *
  * Saves WiFi settings and triggers WiFi setup.
  */
-void WiFiSettingCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
-    if (!arguments.empty()) {
-        String wifi_bssid = arguments[0].c_str();
-        shell.printfln("WiFi BSSID: %s", wifi_bssid.c_str());
-        settings.config.wifi_bssid = wifi_bssid;
+void WiFiSettingCommand(uuid::console::Shell &shell,
+                        const std::vector<std::string> &arguments)
+{
+    // Mindestens SSID/BSSID muss da sein
+    if (arguments.size() < 1) {
+        shell.printfln("Usage: wifi <ssid_or_bssid> [password]");
+        return;
+    }
 
+    String wifi_bssid = arguments[0].c_str();
+    shell.printfln("WiFi BSSID/SSID: %s", wifi_bssid.c_str());
+    settings.config.wifi_bssid = wifi_bssid;
+
+    // Passwort ist optional
+    if (arguments.size() >= 2) {
         String wifi_password = arguments[1].c_str();
         shell.printfln("WiFi Password: %s", wifi_password.c_str());
         settings.config.wifi_password = wifi_password;
-
-        settings.saveConfiguration(settings.config_filename, settings.config);
-        setup_wifi();
+    } else {
+        // Offenes WLAN: Passwort explizit leer setzen
+        settings.config.wifi_password = "";
+        shell.printfln("WiFi Password: <empty> (open network)");
     }
+
+    settings.saveConfiguration(settings.config_filename, settings.config);
+    setup_wifi();
 }
 
 /**
