@@ -1,3 +1,13 @@
+// webpage.h  (1:1 DROP-IN)
+// ------------------------------------------------------------
+// Drop-in Replacement für dein bestehendes webpage.h
+// Änderung: SSID-Override UI:
+// - Dropdown bleibt (name="networks")
+// - Zusätzlich Textfeld "wifiSsidManual" (ohne name)
+// - Beim Submit: wenn Textfeld gefüllt, wird "networks" auf diesen Wert gesetzt
+//   (ohne Backend-Änderung).
+// ------------------------------------------------------------
+
 #ifndef webpage_H
 #define webpage_H
 
@@ -9,12 +19,6 @@
  * Ruft das EINMAL nach dem Erzeugen des AsyncWebServer auf (z. B. in setup_OTA(true)).
  */
 void register_webpage_routes(AsyncWebServer& server);
-
-/**
- * HTML-Seite für die Web-Oberfläche des LibreLinkup Clients.
- * Enthält Formulare für Login, WiFi-Verbindung, OTA-Updates, WireGuard-Konfiguration,
- * MQTT-Einstellungen und Helligkeitssteuerung.
- */
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML>
@@ -41,14 +45,9 @@ const char index_html[] PROGMEM = R"rawliteral(
             margin-bottom: 20px;
             transition: background-color 0.3s, color 0.3s;
         }
-        h2 {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        input[type="text"], input[type="password"], input[type="number"] {
+        h2 { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; }
+        input[type="text"], input[type="password"], input[type="number"], select {
             width: 100%;
             padding: 10px;
             margin-bottom: 10px;
@@ -67,36 +66,20 @@ const char index_html[] PROGMEM = R"rawliteral(
             border-radius: 5px;
             transition: background-color 0.3s, color 0.3s;
         }
-        button:hover, input[type="submit"]:hover {
-            background-color: #0056b3;
-        }
+        button:hover, input[type="submit"]:hover { background-color: #0056b3; }
         .switch-container, .brightness-container {
             display: flex;
             align-items: center;
             justify-content: space-between;
             margin-bottom: 15px;
         }
-        .switch-label {
-            font-size: 0.9em;
-        }
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 30px;
-            height: 17px;
-        }
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
+        .switch-label { font-size: 0.9em; }
+        .switch { position: relative; display: inline-block; width: 30px; height: 17px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
         .slider {
             position: absolute;
             cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: 0; left: 0; right: 0; bottom: 0;
             background-color: #ccc;
             transition: .4s;
             border-radius: 17px;
@@ -104,42 +87,27 @@ const char index_html[] PROGMEM = R"rawliteral(
         .slider:before {
             position: absolute;
             content: "";
-            height: 13px;
-            width: 13px;
-            left: 2px;
-            bottom: 2px;
+            height: 13px; width: 13px;
+            left: 2px; bottom: 2px;
             background-color: white;
             transition: .4s;
             border-radius: 50%;
         }
-        input:checked + .slider {
-            background-color: #007bff;
-        }
-        input:checked + .slider:before {
-            transform: translateX(13px);
-        }
-        ul {
-            list-style-type: none;
-            padding: 0;
-        }
+        input:checked + .slider { background-color: #007bff; }
+        input:checked + .slider:before { transform: translateX(13px); }
+        ul { list-style-type: none; padding: 0; }
         li {
             background: #e9ecef;
             margin-bottom: 5px;
             padding: 10px;
             border-radius: 5px;
         }
-        /* Dark Mode Styling */
-        .dark-mode {
-            background-color: #333;
-            color: #f8f9fa;
-        }
-        .dark-mode .container {
-            background-color: #444;
-            color: #f8f9fa;
-        }
+        .dark-mode { background-color: #333; color: #f8f9fa; }
+        .dark-mode .container { background-color: #444; color: #f8f9fa; }
         .dark-mode input[type="text"],
         .dark-mode input[type="password"],
-        .dark-mode input[type="number"] {
+        .dark-mode input[type="number"],
+        .dark-mode select {
             background-color: #555;
             color: #f8f9fa;
             border: 1px solid #888;
@@ -150,18 +118,11 @@ const char index_html[] PROGMEM = R"rawliteral(
             color: #fff;
         }
         .dark-mode button:hover,
-        .dark-mode input[type="submit"]:hover {
-            background-color: #0056b3;
-        }
-        .dark-mode .slider {
-            background-color: #888;
-        }
-        .dark-mode .slider:before {
-            background-color: #fff;
-        }
-        .dark-mode li {
-            background-color: #555;
-        }
+        .dark-mode input[type="submit"]:hover { background-color: #0056b3; }
+        .dark-mode .slider { background-color: #888; }
+        .dark-mode .slider:before { background-color: #fff; }
+        .dark-mode li { background-color: #555; }
+        .hint { font-size: 0.85em; opacity: 0.85; margin-top: -6px; margin-bottom: 10px; }
     </style>
 </head>
 <body id="body">
@@ -182,9 +143,14 @@ const char index_html[] PROGMEM = R"rawliteral(
     <ul id="wifi-list"></ul>
 
     <h2>Connect to WiFi</h2>
-    <form action="/connect" method="post">
+    <form id="wifiConnectForm" action="/connect" method="post">
         <label for="networks">Select Network:</label>
         <select id="networks" name="networks"></select>
+
+        <label for="wifiSsidManual">SSID (manual override, optional):</label>
+        <input type="text" id="wifiSsidManual" placeholder="Type SSID here to override selection">
+        <div class="hint">Wenn dieses Feld gefuellt ist, wird es statt der Auswahl verwendet.</div>
+
         <label for="wifiPassword">Password:</label>
         <input type="password" id="wifiPassword" name="wifiPassword">
         <input type="submit" value="Connect">
@@ -225,22 +191,22 @@ const char index_html[] PROGMEM = R"rawliteral(
     <form id="wireguardForm">
         <label for="wgPrivateKey">Private Key:</label>
         <input type="text" id="wgPrivateKey" name="wgPrivateKey">
-        
+
         <label for="wgPublicKey">Public Key:</label>
         <input type="text" id="wgPublicKey" name="wgPublicKey">
-        
+
         <label for="wgPresharedKey">Preshared Key:</label>
         <input type="text" id="wgPresharedKey" name="wgPresharedKey">
-        
+
         <label for="wgIpAddress">IP Address:</label>
         <input type="text" id="wgIpAddress" name="wgIpAddress">
-        
+
         <label for="wgEndpoint">Endpoint:</label>
         <input type="text" id="wgEndpoint" name="wgEndpoint">
-        
+
         <label for="wgEndpointPort">Endpoint Port:</label>
         <input type="number" id="wgEndpointPort" name="wgEndpointPort" min="1" max="65535">
-        
+
         <label for="wgAllowedIPs">Allowed IPs:</label>
         <input type="text" id="wgAllowedIPs" name="wgAllowedIPs">
 
@@ -292,6 +258,42 @@ const char index_html[] PROGMEM = R"rawliteral(
             .catch(error => console.error('Error loading status:', error));
     });
 
+    // --- SSID manual override: if wifiSsidManual is not empty, submit that as "networks" ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('wifiConnectForm');
+        const manual = document.getElementById('wifiSsidManual');
+        const select = document.getElementById('networks');
+
+        if (!form || !manual || !select) return;
+
+        form.addEventListener('submit', () => {
+            const overrideSsid = (manual.value || '').trim();
+            if (overrideSsid.length > 0) {
+                // Ensure the posted field "networks" becomes the manual SSID
+                let found = false;
+                for (let i = 0; i < select.options.length; i++) {
+                    if (select.options[i].value === overrideSsid) {
+                        found = true;
+                        select.selectedIndex = i;
+                        break;
+                    }
+                }
+                if (!found) {
+                    const opt = document.createElement('option');
+                    opt.value = overrideSsid;
+                    opt.textContent = `${overrideSsid} (manual)`;
+                    select.appendChild(opt);
+                    select.value = overrideSsid;
+                }
+            }
+        });
+
+        // Optional UX: if user selects dropdown, clear manual override
+        select.addEventListener('change', () => {
+            manual.value = '';
+        });
+    });
+
     function toggleDarkMode(isEnabled) {
         document.getElementById('body').classList.toggle('dark-mode', isEnabled);
     }
@@ -304,10 +306,12 @@ const char index_html[] PROGMEM = R"rawliteral(
                 let networkSelect = document.getElementById('networks');
                 wifiList.innerHTML = '';
                 networkSelect.innerHTML = '';
+
                 data.forEach(network => {
                     let li = document.createElement('li');
                     li.textContent = `SSID: ${network.ssid}, Signal: ${network.rssi}`;
                     wifiList.appendChild(li);
+
                     let option = document.createElement('option');
                     option.value = network.ssid;
                     option.textContent = network.ssid;
@@ -343,78 +347,70 @@ const char index_html[] PROGMEM = R"rawliteral(
     }
 
     function configureWireGuard() {
-    const privateKey = document.getElementById('wgPrivateKey').value;
-    const publicKey = document.getElementById('wgPublicKey').value;
-    const presharedKey = document.getElementById('wgPresharedKey').value;
-    const ipAddress = document.getElementById('wgIpAddress').value;
-    const endpoint = document.getElementById('wgEndpoint').value;
-    const endpointPort = document.getElementById('wgEndpointPort').value;
-    const allowedIPs = document.getElementById('wgAllowedIPs').value;
+        const privateKey = document.getElementById('wgPrivateKey').value;
+        const publicKey = document.getElementById('wgPublicKey').value;
+        const presharedKey = document.getElementById('wgPresharedKey').value;
+        const ipAddress = document.getElementById('wgIpAddress').value;
+        const endpoint = document.getElementById('wgEndpoint').value;
+        const endpointPort = document.getElementById('wgEndpointPort').value;
+        const allowedIPs = document.getElementById('wgAllowedIPs').value;
 
-    const formData = new URLSearchParams();
-    formData.append("privateKey", privateKey);
-    formData.append("publicKey", publicKey);
-    formData.append("presharedKey", presharedKey);
-    formData.append("ipAddress", ipAddress);
-    formData.append("endpoint", endpoint);
-    formData.append("endpointPort", endpointPort);
-    formData.append("allowedIPs", allowedIPs);
+        const formData = new URLSearchParams();
+        formData.append("privateKey", privateKey);
+        formData.append("publicKey", publicKey);
+        formData.append("presharedKey", presharedKey);
+        formData.append("ipAddress", ipAddress);
+        formData.append("endpoint", endpoint);
+        formData.append("endpointPort", endpointPort);
+        formData.append("allowedIPs", allowedIPs);
 
-    fetch('/configureWireGuard', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: formData.toString()
-    })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        console.log('WireGuard configuration saved:', data);
-        alert('WireGuard configuration saved successfully.');
-    })
-    .catch(error => console.error('Error saving WireGuard configuration:', error));
-}
+        fetch('/configureWireGuard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData.toString()
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            console.log('WireGuard configuration saved:', data);
+            alert('WireGuard configuration saved successfully.');
+        })
+        .catch(error => console.error('Error saving WireGuard configuration:', error));
+    }
 
-function configureMQTT() {
-    const server = document.getElementById('mqttServer').value;
-    const port = document.getElementById('mqttPort').value;
-    const username = document.getElementById('mqttUsername').value;
-    const password = document.getElementById('mqttPassword').value;
+    function configureMQTT() {
+        const server = document.getElementById('mqttServer').value;
+        const port = document.getElementById('mqttPort').value;
+        const username = document.getElementById('mqttUsername').value;
+        const password = document.getElementById('mqttPassword').value;
 
-    const formData = new URLSearchParams();
-    formData.append("server", server);
-    formData.append("port", port);
-    formData.append("username", username);
-    formData.append("password", password);
+        const formData = new URLSearchParams();
+        formData.append("server", server);
+        formData.append("port", port);
+        formData.append("username", username);
+        formData.append("password", password);
 
-    fetch('/configureMQTT', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: formData.toString()
-    })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        console.log('MQTT configuration saved:', data);
-        alert('MQTT configuration saved successfully.');
-    })
-    .catch(error => console.error('Error saving MQTT configuration:', error));
-}
+        fetch('/configureMQTT', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData.toString()
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            console.log('MQTT configuration saved:', data);
+            alert('MQTT configuration saved successfully.');
+        })
+        .catch(error => console.error('Error saving MQTT configuration:', error));
+    }
 </script>
 </body>
 </html>
 
-    )rawliteral";
+)rawliteral";
 
-#endif //
+#endif // webpage_H

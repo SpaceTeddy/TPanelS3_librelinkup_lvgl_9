@@ -1,3 +1,10 @@
+// webpage.cpp  (1:1 DROP-IN)
+// ------------------------------------------------------------
+// Drop-in Replacement für dein bestehendes webpage.cpp
+// Änderung: Keine Backend-Änderung nötig – SSID-Override passiert im UI (webpage.h).
+// handleConnect bleibt kompatibel: erwartet "networks" (SSID) + "wifiPassword".
+// ------------------------------------------------------------
+
 /**
  * @file webpage.cpp
  * @brief Route registration and HTTP request handlers for the AsyncWebServer.
@@ -29,11 +36,6 @@
 #include "tpanels3.h"               ///< TPanelS3 display management
 
 //------------------------[ uuid logger ]-----------------------------------
-/**
- * @brief Local logger for this translation unit.
- * @note If you already expose a global logger from main.cpp, prefer `extern` and
- *       remove this local static to avoid duplicate loggers.
- */
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 //-------------------------------------------------------------------------
 
@@ -42,11 +44,10 @@ extern SETTINGS settings;           ///< Global configuration storage
 extern TPanelS3 tpanels3;           ///< TPanelS3 hardware interface instance
 extern String availableNetworks;    ///< JSON produced by Wi-Fi scan task
 
-
 // ---- Local state (only used in this file) --------------------------------
 static String username;
 static String password;
-static String wifi_bssid;
+static String wifi_ssid;
 static String wifi_password;
 
 /**
@@ -58,18 +59,10 @@ static AsyncWebServer* g_server = nullptr;
 // Handlers
 // -------------------------------------------------------------------------
 
-/**
- * @brief Serves the main HTML page.
- * @param request The incoming HTTP request.
- */
 static void handleRoot(AsyncWebServerRequest *request) {
     request->send(200, "text/html", index_html);
 }
 
-/**
- * @brief Processes login form submission and persists credentials.
- * @param request The incoming HTTP POST request with "username" and "password".
- */
 static void handleLogin(AsyncWebServerRequest *request) {
     if (request->hasParam("username", true)) {
         username = request->getParam("username", true)->value();
@@ -82,27 +75,26 @@ static void handleLogin(AsyncWebServerRequest *request) {
     settings.config.login_password = password;
     settings.saveConfiguration(settings.config_filename, settings.config);
 
-    // Intentionally kept German response text (UI string), only comments changed to English.
     request->send(200, "text/html", "Login erfolgreich!<br><a href='/'>Zurueck</a>");
 }
 
-/**
- * @brief Returns last scanned Wi-Fi networks as JSON.
- * @param request The incoming HTTP GET request.
- * @note The JSON content is generated asynchronously by the background scan task.
- */
 static void handleScan(AsyncWebServerRequest *request) {
     request->send(200, "application/json", availableNetworks);
 }
 
 /**
  * @brief Persists selected Wi-Fi credentials and reboots to apply.
- * @param request The incoming HTTP POST request with "networks" and "wifiPassword".
+ *
+ * @param request The incoming HTTP POST request with:
+ *   - networks     : SSID (Dropdown oder manuelles Override aus UI)
+ *   - wifiPassword : Passwort
  */
 static void handleConnect(AsyncWebServerRequest *request) {
     if (request->hasParam("networks", true)) {
-        wifi_bssid = request->getParam("networks", true)->value();
-        settings.config.wifi_bssid = wifi_bssid;
+        wifi_ssid = request->getParam("networks", true)->value();
+        // In deinem settings struct heißt es aktuell wifi_bssid, wird aber als SSID benutzt.
+        // Wir lassen das absichtlich so, damit es 1:1 drop-in bleibt.
+        settings.config.wifi_bssid = wifi_ssid;
     }
     if (request->hasParam("wifiPassword", true)) {
         wifi_password = request->getParam("wifiPassword", true)->value();
@@ -113,15 +105,9 @@ static void handleConnect(AsyncWebServerRequest *request) {
     ESP.restart();
 }
 
-/**
- * @brief Returns a small device status JSON snapshot (OTA, WG, MQTT, brightness).
- * @param request The incoming HTTP GET request.
- */
 static void handleStatus(AsyncWebServerRequest *request) {
-    // Ensure we load the latest persisted configuration
     settings.loadConfiguration("/config.json", settings.config);
 
-    // 256 bytes were tight in practice; 512 gives safe headroom for this payload size.
     DynamicJsonDocument json_config(512);
     json_config["ota_update"] = settings.config.ota_update;
     json_config["wg_mode"]    = settings.config.wg_mode;
@@ -133,16 +119,6 @@ static void handleStatus(AsyncWebServerRequest *request) {
     request->send(200, "application/json", jsonResponse);
 }
 
-/**
- * @brief Toggles features via query parameters (ota_update, wg_mode, mqtt_mode).
- *
- * @param request The incoming HTTP POST request with:
- *   - feature: one of "ota_update", "wg_mode", "mqtt_mode"
- *   - status : integer value (0 or 1)
- *
- * @note For "ota_update", this will (re)start or stop the HTTP server for OTA.
- *       Keep `g_server` valid by calling register_webpage_routes() before toggling.
- */
 static void handleToggleFeature(AsyncWebServerRequest *request) {
     if (request->hasParam("feature") && request->hasParam("status")) {
         String feature = request->getParam("feature")->value();
@@ -160,7 +136,6 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
             }
 
             if (status == 1) {
-                // Simple root info page while OTA is enabled
                 g_server->on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
                     req->send(200, "text/plain", "ESP32 LibreLinkup Client");
                 });
@@ -187,10 +162,6 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
     }
 }
 
-/**
- * @brief Sets backlight brightness via HTTP.
- * @param request The incoming HTTP POST request with "value" parameter.
- */
 static void handleSetBrightness(AsyncWebServerRequest *request) {
     if (request->hasParam("value")) {
         int brightness = request->getParam("value")->value().toInt();
@@ -205,12 +176,6 @@ static void handleSetBrightness(AsyncWebServerRequest *request) {
     }
 }
 
-/**
- * @brief Configures WireGuard parameters from an HTTP POST request and persists them.
- *
- * @param request The incoming HTTP POST request with form fields:
- *   - privateKey, publicKey, presharedKey, ipAddress, endpoint, endpointPort, allowedIPs
- */
 static void handleConfigureWireGuard(AsyncWebServerRequest *request) {
     String privateKey, publicKey, presharedKey, ipAddress, endpoint, allowedIPs;
     int endpointPort = 0;
@@ -245,12 +210,6 @@ static void handleConfigureWireGuard(AsyncWebServerRequest *request) {
     }
 }
 
-/**
- * @brief Configures MQTT connection settings via HTTP POST and persists them.
- *
- * @param request The incoming HTTP POST request with form fields:
- *   - server (hostname/IP), port (int), username, password
- */
 static void handleConfigureMQTT(AsyncWebServerRequest *request) {
     String serverName, user, pass;
     int port = 0;
@@ -276,18 +235,8 @@ static void handleConfigureMQTT(AsyncWebServerRequest *request) {
     }
 }
 
-// -------------------------------------------------------------------------
-// Public API
-// -------------------------------------------------------------------------
-
-/**
- * @brief Registers all webpage routes and stores the server pointer for internal use.
- * @param server Reference to the AsyncWebServer instance to register routes on.
- *
- * @note Must be called before toggling OTA via /toggle (so that g_server is valid).
- */
 void register_webpage_routes(AsyncWebServer& server) {
-    g_server = &server;   // used by handlers that need to (re)start/stop the server (OTA)
+    g_server = &server;
 
     server.on("/",                   HTTP_GET,  handleRoot);
     server.on("/scan",               HTTP_GET,  handleScan);

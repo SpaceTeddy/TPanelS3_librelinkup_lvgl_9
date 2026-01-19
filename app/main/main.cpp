@@ -200,20 +200,34 @@ String availableNetworks;      ///< JSON string of available networks
  * @param[in] parameter Task parameter (unused)
  */
 void scanWiFiTask(void * parameter) {
-    for(;;) {
-        if(ota_in_progress == 0){
+    for (;;) {
+        if (ota_in_progress == 0) {
             int n = WiFi.scanNetworks();
+
             String json = "[";
             for (int i = 0; i < n; ++i) {
-                if (i) json += ",";
+                String ssid = WiFi.SSID(i);
+
+                // Hidden networks überspringen
+                if (ssid.length() == 0) {
+                    continue;
+                }
+
+                if (json.length() > 1) json += ",";
                 json += "{";
-                json += "\"ssid\":\"" + WiFi.SSID(i) + "\",";
+                json += "\"ssid\":\"" + ssid + "\",";
                 json += "\"rssi\":" + String(WiFi.RSSI(i));
                 json += "}";
             }
             json += "]";
+
             availableNetworks = json;
-            vTaskDelay(360000 / portTICK_PERIOD_MS); // Scan every 360 seconds
+
+            WiFi.scanDelete();
+
+            vTaskDelay(36000 / portTICK_PERIOD_MS); // Scan every 36 seconds
+        } else {
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
     }
 }
@@ -2605,7 +2619,7 @@ void setup()
 
     // --- VPN / mDNS / MQTT / App backends -----------------------------------
     setup_wg(settings.config.wg_mode);    ///< Enable/disable WireGuard based on config
-    setup_mdns();                         ///< Start mDNS responder
+    //setup_mdns();                         ///< Start mDNS responder
     setup_mqtt();                         ///< Configure and (re)connect MQTT client
     setup_librelinkup();                  ///< Initialize LibreLinkUp client
 
