@@ -2256,6 +2256,19 @@ void setup_wifi() {
     Serial.println(F("connecting to Wifi..."));
 
     if (wifiMulti.run(connectTimeoutMs) == WL_CONNECTED) {
+        
+        // ---- Custom DNS ----
+        IPAddress dns1(1, 1, 1, 1);   // Cloudflare
+        IPAddress dns2(8, 8, 8, 8);   // Google (Fallback)
+
+        // INADDR_NONE keeps IP via DHCP, but overrides DNS
+        if (!WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, dns1, dns2)) {
+            Serial.println("Failed to set custom DNS");
+        } else {
+            Serial.print("Custom DNS set: ");
+            Serial.println(WiFi.dnsIP());
+        }
+        
         DBGprint; 
         Serial.print(F("SSID:"));
         Serial.print(WiFi.SSID()); 
