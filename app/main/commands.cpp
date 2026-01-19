@@ -157,7 +157,7 @@ void WiFiSettingCommand(uuid::console::Shell &shell,
         String wifi_password = arguments[1].c_str();
         shell.printfln("WiFi Password: %s", wifi_password.c_str());
         settings.config.wifi_password = wifi_password;
-    } else {
+    } else if(arguments.size() == 1){
         // Offenes WLAN: Passwort explizit leer setzen
         settings.config.wifi_password = "";
         shell.printfln("WiFi Password: <empty> (open network)");
