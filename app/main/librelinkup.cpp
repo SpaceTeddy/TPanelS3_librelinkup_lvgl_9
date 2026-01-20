@@ -463,7 +463,7 @@ uint8_t LIBRELINKUP::check_graphdata(void){
 
 
 // redirect case
-static String regionToBaseUrl(const String& region) {
+String LIBRELINKUP::regionToBaseUrl(const String& region) {
     if (region == "de" || region == "eu") return "https://api-de.libreview.io";
     return "https://api.libreview.io";
 }

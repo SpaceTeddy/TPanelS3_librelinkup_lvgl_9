@@ -389,6 +389,12 @@ public:
     uint8_t check_graphdata(void);
 
     /**
+     * @brief set api region while user auth
+     * @return region code as string
+     */
+    static String regionToBaseUrl(const String& region);
+
+    /**
      * @brief Authenticate user credentials
      * @param user_email Account email
      * @param user_password Account password
