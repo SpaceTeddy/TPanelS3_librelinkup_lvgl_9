@@ -55,6 +55,25 @@ uint32_t LIBRELINKUP::convertToMillis(uint8_t hours, uint8_t minutes, uint8_t se
     return (hours * 3600UL + minutes * 60UL + seconds) * 1000UL;
 }
 
+static String extractHost(const String& urlOrHost) {
+    String s = urlOrHost;
+    s.trim();
+
+    // remove scheme
+    int p = s.indexOf("://");
+    if (p >= 0) s = s.substring(p + 3);
+
+    // cut path
+    p = s.indexOf('/');
+    if (p >= 0) s = s.substring(0, p);
+
+    // cut port
+    p = s.indexOf(':');
+    if (p >= 0) s = s.substring(0, p);
+
+    return s;
+}
+
 /* begin 
  * 
  * Parameter:   0= API communication Insecure
@@ -64,29 +83,35 @@ uint32_t LIBRELINKUP::convertToMillis(uint8_t hours, uint8_t minutes, uint8_t se
  * output: 0=
  *         1=
  */
-uint8_t LIBRELINKUP::begin(uint8_t use_cert){
-    
+uint8_t LIBRELINKUP::begin(uint8_t use_cert) {
+
     IPAddress api_ip;
-    WiFi.hostByName(base_url, api_ip); // DNS lookup
+    const String host = extractHost(String(base_url));  // <-- base_url kann URL oder Host sein
+
+    if (!WiFi.hostByName(host.c_str(), api_ip)) {
+        logger.debug("DNS failed for host: %s (base_url: %s)", host.c_str(), String(base_url).c_str());
+        return 0;  // <-- wichtig: Fehler wirklich als Fehler behandeln
+    }
+
     logger.info("API Server IP: %s", api_ip.toString().c_str());
 
     // setup http client
-    https.useHTTP10(false); // use HTTP/1.1
-    https.setTimeout(10000); //10 sec timeout
+    https.useHTTP10(false);
+    https.setTimeout(10000);
     https.setReuse(false);
-    llu_client->setTimeout(10000); //10 sec timeout
-    llu_client->setNoDelay(false); // disable Nagle algorithm
+    llu_client->setTimeout(10000);
+    //llu_client->setNoDelay(false);
 
     if(use_cert == 0){
         llu_client->setInsecure();
     }else if(use_cert == 1){
         llu_client->setCACert(API_ROOT_CA);
-    }else if(use_cert == 2){  
-        if(setCAfromfile(*llu_client, path_root_ca_googler4) == 0){    //if cert is not available, or path wrong... DL again
-            DBGprint_LLU;Serial.printf("download GoogleTrustService Root R4 certificate\r\n");
+    }else if(use_cert == 2){
+        if(setCAfromfile(*llu_client, path_root_ca_googler4) == 0){
+            DBGprint_LLU; Serial.printf("download GoogleTrustService Root R4 certificate\r\n");
             download_root_ca_to_file(url_check_GoogleTrustRootR4, path_root_ca_googler4);
         }
-        setCAfromfile(*llu_client, path_root_ca_googler4); // try to set cert again
+        setCAfromfile(*llu_client, path_root_ca_googler4);
     }
 
     return 1;
@@ -436,89 +461,13 @@ uint8_t LIBRELINKUP::check_graphdata(void){
     return count_valid_graph_data;
 }
 
-// get auth data from api.libreview.io
-uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
-    
-    uint8_t result = 0;
 
-    if (https.begin(*llu_client, base_url + url_user_auth)) {
-        //delay(10);
-        vTaskDelay(pdMS_TO_TICKS(10));       
-        //Serial.println("Connected to: " + url);
-
-        // Add LLU default headers
-        addDefaultLLUHeaders(https);
-        
-        // JSON data to send with HTTP POST
-        String httpRequestData = "{\"email\":\"" + user_email + "\",\"password\":\"" + user_password + "\"}";           
-        
-        // Send HTTP POST request
-        int code = https.POST(httpRequestData);
-        //DBGprint_LLU;Serial.printf("HTTP Code: [%d]\r\n", code);
-        logger.debug("HTTP Code: [%d]\r\n", code);
-
-        if (code > 0) {
-            if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
-                
-                //Parse response
-                deserializeJson((*json_librelinkup), https.getStream());
-                    
-                //Read values
-                //serializeJsonPretty(*json_librelinkup, Serial);Serial.println();
-
-                llu_login_data.user_login_status   = (*json_librelinkup)["status"].as<uint8_t>();
-                llu_login_data.user_country        = (*json_librelinkup)["data"]["user"]["country"].as<String>();
-                llu_login_data.user_id             = (*json_librelinkup)["data"]["user"]["id"].as<String>();
-                llu_login_data.user_token          = (*json_librelinkup)["data"]["authTicket"]["token"].as<String>();
-                llu_login_data.user_token_expires  = (*json_librelinkup)["data"]["authTicket"]["expires"].as<uint32_t>();
-                
-                // calculate SHA256 Hash for Account-ID header
-                llu_login_data.account_id = account_id_sha256(llu_login_data.user_id);
-
-                Serial.println();
-                DBGprint_LLU;Serial.println("LibreLinkUp Authentification for:");
-                DBGprint_LLU;Serial.print("user_email        : ");Serial.println(settings.config.login_email);
-                DBGprint_LLU;Serial.print("user_country      : ");Serial.println(llu_login_data.user_country);
-                DBGprint_LLU;Serial.print("user_id           : ");Serial.println(llu_login_data.user_id);
-                DBGprint_LLU;Serial.print("user_token        : ");Serial.println(llu_login_data.user_token);
-                DBGprint_LLU;Serial.print("token_exp.        : ");Serial.println(llu_login_data.user_token_expires);
-                DBGprint_LLU;Serial.print("user_login_status : ");Serial.println(llu_login_data.user_login_status);
-                DBGprint_LLU;Serial.print("account-id        : ");Serial.println(llu_login_data.account_id);
-
-                logger.debug("LibreLinkUp Authentification for:");
-                logger.debug("user_email        : %s",settings.config.login_email.c_str());
-                logger.debug("user_country      : %s",llu_login_data.user_country.c_str());
-                logger.debug("user_id           : %s",llu_login_data.user_id.c_str());
-                logger.debug("user_token        : %s",llu_login_data.user_token.c_str());
-                logger.debug("token_exp.        : %d",llu_login_data.user_token_expires);
-                logger.debug("user_login_status : %d",llu_login_data.user_login_status);
-                logger.debug("account-id        : %s",llu_login_data.account_id.c_str());
-
-                Json_Buffer_Info buffer_info;
-                buffer_info = helper.getBufferSize(&(*json_librelinkup));
-                logger.debug("auth json_librelinkup: Used Bytes / Total Capacity: %d / %d", buffer_info.usedCapacity, buffer_info.totalCapacity);
-
-                json_librelinkup->clear();                                          //clears the data object
-            }
-        }
-        else {
-            DBGprint_LLU; Serial.printf("[HTTP] POST... failed, error: %s\r\n", https.errorToString(code).c_str());
-            logger.debug("[HTTP] POST... failed, error: %s\r\n", https.errorToString(code).c_str());
-        }
-        // Free resources
-        https.end();
-        //check if client is still connected
-        if(llu_client->connected()){
-            DBGprint_LLU;Serial.printf("LLU client connected: %d\r\n",llu_client->connected());
-            logger.debug("LLU client connected: %d\r\n",llu_client->connected());
-            llu_client->flush();
-            llu_client->stop();
-        }
-        result = 1;
-    }
-    
-    return result;
+// redirect case
+static String regionToBaseUrl(const String& region) {
+    if (region == "de" || region == "eu") return "https://api-de.libreview.io";
+    return "https://api.libreview.io";
 }
+
 
 // user Accept Terms api.libreview.io
 uint16_t LIBRELINKUP::tou_user(void){
@@ -589,6 +538,73 @@ uint16_t LIBRELINKUP::tou_user(void){
     
     return result;
 }
+
+// get auth data from api.libreview.io
+uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
+
+    uint8_t result = 0;
+
+    // wichtig: pro call reset
+    llu_client->stop();
+    https.end();
+
+    if (https.begin(*llu_client, base_url + url_user_auth)) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+
+        addDefaultLLUHeaders(https);
+
+        String httpRequestData = "{\"email\":\"" + user_email + "\",\"password\":\"" + user_password + "\"}";
+        int code = https.POST(httpRequestData);
+
+        logger.debug("HTTP Code: [%d]\r\n", code);
+
+        if (code > 0 && (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY)) {
+
+            deserializeJson((*json_librelinkup), https.getStream());
+            serializeJsonPretty(*json_librelinkup, Serial); Serial.println();
+
+            bool redirect = (*json_librelinkup)["data"]["redirect"] | false;
+            String region = (*json_librelinkup)["data"]["region"] | "";
+            String baseUrlStr = String(base_url);
+            
+            if (redirect) {
+                DBGprint_LLU;Serial.printf("Login redirect requested, region=%s\n\r", region.c_str());
+                logger.notice("Login redirect requested, region=%s", region.c_str());
+                https.end();
+
+                static char base_url_buf[64];
+
+                snprintf(base_url_buf, sizeof(base_url_buf),
+                        "https://api-%s.libreview.io", region.c_str());
+                base_url = base_url_buf;
+
+                json_librelinkup->clear();
+                llu_client->stop();
+
+                // retry once
+                return auth_user(user_email, user_password);
+            }
+
+            // Normaler Login-Pfad (authTicket vorhanden)
+            llu_login_data.user_login_status   = (*json_librelinkup)["status"].as<uint8_t>();
+            llu_login_data.user_country        = (*json_librelinkup)["data"]["user"]["country"].as<String>();
+            llu_login_data.user_id             = (*json_librelinkup)["data"]["user"]["id"].as<String>();
+            llu_login_data.user_token          = (*json_librelinkup)["data"]["authTicket"]["token"].as<String>();
+            llu_login_data.user_token_expires  = (*json_librelinkup)["data"]["authTicket"]["expires"].as<uint32_t>();
+
+            llu_login_data.account_id = account_id_sha256(llu_login_data.user_id);
+
+            json_librelinkup->clear();
+            result = 1;
+        }
+
+        https.end();
+        llu_client->stop();
+    }
+
+    return result;
+}
+
 
 // get graph glycose data from api.libreview.io
 uint16_t LIBRELINKUP::get_connection_data(void){
