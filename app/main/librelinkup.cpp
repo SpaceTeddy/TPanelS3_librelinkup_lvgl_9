@@ -544,7 +544,7 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
 
     uint8_t result = 0;
 
-    // wichtig: pro call reset
+    // important: pro call reset
     llu_client->stop();
     https.end();
 
@@ -561,12 +561,13 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
         if (code > 0 && (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY)) {
 
             deserializeJson((*json_librelinkup), https.getStream());
-            serializeJsonPretty(*json_librelinkup, Serial); Serial.println();
+            //serializeJsonPretty(*json_librelinkup, Serial); Serial.println();
 
             bool redirect = (*json_librelinkup)["data"]["redirect"] | false;
             String region = (*json_librelinkup)["data"]["region"] | "";
             String baseUrlStr = String(base_url);
             
+            // Check for redirect and if the region has changed (from default) add new api region
             if (redirect) {
                 DBGprint_LLU;Serial.printf("Login redirect requested, region=%s\n\r", region.c_str());
                 logger.notice("Login redirect requested, region=%s", region.c_str());
@@ -585,7 +586,7 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
                 return auth_user(user_email, user_password);
             }
 
-            // Normaler Login-Pfad (authTicket vorhanden)
+            // standard Login-Path (authTicket already existing)
             llu_login_data.user_login_status   = (*json_librelinkup)["status"].as<uint8_t>();
             llu_login_data.user_country        = (*json_librelinkup)["data"]["user"]["country"].as<String>();
             llu_login_data.user_id             = (*json_librelinkup)["data"]["user"]["id"].as<String>();
@@ -811,10 +812,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
 
                 // Deserialize with filter
-                /*DeserializationError err = deserializeJson((*json_librelinkup), https.getStream(),
-                                                          DeserializationOption::Filter(*json_filter));
-                */
-                String body = https.getString();  // liest komplette Response
+                String body = https.getString();  // reads full response
                 DeserializationError err = deserializeJson((*json_librelinkup), body,
                                           DeserializationOption::Filter(*json_filter));
 
@@ -834,11 +832,11 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 bool ok = parse_graph_json_doc();
 
                 Json_Buffer_Info buffer_info;
-                buffer_info = helper.getBufferSize(&(*json_filter));
-                logger.debug("json_filter     : Used Bytes / Total Capacity: %d / %d", buffer_info.usedCapacity, buffer_info.totalCapacity);
-
                 buffer_info = helper.getBufferSize(&(*json_librelinkup));
                 logger.debug("json_librelinkup: Used Bytes / Total Capacity: %d / %d", buffer_info.usedCapacity, buffer_info.totalCapacity);
+
+                buffer_info = helper.getBufferSize(&(*json_filter));
+                logger.debug("json_filter     : Used Bytes / Total Capacity: %d / %d", buffer_info.usedCapacity, buffer_info.totalCapacity);
 
                 json_filter->clear();
                 json_librelinkup->clear();

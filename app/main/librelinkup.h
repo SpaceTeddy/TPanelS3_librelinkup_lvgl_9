@@ -180,21 +180,20 @@ public:
      * @brief Server URLs and certificate paths
      * @{
      */
-    const char* url_dl_DigiCertGlobalRootG2 = "https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem"; ///< DigiCert root CA
+    const char* url_dl_DigiCertGlobalRootG2    = "https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem"; ///< DigiCert root CA
     const char* url_dl_BaltimoreCyberTrustRoot = "https://cacerts.digicert.com/BaltimoreCyberTrustRoot.crt.pem"; ///< Baltimore CA
-    const char* url_dl_GoogleTrustRootR4 = "https://i.pki.goog/r4.pem"; ///< Google Trust Services CA
+    const char* url_dl_GoogleTrustRootR4       = "https://i.pki.goog/r4.pem"; ///< Google Trust Services CA
 
-    const char* url_check_DigiCertGlobalRootG2 = "https://global-root-ca.chain-demos.digicert.com"; ///< DigiCert test endpoint
+    const char* url_check_DigiCertGlobalRootG2    = "https://global-root-ca.chain-demos.digicert.com"; ///< DigiCert test endpoint
     const char* url_check_BaltimoreCyberTrustRoot = "https://baltimore-cybertrust-root.chain-demos.digicert.com"; ///< Baltimore test
-    const char* url_check_GoogleTrustRootR4 = "https://good.gtsr4.demosite.pki.goog"; ///< Google Trust test
+    const char* url_check_GoogleTrustRootR4       = "https://good.gtsr4.demosite.pki.goog"; ///< Google Trust test
 
     const char* path_root_ca_baltimore = "/rootCA_BCTR.pem";  ///< Baltimore cert storage path
-    const char* path_root_ca_dcgrg2 = "/rootCA_DCGRG2.pem";   ///< DigiCert storage path
-    const char* path_root_ca_googler4 = "/rootCA_GoogleR4.pem"; ///< Google Trust storage path
+    const char* path_root_ca_dcgrg2    = "/rootCA_DCGRG2.pem";   ///< DigiCert storage path
+    const char* path_root_ca_googler4  = "/rootCA_GoogleR4.pem"; ///< Google Trust storage path
 
     const char *base_url = "https://api.libreview.io"; ///< API base URL
-    const int httpsPort = 443;  
-                           ///< HTTPS default port
+    const int httpsPort = 443;  ///< HTTPS default port
     /** @} */
 
     /**
@@ -231,10 +230,10 @@ public:
      * @brief Glucose measurements and status
      * @{
      */
-    String url_graph = "/llu/connections/" + llu_login_data.user_id + "/graph"; ///< Graph data endpoint
-    String url_connection = "/llu/connections"; ///< Connections endpoint
-    String url_user_auth = "/llu/auth/login";    ///< Authentication endpoint
-    String url_user_tou = "/auth/continue/tou";  ///< Terms of use endpoint
+    String url_graph      = "/llu/connections/" + llu_login_data.user_id + "/graph"; ///< Graph data endpoint
+    String url_connection = "/llu/connections";     ///< Connections endpoint
+    String url_user_auth  = "/llu/auth/login";      ///< Authentication endpoint
+    String url_user_tou   = "/auth/continue/tou";   ///< Terms of use endpoint
 
     struct {
         uint16_t glucoseMeasurement = 0;            ///< Current measurement (mg/dL)
