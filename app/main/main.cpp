@@ -2257,6 +2257,7 @@ void setup_wifi() {
 
     if (wifiMulti.run(connectTimeoutMs) == WL_CONNECTED) {
         
+        /*
         // ---- Custom DNS ----
         IPAddress dns1(1, 1, 1, 1);   // Cloudflare
         IPAddress dns2(8, 8, 8, 8);   // Google (Fallback)
@@ -2268,7 +2269,8 @@ void setup_wifi() {
             Serial.print("Custom DNS set: ");
             Serial.println(WiFi.dnsIP());
         }
-        
+        */
+        delay(100);
         DBGprint; 
         Serial.print(F("SSID:"));
         Serial.print(WiFi.SSID()); 
@@ -2279,7 +2281,7 @@ void setup_wifi() {
         
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "connected!");
         lv_timer_handler();
-        delay(1000);
+        delay(500);
         
         lv_label_set_text(ui_Label_WelcomeWifiInfo, WiFi.localIP().toString().c_str());
         lv_timer_handler();
