@@ -391,6 +391,12 @@ public:
      * @brief set api region while user auth
      * @return region code as string
      */
+    static String extractHost(const String& urlOrHost);
+
+    /**
+     * @brief set api region while user auth
+     * @return region code as string
+     */
     static String regionToBaseUrl(const String& region);
 
     /**

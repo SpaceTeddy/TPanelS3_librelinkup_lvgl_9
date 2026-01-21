@@ -55,7 +55,39 @@ uint32_t LIBRELINKUP::convertToMillis(uint8_t hours, uint8_t minutes, uint8_t se
     return (hours * 3600UL + minutes * 60UL + seconds) * 1000UL;
 }
 
-static String extractHost(const String& urlOrHost) {
+/**
+ * @brief Extracts the host name from a URL or host string.
+ *
+ * This function takes a string that may contain a full URL
+ * (including scheme, port, and path) or just a host name and
+ * returns only the host part.
+ *
+ * The following components are removed if present:
+ * - URL scheme (e.g. "http://", "https://")
+ * - Path (everything after the first '/')
+ * - Port number (everything after the first ':')
+ *
+ * Leading and trailing whitespace is ignored.
+ *
+ * @param urlOrHost
+ *        Input string containing a full URL or a host name.
+ *
+ * @return
+ *        The extracted host name without scheme, port, or path.
+ *
+ * @note
+ *        This function does not perform URL validation and assumes
+ *        a well-formed input. IPv6 addresses are not supported.
+ *
+ * @example
+ * @code
+ * extractHost("https://example.com:8080/path"); // returns "example.com"
+ * extractHost("example.com");                   // returns "example.com"
+ * extractHost("example.com:443");               // returns "example.com"
+ * extractHost(" http://example.com ");          // returns "example.com"
+ * @endcode
+ */
+String LIBRELINKUP::extractHost(const String& urlOrHost) {
     String s = urlOrHost;
     s.trim();
 
