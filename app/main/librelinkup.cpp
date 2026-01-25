@@ -944,31 +944,32 @@ bool LIBRELINKUP::parse_graph_json_doc() {
     memset(llu_sensor_history_data.timestamp,  0, GRAPHDATAARRAYSIZE);
 
     // --- Parse current measurement ---
-    llu_glucose_data.glucoseMeasurement        = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"].as<int>();
-    llu_glucose_data.trendArrow                = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"].as<int>();
-    llu_glucose_data.measurement_color         = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"].as<int>();
-    llu_glucose_data.str_TrendMessage          = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"].as<String>();
-    llu_glucose_data.str_measurement_timestamp = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["Timestamp"].as<String>();
+    llu_glucose_data.glucoseMeasurement               = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"].as<int>();
+    llu_glucose_data.trendArrow                       = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"].as<int>();
+    llu_glucose_data.measurement_color                = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"].as<int>();
+    llu_glucose_data.str_TrendMessage                 = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"].as<String>();
+    llu_glucose_data.str_measurement_timestamp        = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["Timestamp"].as<String>();
+    llu_glucose_data.str_measurement_factorytimestamp = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["FactoryTimestamp"].as<String>();
 
     // --- Parse targets/alarms ---
-    llu_glucose_data.glucosetargetLow          = (*json_librelinkup)["data"]["connection"]["targetLow"].as<int>();
-    llu_glucose_data.glucosetargetHigh         = (*json_librelinkup)["data"]["connection"]["targetHigh"].as<int>();
-    llu_glucose_data.glucoseAlarmLow           = (*json_librelinkup)["data"]["connection"]["patientDevice"]["ll"].as<int>();
-    llu_glucose_data.glucoseAlarmHigh          = (*json_librelinkup)["data"]["connection"]["patientDevice"]["hl"].as<int>();
-    llu_glucose_data.glucosefixedLowAlarmValues= (*json_librelinkup)["data"]["connection"]["patientDevice"]["fixedLowAlarmValues"]["mgdl"].as<int>();
+    llu_glucose_data.glucosetargetLow                 = (*json_librelinkup)["data"]["connection"]["targetLow"].as<int>();
+    llu_glucose_data.glucosetargetHigh                = (*json_librelinkup)["data"]["connection"]["targetHigh"].as<int>();
+    llu_glucose_data.glucoseAlarmLow                  = (*json_librelinkup)["data"]["connection"]["patientDevice"]["ll"].as<int>();
+    llu_glucose_data.glucoseAlarmHigh                 = (*json_librelinkup)["data"]["connection"]["patientDevice"]["hl"].as<int>();
+    llu_glucose_data.glucosefixedLowAlarmValues       = (*json_librelinkup)["data"]["connection"]["patientDevice"]["fixedLowAlarmValues"]["mgdl"].as<int>();
 
     // --- Parse connection/sensor info ---
-    llu_login_data.connection_country        = (*json_librelinkup)["data"]["connection"]["country"].as<String>();
-    llu_login_data.connection_status         = (*json_librelinkup)["data"]["connection"]["status"].as<int>();
+    llu_login_data.connection_country         = (*json_librelinkup)["data"]["connection"]["country"].as<String>();
+    llu_login_data.connection_status          = (*json_librelinkup)["data"]["connection"]["status"].as<int>();
 
-    llu_sensor_data.sensor_sn_non_active     = (*json_librelinkup)["data"]["connection"]["sensor"]["sn"].as<String>();
-    llu_sensor_data.sensor_id_non_active     = (*json_librelinkup)["data"]["connection"]["sensor"]["deviceId"].as<String>();
-    llu_sensor_data.sensor_non_activ_unixtime= (*json_librelinkup)["data"]["connection"]["sensor"]["a"].as<uint32_t>();
+    llu_sensor_data.sensor_sn_non_active      = (*json_librelinkup)["data"]["connection"]["sensor"]["sn"].as<String>();
+    llu_sensor_data.sensor_id_non_active      = (*json_librelinkup)["data"]["connection"]["sensor"]["deviceId"].as<String>();
+    llu_sensor_data.sensor_non_activ_unixtime = (*json_librelinkup)["data"]["connection"]["sensor"]["a"].as<uint32_t>();
 
-    llu_sensor_data.sensor_id                = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["deviceId"].as<String>();
-    llu_sensor_data.sensor_sn                = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["sn"].as<String>();
-    llu_sensor_data.sensor_state             = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["pt"].as<int>();
-    llu_sensor_data.sensor_activation_time   = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["a"].as<int>();
+    llu_sensor_data.sensor_id                 = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["deviceId"].as<String>();
+    llu_sensor_data.sensor_sn                 = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["sn"].as<String>();
+    llu_sensor_data.sensor_state              = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["pt"].as<int>();
+    llu_sensor_data.sensor_activation_time    = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["a"].as<int>();
 
     // --- Parse historical glucose data ---
     for (uint8_t i = 0; i < GRAPHDATAARRAYSIZE; i++) {
@@ -977,11 +978,18 @@ bool LIBRELINKUP::parse_graph_json_doc() {
 
         if (llu_sensor_history_data.graph_data[i] == 0) {
             llu_sensor_history_data.timestamp[i] = 0;
+            llu_sensor_history_data.factory_timestamp[i] = 0;
         } else {
+            // parse timestamps and factory timestamps and convert to time_t
             String timestampStr =
                 (*json_librelinkup)["data"]["graphData"][i]["Timestamp"].as<String>();
             time_t ts = parseTimestamp(timestampStr.c_str());
             llu_sensor_history_data.timestamp[i] = ts;
+
+            String factory_timestampStr =
+                (*json_librelinkup)["data"]["graphData"][i]["FactoryTimestamp"].as<String>();
+            ts = parseTimestamp(factory_timestampStr.c_str());
+            llu_sensor_history_data.factory_timestamp[i] = ts;
         }
     }
 
@@ -1014,7 +1022,6 @@ const String& LIBRELINKUP::get_last_graph_json() const {
 
 // get WiFiClientSecure client pointer
 WiFiClientSecure & LIBRELINKUP::get_wifisecureclient(void){
-
     return *llu_client;
 }
 
@@ -1180,15 +1187,6 @@ bool LIBRELINKUP::read2String(fs::FS &fs, const char *path, char *myString, size
 }
 
 // String-Timestamp in time_t umwandeln
-/*
-time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
-    struct tm tm_time;
-    memset(&tm_time, 0, sizeof(struct tm));
-    strptime(timestampStr, "%m/%d/%Y %I:%M:%S %p", &tm_time);
-    return mktime(&tm_time);
-}
-*/
-
 time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
     setlocale(LC_TIME, "C"); // Erzwingt die C-Standard-Locale für AM/PM-Interpretation
 

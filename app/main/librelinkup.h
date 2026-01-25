@@ -221,7 +221,8 @@ public:
     */
     struct {
         uint16_t graph_data[GRAPHDATAARRAYSIZE+GRAPHDATAARRAYSIZE_PLUS_ONE] = {0}; ///< Glucose history buffer
-        uint32_t timestamp[GRAPHDATAARRAYSIZE+GRAPHDATAARRAYSIZE_PLUS_ONE] = {0};  ///< Glucose history buffer    
+        uint32_t timestamp[GRAPHDATAARRAYSIZE+GRAPHDATAARRAYSIZE_PLUS_ONE] = {0};  ///< Glucose history buffer
+        uint32_t factory_timestamp[GRAPHDATAARRAYSIZE+GRAPHDATAARRAYSIZE_PLUS_ONE] = {0};  ///< Glucose history buffer
     } llu_sensor_history_data;
     /** @} */
 
@@ -231,37 +232,37 @@ public:
      * @{
      */
     String url_graph      = "/llu/connections/" + llu_login_data.user_id + "/graph"; ///< Graph data endpoint
-    String url_connection = "/llu/connections";     ///< Connections endpoint
-    String url_user_auth  = "/llu/auth/login";      ///< Authentication endpoint
-    String url_user_tou   = "/auth/continue/tou";   ///< Terms of use endpoint
+    String url_connection = "/llu/connections";      ///< Connections endpoint
+    String url_user_auth  = "/llu/auth/login";       ///< Authentication endpoint
+    String url_user_tou   = "/auth/continue/tou";    ///< Terms of use endpoint
 
     struct {
-        uint16_t glucoseMeasurement = 0;            ///< Current measurement (mg/dL)
-        uint8_t trendArrow = 0;                     ///< Trend direction code
-        uint8_t measurement_color = 0;              ///< Display color code
-        String str_TrendMessage = "";               ///< Trend interpretation
-        String str_measurement_timestamp = "";      ///< Formatted timestamp
-        String str_trendArrow = "";                 ///< Trend direction text
-
-        uint16_t glucosetargetLow = 0;              ///< Lower target range
-        uint16_t glucosetargetHigh = 0;             ///< Upper target range
-        uint16_t glucoseAlarmLow = 0;               ///< Low glucose threshold
-        uint16_t glucoseAlarmHigh = 0;              ///< High glucose threshold
-        uint16_t glucosefixedLowAlarmValues = 0;    ///< Fixed low alarm setting
+        uint16_t glucoseMeasurement = 0;             ///< Current measurement (mg/dL)
+        uint8_t trendArrow = 0;                      ///< Trend direction code
+        uint8_t measurement_color = 0;               ///< Display color code
+        String str_TrendMessage = "";                ///< Trend interpretation
+        String str_measurement_timestamp = "";       ///< Formatted timestamp
+        String str_trendArrow = "";                  ///< Trend direction text
+        String str_measurement_factorytimestamp = "";///< Formatted timestamp
+        uint16_t glucosetargetLow = 0;               ///< Lower target range
+        uint16_t glucosetargetHigh = 0;              ///< Upper target range
+        uint16_t glucoseAlarmLow = 0;                ///< Low glucose threshold
+        uint16_t glucoseAlarmHigh = 0;               ///< High glucose threshold
+        uint16_t glucosefixedLowAlarmValues = 0;     ///< Fixed low alarm setting
               
     } llu_glucose_data;
 
     struct {
-        uint8_t sensor_state = 0;                   ///< Current sensor state
-        String sensor_sn_non_active = "";           ///< Inactive sensor serial
-        String sensor_id_non_active = "";           ///< Inactive sensor ID
-        uint32_t sensor_non_activ_unixtime = 0;     ///< Last activation attempt
+        uint8_t sensor_state = 0;                    ///< Current sensor state
+        String sensor_sn_non_active = "";            ///< Inactive sensor serial
+        String sensor_id_non_active = "";            ///< Inactive sensor ID
+        uint32_t sensor_non_activ_unixtime = 0;      ///< Last activation attempt
         
-        String sensor_id = "";                      ///< Active sensor ID
-        String sensor_sn = "";                      ///< Active sensor serialsensor_state
-        String LIBRE3PLUS_SERIAL_START = "0J000000";///< Libre 3 Plus serial prefix
-        uint32_t sensor_runtime = 0;                ///< lifetime set to 0 as default  
-        uint32_t sensor_activation_time = 0;        ///< Activation timestamp                
+        String sensor_id = "";                       ///< Active sensor ID
+        String sensor_sn = "";                       ///< Active sensor serialsensor_state
+        String LIBRE3PLUS_SERIAL_START = "0J000000"; ///< Libre 3 Plus serial prefix
+        uint32_t sensor_runtime = 0;                 ///< lifetime set to 0 as default  
+        uint32_t sensor_activation_time = 0;         ///< Activation timestamp                
     } llu_sensor_data;
         
     
