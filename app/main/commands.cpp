@@ -515,17 +515,34 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
         }
         else if ((llu_argument == "history")) {
             static char time_in_hours[librelinkup.GRAPHDATAARRAYSIZE][6]; // "HH:MM" + null terminator
+            static char factory_time_in_hours[librelinkup.GRAPHDATAARRAYSIZE][6]; // "HH:MM" + null terminator
             shell.printfln(F("LLU History...:"));
             uint8_t data_count = librelinkup.check_graphdata();
             shell.printfln("Historical data: [%d/%d]", data_count, librelinkup.GRAPHDATAARRAYSIZE);
+            shell.printfln("%-9s | %-7s | %-13s | %-13s | %-17s | %-19s",
+                            "ArrayPos",
+                            "Value",
+                            "TimeStamp",
+                            "Time(HH:MM)",
+                            "FactoryTimeStamp",
+                            "FactoryTime(HH:MM)");
+            shell.printfln("%-9s | %-7s | %-13s | %-13s | %-17s | %-19s",
+                            "--------",
+                            "-----",
+                            "---------",
+                            "-----------",
+                            "----------------",
+                            "------------------");
             for (uint8_t i = 0; i < librelinkup.GRAPHDATAARRAYSIZE; i++) {
                 helper.format_time(time_in_hours[i], sizeof(time_in_hours[i]), librelinkup.llu_sensor_history_data.timestamp[i]);
-                shell.printfln("ArrayPos.: %03d Value: %03d TimeStamp: %d (%s)",
-                    i,
-                    librelinkup.llu_sensor_history_data.graph_data[i],
-                    librelinkup.llu_sensor_history_data.timestamp[i],
-                    time_in_hours[i]
-                );
+                helper.format_time(factory_time_in_hours[i], sizeof(factory_time_in_hours[i]), librelinkup.llu_sensor_history_data.factory_timestamp[i]);
+                shell.printfln("%-9u | %-7u | %-13lu | %-13s | %-17lu | %-19s",
+                                i,
+                                librelinkup.llu_sensor_history_data.graph_data[i],
+                                librelinkup.llu_sensor_history_data.timestamp[i],
+                                time_in_hours[i],
+                                librelinkup.llu_sensor_history_data.factory_timestamp[i],
+                                factory_time_in_hours[i]);
             }
         }
         else if ((llu_argument == "graphdata")) {
