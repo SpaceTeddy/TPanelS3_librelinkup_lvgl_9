@@ -539,6 +539,44 @@ public:
      */
     time_t parseTimestamp(const char* timestampStr);
     /** @} */
+
+    /**
+     * @brief updates timezone offset based on local and factory timestamps
+     * @param localTs Local timestamp string
+     * @param factoryTs Factory timestamp string
+     */
+
+    static const uint8_t TZ_WIN = 5;
+    int16_t tz_hist[TZ_WIN] = {0};
+    uint8_t tz_hist_idx = 0;
+    bool tz_locked = false;
+    int16_t tz_offset_h_locked = 0;
+    int32_t tz_offset_s_locked = 0;
+
+    
+    void update_timezone_offset(const String& localTs, const String& factoryTs);
+    /** @} */
+
+    /**
+     * @brief computes timezone offset in seconds between local and factory time
+     * @return timezone offset in seconds
+     */
+    int32_t compute_tz_offset_s(const String& localTs, const String& factoryTs);
+    /** @} */
+
+    /**
+     * @brief rounds timezone offset in seconds to nearest hour
+     * @return timezone offset in hours
+     */
+    int16_t round_hours(int32_t offset_s);
+    /** @} */
+
+    /**
+     * @brief computes residual seconds after rounding to nearest hour
+     * @return residual seconds
+     */
+    int32_t residual_s(int32_t offset_s, int16_t h);
+    /** @} */
 };
 
 #endif

@@ -367,116 +367,50 @@ int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
 
 // check glucose api.libreview.io valid timestamp with ESP32 local time 
 // (0= error or not valid; 1=valid; 2=timecode "00:00:00 00.00.0000" 3= no activated sensor)        
-uint8_t LIBRELINKUP::check_valid_timestamp(String librelinkup_timestamp, uint8_t print_mode){
+uint8_t LIBRELINKUP::check_valid_timestamp(String librelinkup_timestamp, uint8_t print_mode)
+{
+    time_t now = time(nullptr);
 
-    uint8_t result = 0;
-    struct tm timeinfo;
-    
-    // get local time as int ------------------
-    if(!getLocalTime(&timeinfo)){
-        DBGprint_LLU; Serial.println("Failed to obtain time");
+    if (now < 1700000000) {
+        DBGprint_LLU; Serial.println("Failed to obtain valid time (NTP?)");
+        logger.notice("Failed to obtain valid time (NTP?)");
         return LOCAL_TIME_ERROR;
     }
 
-    localtime.day    = timeinfo.tm_mday;            // day
-    localtime.month  = timeinfo.tm_mon  + 1;        // month (0-based, therefore +1)
-    localtime.year   = timeinfo.tm_year + 1900;     // year since 1900
-    localtime.hour   = timeinfo.tm_hour + timezone; // hour + timezone
-    localtime.minute = timeinfo.tm_min;             // minute
-    localtime.second = timeinfo.tm_sec;             // second
-
-    if (localtime.hour == 24) {
-        localtime.hour = 0;
-        localtime.day++;
-    }
-
-    // Optional: day saving time check
-    if (timeinfo.tm_isdst == 0) {
-        // no daysaving
-    } else if (timeinfo.tm_isdst == 1) {
-        // active
-    } else {
-        // error
-    }
-    //--------------------------------------------------
-    
-    // get LLU json timestamp time as int ------------------
-    int hour_librelinkup_timestamp   = 0;
-    int minute_librelinkup_timestamp = 0;
-    int second_librelinkup_timestamp = 0;
-    int day_librelinkup_timestamp    = 0;
-    int month_librelinkup_timestamp  = 0;
-    int year_librelinkup_timestamp   = 0;
-    char meridian[3];
-    
-    if (sscanf(librelinkup_timestamp.c_str(), "%d/%d/%d %d:%d:%d %2s", &librelinkuptimecode.month, &librelinkuptimecode.day, &librelinkuptimecode.year, &librelinkuptimecode.hour, &librelinkuptimecode.minute, &librelinkuptimecode.second, meridian) != 7) {
-        DBGprint_LLU;Serial.println("Error parsing date/time");
-        logger.debug("Error parsing date/time");
-
+    // Normaler Timestamp -> epoch (lokale Zeit)
+    time_t tLocal = parseTimestamp(librelinkup_timestamp.c_str());
+    if (tLocal == 0) {
+        DBGprint_LLU; Serial.println("Error parsing LibreLinkUp timestamp");
+        logger.notice("Error parsing LibreLinkUp timestamp: %s", librelinkup_timestamp.c_str());
         return SENSOR_TIMECODE_ERROR;
     }
-    // Adjust for PM
-    if (strcmp(meridian, "PM") == 0 && librelinkuptimecode.hour != 12) {
-        librelinkuptimecode.hour += 12;
-    } else if (strcmp(meridian, "AM") == 0 && librelinkuptimecode.hour == 12) {
-        librelinkuptimecode.hour = 0;
-    }
-    //---------------------------------------------------------
 
-    if(print_mode == 1){      
+    // >>> WICHTIG: NICHT offset abziehen, wenn du "Timestamp" validierst!
+    time_t tMeas = tLocal;
 
-        DBGprint_LLU;
-        Serial.printf("ESP32 local Timestamp: %02d.%02d.%04d ",localtime.day,localtime.month,localtime.year);
-        Serial.printf("%02d:%02d:%02d\r\n",localtime.hour,localtime.minute,localtime.second);
-        logger.notice("ESP32 local Timestamp: %02d.%02d.%04d %02d:%02d:%02d",localtime.day,localtime.month,localtime.year,localtime.hour,localtime.minute,localtime.second);
-        
-        DBGprint_LLU; 
-        Serial.printf("LibreLinkUp Timestamp: %02d.%02d.%04d ",librelinkuptimecode.day,librelinkuptimecode.month,librelinkuptimecode.year);
-        Serial.printf("%02d:%02d:%02d\r\n",librelinkuptimecode.hour,librelinkuptimecode.minute,librelinkuptimecode.second);
-        logger.notice("LibreLinkUp Timestamp: %02d.%02d.%04d %02d:%02d:%02d",librelinkuptimecode.day,librelinkuptimecode.month,librelinkuptimecode.year,librelinkuptimecode.hour,librelinkuptimecode.minute,librelinkuptimecode.second);
+    int32_t diff_ms = (int32_t)difftime(now, tMeas) * 1000;
 
-    }
-    // Timecode Filter ---------------------------------------------------------------
-    // check LibreLinkUp timecode for "00:00:00 00.00.0000"
-    if( librelinkuptimecode.day    == 0 && \
-        librelinkuptimecode.month  == 0 && \
-        librelinkuptimecode.year   == 0 && \
-        librelinkuptimecode.hour   == 0 && \
-        librelinkuptimecode.minute == 0 && \
-        librelinkuptimecode.second == 0){
-        
-        DBGprint_LLU;Serial.println("TimeCode Filter: LibreLinkUp -> 00.00.0000 00:00:00");
-        logger.notice("TimeCode Filter: LibreLinkUp -> 00.00.0000 00:00:00");
-        logger.notice("LLU API Timestamp: %s",librelinkup_timestamp.c_str());
-        logger.notice("LLU API token: %s",llu_login_data.user_token.c_str());
-        result = SENSOR_NOT_ACTIVE;
-        
-        return result;
-    }
-    
-    // Filter: check if timecode is valid
-    uint32_t serverTimeMs = convertToMillis(librelinkuptimecode.hour, librelinkuptimecode.minute, librelinkuptimecode.second);
-    uint32_t localTimeMs  = convertToMillis(localtime.hour, localtime.minute, localtime.second);
-    
-    // calculate timedifference
-    int32_t timeDifferenceMs = localTimeMs - serverTimeMs;
-    
-    if((localtime.day > librelinkuptimecode.day) || (timeDifferenceMs > LIBRELINKUPSENSORTIMEOUT)){
-        
-        DBGprint_LLU;Serial.println("TimeCode Filter: Time Difference LocalTime - ServerTimestamp > LIBRELINKUPSENSORTIMEOUT");
-        logger.debug("TimeCode Filter: Time Difference LocalTime - ServerTimestamp > LIBRELINKUPSENSORTIMEOUT");
-        
-        result = SENSOR_TIMECODE_OUT_OF_RANGE;
-        return result;
-    }
-    
-    else if((localtime.day == librelinkuptimecode.day) && (timeDifferenceMs <= LIBRELINKUPSENSORTIMEOUT)){
-        logger.debug("TimeCode Filter: Timecode Valid");
-        result = SENSOR_TIMECODE_VALID;
-        return result;
+    if (print_mode == 1) {
+        logger.notice("ESP32 now epoch      : %ld", (long)now);
+        logger.notice("LLU local epoch      : %ld", (long)tLocal);
+        logger.notice("tz_locked=%d offset_s=%ld (NOT applied for Timestamp validity)",
+                      (int)tz_locked, (long)tz_offset_s_locked);
+        logger.notice("diff_ms              : %ld", (long)diff_ms);
     }
 
-    return result;
+    if (diff_ms < 0) {
+        logger.debug("TimeCode Filter: measurement in the future (diff_ms=%ld)", (long)diff_ms);
+        return SENSOR_TIMECODE_OUT_OF_RANGE;
+    }
+
+    if (diff_ms > LIBRELINKUPSENSORTIMEOUT) {
+        logger.debug("TimeCode Filter: diff_ms=%ld > timeout=%ld",
+                     (long)diff_ms, (long)LIBRELINKUPSENSORTIMEOUT);
+        return SENSOR_TIMECODE_OUT_OF_RANGE;
+    }
+
+    logger.debug("TimeCode Filter: Timecode Valid (diff_ms=%ld)", (long)diff_ms);
+    return SENSOR_TIMECODE_VALID;
 }
 
 // check glucose api.libreview.io graphdata. returns count of non Zero value
@@ -971,6 +905,12 @@ bool LIBRELINKUP::parse_graph_json_doc() {
     llu_sensor_data.sensor_state              = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["pt"].as<int>();
     llu_sensor_data.sensor_activation_time    = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["a"].as<int>();
 
+    // check timezone offset
+    update_timezone_offset(
+        llu_glucose_data.str_measurement_timestamp,
+        llu_glucose_data.str_measurement_factorytimestamp
+    );
+    
     // --- Parse historical glucose data ---
     for (uint8_t i = 0; i < GRAPHDATAARRAYSIZE; i++) {
         llu_sensor_history_data.graph_data[i] =
@@ -1231,4 +1171,62 @@ time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
     //printf("Input: %s → Parsed Time: %02d:%02d:%02d | Unix: %ld\n", timestampStr, tm_time.tm_hour, tm_time.tm_min, tm_time.tm_sec, timestamp);
 
     return timestamp;
+}
+
+// Zeitzonen-Offset aktualisieren
+void LIBRELINKUP::update_timezone_offset(const String& localTs, const String& factoryTs) {
+    int32_t off_s = compute_tz_offset_s(localTs, factoryTs);
+    int16_t off_h = round_hours(off_s);
+    int32_t res   = residual_s(off_s, off_h);
+
+    // wenn residual groß ist -> ignorieren (Parsing/Noise)
+    if (res > 120) return; // >2 Minuten weg von "ganzer Stunde" -> suspicious
+
+    // Ringbuffer füllen
+    tz_hist[tz_hist_idx++] = off_h;
+    if (tz_hist_idx >= TZ_WIN) tz_hist_idx = 0;
+
+    // Majority Vote
+    int16_t best = tz_hist[0];
+    uint8_t bestCount = 0;
+
+    for (uint8_t i=0; i<TZ_WIN; i++) {
+        int16_t v = tz_hist[i];
+        uint8_t cnt = 0;
+        for (uint8_t j=0; j<TZ_WIN; j++) if (tz_hist[j] == v) cnt++;
+        if (cnt > bestCount) { bestCount = cnt; best = v; }
+    }
+
+    // Lock / Update nur wenn stabil
+    if (bestCount >= 3) {                 // mindestens 3 von 5 gleich
+        tz_offset_h_locked = best;
+        tz_offset_s_locked = (int32_t)best * 3600;
+        tz_locked = true;
+    }
+
+    logger.debug("tz off_s=%ld off_h=%d locked_h=%d locked=%d",
+             (long)off_s, (int)off_h, (int)tz_offset_h_locked, (int)tz_locked);
+    settings.config.timezone = (int)off_h;
+}
+
+int32_t LIBRELINKUP::compute_tz_offset_s(const String& localTs, const String& factoryTs) {
+    if (!localTs.length() || !factoryTs.length()) return 0;
+
+    time_t tLocal   = parseTimestamp(localTs.c_str());
+    time_t tFactory = parseTimestamp(factoryTs.c_str());
+    if (tLocal == 0 || tFactory == 0) return 0;
+
+    return (int32_t)difftime(tLocal, tFactory); // local - factory
+}
+
+int16_t LIBRELINKUP::round_hours(int32_t offset_s) {
+    // Round to nearest hour
+    if (offset_s >= 0) return (int16_t)((offset_s + 1800) / 3600);
+    else               return (int16_t)((offset_s - 1800) / 3600);
+}
+
+int32_t LIBRELINKUP::residual_s(int32_t offset_s, int16_t h) {
+    int32_t r = offset_s - (int32_t)h * 3600;
+    if (r < 0) r = -r;
+    return r;
 }
