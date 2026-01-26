@@ -543,47 +543,51 @@ public:
     time_t parseTimestamp(const char* timestampStr);
     /** @} */
 
+    
     /**
-     * @brief updates timezone offset based on local and factory timestamps
-     * @param localTs Local timestamp string
-     * @param factoryTs Factory timestamp string
+     * @defgroup timezone Timezone Management
+     * @brief Timezone offset detection and locking
+     * @{
      */
-
-    static const uint8_t TZ_WIN = 5;
-    int16_t tz_hist[TZ_WIN] = {0};
-    uint8_t tz_hist_idx = 0;
     bool tz_locked = false;
     int16_t tz_offset_h_locked = 0;
     int32_t tz_offset_s_locked = 0;
 
-    
-    void update_timezone_offset(const String& localTs, const String& factoryTs);
-    /** @} */
-
-    
+    /**
+     * @brief Detects and locks the timezone offset between LibreLinkUp timestamps.
+     *
+     * This function computes the timezone offset as the difference between
+     * the LibreLinkUp localized Timestamp and the FactoryTimestamp:
+     *
+     *     offset = Timestamp - FactoryTimestamp
+     *
+     * The offset is expected to be a whole number of hours (e.g. +3600, -18000),
+     * which covers timezone changes and daylight saving time (DST).
+     *
+     * The offset is calculated once and stored permanently until reboot
+     * (no smoothing or re-evaluation is performed).
+     *
+     * On success, the following member variables are updated:
+     * - tz_offset_s_locked : offset in seconds (signed)
+     * - tz_offset_h_locked : offset rounded to whole hours (signed)
+     * - tz_locked          : set to true
+     *
+     * @param ts_local   LibreLinkUp localized timestamp string
+     *                   (e.g. "1/18/2026 10:25:40 PM")
+     * @param ts_factory LibreLinkUp factory timestamp string
+     *                   (e.g. "1/18/2026 9:25:40 PM")
+     *
+     * @return true  Timezone offset successfully computed and locked
+     * @return false Timestamp parsing failed or offset is implausible
+     *
+     * @note The offset is sanity-checked to be within ±15 hours.
+     * @note Negative offsets (e.g. Americas) are fully supported.
+     * @note This function assumes that both timestamps use the same
+     *       string format and can be parsed by parseTimestamp().
+     */
     bool update_tz_offset_once(const String& ts_local, const String& ts_factory);
     /** @} */
 
-    /**
-     * @brief computes timezone offset in seconds between local and factory time
-     * @return timezone offset in seconds
-     */
-    int32_t compute_tz_offset_s(const String& localTs, const String& factoryTs);
-    /** @} */
-
-    /**
-     * @brief rounds timezone offset in seconds to nearest hour
-     * @return timezone offset in hours
-     */
-    int16_t round_hours(int32_t offset_s);
-    /** @} */
-
-    /**
-     * @brief computes residual seconds after rounding to nearest hour
-     * @return residual seconds
-     */
-    int32_t residual_s(int32_t offset_s, int16_t h);
-    /** @} */
 };
 
 #endif

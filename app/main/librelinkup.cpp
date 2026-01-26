@@ -367,11 +367,13 @@ int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
 
 // check glucose api.libreview.io valid timestamp with ESP32 local time 
 // (0= error or not valid; 1=valid; 2=timecode "00:00:00 00.00.0000" 3= no activated sensor)        
+
 uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     const String& factory_ts,
     const String& cloud_ts,     // <-- normaler Timestamp-String (optional, fürs Logging)
     uint8_t print_mode)
 {
+
     time_t now = time(nullptr);
     if (now < 1700000000) {
         logger.notice("Failed to obtain valid time (NTP?)");
@@ -1173,41 +1175,6 @@ time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
     return timestamp;
 }
 
-// Zeitzonen-Offset aktualisieren
-void LIBRELINKUP::update_timezone_offset(const String& localTs, const String& factoryTs) {
-    int32_t off_s = compute_tz_offset_s(localTs, factoryTs);
-    int16_t off_h = round_hours(off_s);
-    int32_t res   = residual_s(off_s, off_h);
-
-    // wenn residual groß ist -> ignorieren (Parsing/Noise)
-    if (res > 120) return; // >2 Minuten weg von "ganzer Stunde" -> suspicious
-
-    // Ringbuffer füllen
-    tz_hist[tz_hist_idx++] = off_h;
-    if (tz_hist_idx >= TZ_WIN) tz_hist_idx = 0;
-
-    // Majority Vote
-    int16_t best = tz_hist[0];
-    uint8_t bestCount = 0;
-
-    for (uint8_t i=0; i<TZ_WIN; i++) {
-        int16_t v = tz_hist[i];
-        uint8_t cnt = 0;
-        for (uint8_t j=0; j<TZ_WIN; j++) if (tz_hist[j] == v) cnt++;
-        if (cnt > bestCount) { bestCount = cnt; best = v; }
-    }
-
-    // Lock / Update nur wenn stabil
-    if (bestCount >= 3) {                 // mindestens 3 von 5 gleich
-        tz_offset_h_locked = best;
-        tz_offset_s_locked = (int32_t)best * 3600;
-        tz_locked = true;
-    }
-
-    logger.debug("tz off_s=%ld off_h=%d locked_h=%d locked=%d",
-             (long)off_s, (int)off_h, (int)tz_offset_h_locked, (int)tz_locked);
-    settings.config.timezone = (int)off_h;
-}
 
 bool LIBRELINKUP::update_tz_offset_once(const String& ts_local, const String& ts_factory)
 {
@@ -1215,46 +1182,28 @@ bool LIBRELINKUP::update_tz_offset_once(const String& ts_local, const String& ts
     time_t tFactory = parseTimestamp(ts_factory.c_str());
 
     if (tLocal == 0 || tFactory == 0) {
-        logger.debug("tz: parse failed (local=%d factory=%d)", (int)tLocal, (int)tFactory);
+        logger.debug("tz: parse failed (local=%ld factory=%ld)", (long)tLocal, (long)tFactory);
         return false;
     }
 
     int32_t off_s = (int32_t)difftime(tLocal, tFactory);
 
-    // Sanity: typischerweise ganze Stunden; aber sicherheitshalber nur grob filtern
-    if (abs(off_s) > 15 * 3600) {  // +/-15h ist sehr unwahrscheinlich
+    // Sanity: typischerweise ganze Stunden
+    if (abs(off_s) > 15 * 3600) {
         logger.notice("tz: offset implausible: %ld s", (long)off_s);
         return false;
     }
 
-    tz_offset_s_locked = off_s;
-    tz_offset_h_locked = (int16_t)(off_s / 3600);
+    // korrekt runden (auch für negative Offsets!)
+    int16_t off_h = (int16_t)((off_s >= 0) ? ((off_s + 1800) / 3600)
+                                           : ((off_s - 1800) / 3600));
+
+    tz_offset_s_locked = off_s;      // volle Sekundengenauigkeit behalten
+    tz_offset_h_locked = off_h;
     tz_locked = true;
 
-    logger.debug("tz lock (1-sample): off_s=%ld off_h=%d", (long)tz_offset_s_locked, (int)tz_offset_h_locked);
+    logger.debug("tz lock (1-sample): off_s=%ld off_h=%d",
+                 (long)tz_offset_s_locked, (int)tz_offset_h_locked);
+
     return true;
-}
-
-
-
-int32_t LIBRELINKUP::compute_tz_offset_s(const String& localTs, const String& factoryTs) {
-    if (!localTs.length() || !factoryTs.length()) return 0;
-
-    time_t tLocal   = parseTimestamp(localTs.c_str());
-    time_t tFactory = parseTimestamp(factoryTs.c_str());
-    if (tLocal == 0 || tFactory == 0) return 0;
-
-    return (int32_t)difftime(tLocal, tFactory); // local - factory
-}
-
-int16_t LIBRELINKUP::round_hours(int32_t offset_s) {
-    // Round to nearest hour
-    if (offset_s >= 0) return (int16_t)((offset_s + 1800) / 3600);
-    else               return (int16_t)((offset_s - 1800) / 3600);
-}
-
-int32_t LIBRELINKUP::residual_s(int32_t offset_s, int16_t h) {
-    int32_t r = offset_s - (int32_t)h * 3600;
-    if (r < 0) r = -r;
-    return r;
 }
