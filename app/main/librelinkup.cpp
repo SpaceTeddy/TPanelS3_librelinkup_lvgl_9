@@ -367,6 +367,7 @@ int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
 
 // check glucose api.libreview.io valid timestamp with ESP32 local time 
 // (0= error or not valid; 1=valid; 2=timecode "00:00:00 00.00.0000" 3= no activated sensor)        
+/*
 uint8_t LIBRELINKUP::check_valid_timestamp(String librelinkup_timestamp, uint8_t print_mode)
 {
     time_t now = time(nullptr);
@@ -391,11 +392,11 @@ uint8_t LIBRELINKUP::check_valid_timestamp(String librelinkup_timestamp, uint8_t
     int32_t diff_ms = (int32_t)difftime(now, tMeas) * 1000;
 
     if (print_mode == 1) {
-        logger.notice("ESP32 now epoch      : %ld", (long)now);
-        logger.notice("LLU local epoch      : %ld", (long)tLocal);
-        logger.notice("tz_locked=%d offset_s=%ld (NOT applied for Timestamp validity)",
+        logger.debug("ESP32 now epoch      : %ld", (long)now);
+        logger.debug("LLU local epoch      : %ld", (long)tLocal);
+        logger.debug("tz_locked=%d offset_s=%ld (NOT applied for Timestamp validity)",
                       (int)tz_locked, (long)tz_offset_s_locked);
-        logger.notice("diff_ms              : %ld", (long)diff_ms);
+        logger.debug("diff_ms              : %ld", (long)diff_ms);
     }
 
     if (diff_ms < 0) {
@@ -412,6 +413,47 @@ uint8_t LIBRELINKUP::check_valid_timestamp(String librelinkup_timestamp, uint8_t
     logger.debug("TimeCode Filter: Timecode Valid (diff_ms=%ld)", (long)diff_ms);
     return SENSOR_TIMECODE_VALID;
 }
+*/
+
+uint8_t LIBRELINKUP::check_valid_timestamp_factory(
+    const String& factory_ts,
+    const String& cloud_ts,     // <-- normaler Timestamp-String (optional, fürs Logging)
+    uint8_t print_mode)
+{
+    time_t now = time(nullptr);
+    if (now < 1700000000) {
+        logger.notice("Failed to obtain valid time (NTP?)");
+        return LOCAL_TIME_ERROR;
+    }
+
+    time_t tCloud = parseTimestamp(cloud_ts.c_str());
+    time_t tFactory = parseTimestamp(factory_ts.c_str());
+    if (tFactory == 0) {
+        logger.notice("Error parsing FactoryTimestamp: %s", factory_ts.c_str());
+        return SENSOR_TIMECODE_ERROR;
+    }
+
+    // Local = Factory + offset
+    time_t tLocalMeas = tFactory;
+    tLocalMeas = tFactory + (time_t)tz_offset_s_locked;
+    
+    int32_t diff_ms = (int32_t)difftime(now, tLocalMeas) * 1000;
+
+    if (print_mode == 1) {
+        logger.debug("tz_locked=%d offset_s=%ld", (int)tz_locked, (long)tz_offset_s_locked);
+        logger.debug("ESP32 now epoch               : %ld", (long)now);
+        logger.debug("Factory epoch                 : %ld", (long)tFactory);
+        logger.debug("Cloud TS epoch                : %ld", (long)tCloud);
+        logger.debug("Local(Factory - offset) epoch : %ld", (long)tLocalMeas);
+        logger.debug("diff_ms                       : %ld (timeout=%ld)",
+                      (long)diff_ms, (long)LIBRELINKUPSENSORTIMEOUT);
+    }
+
+    if (diff_ms < 0) return SENSOR_TIMECODE_OUT_OF_RANGE;
+    if (diff_ms > LIBRELINKUPSENSORTIMEOUT) return SENSOR_TIMECODE_OUT_OF_RANGE;
+    return SENSOR_TIMECODE_VALID;
+}
+
 
 // check glucose api.libreview.io graphdata. returns count of non Zero value
 uint8_t LIBRELINKUP::check_graphdata(void){
@@ -906,9 +948,15 @@ bool LIBRELINKUP::parse_graph_json_doc() {
     llu_sensor_data.sensor_activation_time    = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["a"].as<int>();
 
     // check timezone offset
+    /*
     update_timezone_offset(
         llu_glucose_data.str_measurement_timestamp,
         llu_glucose_data.str_measurement_factorytimestamp
+    );*/
+
+    update_tz_offset_once(
+        (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["Timestamp"].as<String>(),
+        (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["FactoryTimestamp"].as<String>()
     );
     
     // --- Parse historical glucose data ---
@@ -1208,6 +1256,34 @@ void LIBRELINKUP::update_timezone_offset(const String& localTs, const String& fa
              (long)off_s, (int)off_h, (int)tz_offset_h_locked, (int)tz_locked);
     settings.config.timezone = (int)off_h;
 }
+
+bool LIBRELINKUP::update_tz_offset_once(const String& ts_local, const String& ts_factory)
+{
+    time_t tLocal   = parseTimestamp(ts_local.c_str());
+    time_t tFactory = parseTimestamp(ts_factory.c_str());
+
+    if (tLocal == 0 || tFactory == 0) {
+        logger.debug("tz: parse failed (local=%d factory=%d)", (int)tLocal, (int)tFactory);
+        return false;
+    }
+
+    int32_t off_s = (int32_t)difftime(tLocal, tFactory);
+
+    // Sanity: typischerweise ganze Stunden; aber sicherheitshalber nur grob filtern
+    if (abs(off_s) > 15 * 3600) {  // +/-15h ist sehr unwahrscheinlich
+        logger.notice("tz: offset implausible: %ld s", (long)off_s);
+        return false;
+    }
+
+    tz_offset_s_locked = off_s;
+    tz_offset_h_locked = (int16_t)(off_s / 3600);
+    tz_locked = true;
+
+    logger.debug("tz lock (1-sample): off_s=%ld off_h=%d", (long)tz_offset_s_locked, (int)tz_offset_h_locked);
+    return true;
+}
+
+
 
 int32_t LIBRELINKUP::compute_tz_offset_s(const String& localTs, const String& factoryTs) {
     if (!localTs.length() || !factoryTs.length()) return 0;

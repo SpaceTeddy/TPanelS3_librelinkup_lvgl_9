@@ -1923,8 +1923,14 @@ void update_glucose_data() {
     librelinkup.llu_status.sensor_state = librelinkup.check_sensor_lifetime(
         librelinkup.llu_sensor_data.sensor_non_activ_unixtime, 
         librelinkup.llu_sensor_data.sensor_runtime);
-    librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp(
-        librelinkup.llu_glucose_data.str_measurement_timestamp, 1);
+    /*librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp(
+        librelinkup.llu_glucose_data.str_measurement_timestamp, 1);*/
+    librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp_factory(
+            librelinkup.llu_glucose_data.str_measurement_factorytimestamp,
+            librelinkup.llu_glucose_data.str_measurement_timestamp,   // normaler Timestamp nur fürs Log
+            1
+        );
+    
     librelinkup.llu_status.last_timestamp_unixtime = helper.convertStrToUnixTime(
         librelinkup.llu_glucose_data.str_measurement_timestamp);
     

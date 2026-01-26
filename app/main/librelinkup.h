@@ -489,7 +489,11 @@ public:
      * - 2: Verbose
      * @return TimeCodeState validation result
      */
-    uint8_t check_valid_timestamp(String librelinkup_timestamp, uint8_t print_mode);
+    //uint8_t check_valid_timestamp(String librelinkup_timestamp, uint8_t print_mode);
+    uint8_t check_valid_timestamp_factory(
+            const String& factory_ts,
+            const String& cloud_ts,     // <-- normaler Timestamp-String (optional, fürs Logging)
+            uint8_t print_mode);
 
     /**
      * @brief Map sensor state code to enum
@@ -555,6 +559,10 @@ public:
 
     
     void update_timezone_offset(const String& localTs, const String& factoryTs);
+    /** @} */
+
+    
+    bool update_tz_offset_once(const String& ts_local, const String& ts_factory);
     /** @} */
 
     /**
