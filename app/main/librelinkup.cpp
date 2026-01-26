@@ -367,54 +367,6 @@ int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
 
 // check glucose api.libreview.io valid timestamp with ESP32 local time 
 // (0= error or not valid; 1=valid; 2=timecode "00:00:00 00.00.0000" 3= no activated sensor)        
-/*
-uint8_t LIBRELINKUP::check_valid_timestamp(String librelinkup_timestamp, uint8_t print_mode)
-{
-    time_t now = time(nullptr);
-
-    if (now < 1700000000) {
-        DBGprint_LLU; Serial.println("Failed to obtain valid time (NTP?)");
-        logger.notice("Failed to obtain valid time (NTP?)");
-        return LOCAL_TIME_ERROR;
-    }
-
-    // Normaler Timestamp -> epoch (lokale Zeit)
-    time_t tLocal = parseTimestamp(librelinkup_timestamp.c_str());
-    if (tLocal == 0) {
-        DBGprint_LLU; Serial.println("Error parsing LibreLinkUp timestamp");
-        logger.notice("Error parsing LibreLinkUp timestamp: %s", librelinkup_timestamp.c_str());
-        return SENSOR_TIMECODE_ERROR;
-    }
-
-    // >>> WICHTIG: NICHT offset abziehen, wenn du "Timestamp" validierst!
-    time_t tMeas = tLocal;
-
-    int32_t diff_ms = (int32_t)difftime(now, tMeas) * 1000;
-
-    if (print_mode == 1) {
-        logger.debug("ESP32 now epoch      : %ld", (long)now);
-        logger.debug("LLU local epoch      : %ld", (long)tLocal);
-        logger.debug("tz_locked=%d offset_s=%ld (NOT applied for Timestamp validity)",
-                      (int)tz_locked, (long)tz_offset_s_locked);
-        logger.debug("diff_ms              : %ld", (long)diff_ms);
-    }
-
-    if (diff_ms < 0) {
-        logger.debug("TimeCode Filter: measurement in the future (diff_ms=%ld)", (long)diff_ms);
-        return SENSOR_TIMECODE_OUT_OF_RANGE;
-    }
-
-    if (diff_ms > LIBRELINKUPSENSORTIMEOUT) {
-        logger.debug("TimeCode Filter: diff_ms=%ld > timeout=%ld",
-                     (long)diff_ms, (long)LIBRELINKUPSENSORTIMEOUT);
-        return SENSOR_TIMECODE_OUT_OF_RANGE;
-    }
-
-    logger.debug("TimeCode Filter: Timecode Valid (diff_ms=%ld)", (long)diff_ms);
-    return SENSOR_TIMECODE_VALID;
-}
-*/
-
 uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     const String& factory_ts,
     const String& cloud_ts,     // <-- normaler Timestamp-String (optional, fürs Logging)

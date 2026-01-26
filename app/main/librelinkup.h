@@ -489,10 +489,9 @@ public:
      * - 2: Verbose
      * @return TimeCodeState validation result
      */
-    //uint8_t check_valid_timestamp(String librelinkup_timestamp, uint8_t print_mode);
     uint8_t check_valid_timestamp_factory(
             const String& factory_ts,
-            const String& cloud_ts,     // <-- normaler Timestamp-String (optional, fürs Logging)
+            const String& cloud_ts,
             uint8_t print_mode);
 
     /**
