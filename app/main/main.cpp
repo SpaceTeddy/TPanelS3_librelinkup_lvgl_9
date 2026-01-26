@@ -2291,6 +2291,7 @@ void setup_wifi() {
         
         lv_label_set_text(ui_Label_WelcomeWifiInfo, WiFi.localIP().toString().c_str());
         lv_timer_handler();
+        delay(500);
 
         // Get local time from NTP server
         DBGprint;
@@ -2357,6 +2358,8 @@ void setup_wg(bool enable) {
         if(!wg.is_initialized()){
             DBGprint; 
             Serial.println("Initializing WG interface...");
+            lv_label_set_text(ui_Label_WelcomeWifiInfo, "Initializing WG interface...");
+            lv_timer_handler();
             if(!wg.begin(
                     local_ip,
                     settings.config.wgPrivateKey.c_str(),
@@ -2366,12 +2369,16 @@ void setup_wg(bool enable) {
                     settings.config.wgPresharedKey.c_str())) {
                 DBGprint; 
                 Serial.println("Failed to initialize WG interface.");
+                lv_label_set_text(ui_Label_WelcomeWifiInfo, "Failed to initialize WG interface.");
+                lv_timer_handler();
                 wg.end();
             }
         }
         else {
             DBGprint; 
             Serial.println("Shutting down WG interface...");
+            lv_label_set_text(ui_Label_WelcomeWifiInfo, "Shutting down WG interface...");
+            lv_timer_handler();
             wg.end();
         }
         
@@ -2380,12 +2387,14 @@ void setup_wg(bool enable) {
         // Check internet connection
         if(Ping.ping(ping_ip)){
             DBGprint; 
-            Serial.print("WG connected!"); 
+            Serial.print("WG connected!");
             Serial.print(F(" IP:")); 
             Serial.println(local_ip);
             logger.notice("WG connected! IP: %s, Gateway: %s, SubNet: %s, dnsIP: %s",
                          local_ip.toString(), WiFi.gatewayIP().toString(),
                          WiFi.subnetMask().toString(), WiFi.dnsIP().toString());
+            lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG connected!");
+            lv_timer_handler();
             settings.config.wg_mode = 1;
     
         }else {
