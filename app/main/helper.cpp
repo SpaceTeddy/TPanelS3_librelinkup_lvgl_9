@@ -79,21 +79,11 @@ uint32_t HELPER::convertToMillis(uint8_t hours, uint8_t minutes, uint8_t seconds
     return (hours * 3600UL + minutes * 60UL + seconds) * 1000UL;
 }
 
-//------------------[Hauptfunktion zum Synchronisieren mit einem 5-Sekunden-Offset]--------------
-int32_t HELPER::synchronizeWithServer(uint8_t serverHours, uint8_t serverMinutes, uint8_t serverSeconds, 
-                                      uint8_t localHours, uint8_t localMinutes, uint8_t localSeconds) {
-    
-    int32_t timeDifferenceMs = 0;
-
-    // Server- und lokale Zeit in Millisekunden umrechnen
-    uint32_t serverTimeMs = convertToMillis(serverHours, serverMinutes, serverSeconds);
-    uint32_t localTimeMs  = convertToMillis(localHours, localMinutes, localSeconds);
-    
-    // calculate timedifference
-    timeDifferenceMs = serverTimeMs - localTimeMs;
-    //logger.notice("Timedifference from LibreLinkup Timestamp to ESP32 LocalTime: %dms",timeDifferenceMs);
-    
-    return timeDifferenceMs;
+// Returns signed seconds: local_epoch - server_epoch
+int32_t HELPER::syncWithServerEpoch(time_t server_epoch, time_t local_epoch)
+{
+    if (server_epoch == 0 || local_epoch == 0) return 0;
+    return (int32_t)difftime(local_epoch, server_epoch);
 }
 
 //------------------------[get flash ID functions]--------------------------------

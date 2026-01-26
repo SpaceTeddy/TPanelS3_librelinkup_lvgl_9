@@ -1767,7 +1767,8 @@ void handle_invalid_timestamp() {
  * 
  * @see helper.synchronizeWithServer()
  */
-void synchronize_time_offset() {
+/*
+ void synchronize_time_offset() {
     helper.timedifference = helper.synchronizeWithServer(
         librelinkup.librelinkuptimecode.hour,
         librelinkup.librelinkuptimecode.minute,
@@ -1775,9 +1776,106 @@ void synchronize_time_offset() {
         librelinkup.localtime.hour,
         librelinkup.localtime.minute,
         librelinkup.localtime.second);
-        
+    logger.debug("Time difference: %d seconds", helper.timedifference);
+
     g_timer_60000ms_backup = (helper.timedifference < helper.TIME_DIFF_THRESHOLD) ? 
         millis() : millis() + (helper.timedifference + librelinkup.https_llu_api_fetch_time);
+}*/
+
+
+
+void synchronize_time_offset()
+{
+    // 1) local epoch (ESP time)
+    time_t local_epoch = time(nullptr);
+    if (local_epoch == 0 || local_epoch < 1700000000) {
+        logger.warning("Time sync: local epoch invalid: %ld", (long)local_epoch);
+        return;
+    }
+
+    // 2) server epoch (LibreLinkUp Timestamp)
+    const String& ts = librelinkup.llu_glucose_data.str_measurement_timestamp;
+    time_t server_epoch = librelinkup.parseTimestamp(ts.c_str());
+    if (server_epoch == 0 || server_epoch < 1700000000) {
+        logger.warning("Time sync: server epoch invalid (ts=%s)", ts.c_str());
+        return;
+    }
+
+    // 3) signed diff seconds: local - server
+    int32_t diff_s = helper.syncWithServerEpoch(server_epoch, local_epoch);
+
+    // 4) Plausibilität (verhindert kaputte Trigger bei falscher Zeit/TZ)
+    // Erwartung: diff_s ist typischerweise klein (ein paar Sekunden bis evtl. < 1-2 Minuten)
+    if (abs(diff_s) > 6 * 3600) { // >6h ist sehr wahrscheinlich Zeit/TZ kaputt
+        logger.warning("Time sync: diff implausible: %ld s (local=%ld server=%ld)",
+                       (long)diff_s, (long)local_epoch, (long)server_epoch);
+        return;
+    }
+
+    helper.timedifference = diff_s; // ACHTUNG: jetzt Sekunden!
+    logger.debug("Time sync: diff=%ld s (local-server)", (long)helper.timedifference);
+
+    // 5) Scheduling: Wenn diff klein -> normal.
+    // Wenn diff groß -> verschiebe den nächsten Timer, damit du nicht "dauernd daneben" bist.
+    //
+    // WICHTIG: millis() arbeitet in ms, diff_s ist in s -> *1000
+    if (abs(diff_s) <= helper.TIME_DIFF_THRESHOLD) {
+        g_timer_60000ms_backup = millis();
+    } else {
+        uint32_t shift_ms = (uint32_t)(abs(diff_s) * 1000L) + librelinkup.https_llu_api_fetch_time;
+        g_timer_60000ms_backup = millis() + shift_ms;
+    }
+}
+
+void synchronize_time_offset_epoch()
+{
+    // 1) Epochs holen
+    time_t now_epoch = time(nullptr);
+    time_t cloud_epoch = helper.convertStrToUnixTime(librelinkup.llu_glucose_data.str_measurement_timestamp);
+
+    if (now_epoch < 1700000000 || cloud_epoch < 1700000000) {
+        logger.debug("Time sync: epoch not valid (now=%ld cloud=%ld) -> keep default 60s cadence",
+                     (long)now_epoch, (long)cloud_epoch);
+        return;
+    }
+
+    // 2) "Phase" des Cloud-Timestamps innerhalb der Minute
+    int phase_s = (int)(cloud_epoch % 60);      // 0..59
+    int now_s   = (int)(now_epoch % 60);        // 0..59
+
+    // 3) Guard (damit sicher nach Update gefetcht wird)
+    int fetch_s = (int)(librelinkup.https_llu_api_fetch_time / 1000);
+    int guard_s = fetch_s + 1;
+    if (guard_s < 2) guard_s = 2;
+    if (guard_s > 10) guard_s = 10;            // nicht eskalieren
+
+    int target_s = phase_s + guard_s;
+    if (target_s >= 60) target_s -= 60;
+
+    // 4) Sekunden bis zum nächsten target innerhalb des 60s-Rasters
+    int delta_s = target_s - now_s;
+    if (delta_s <= 0) delta_s += 60;
+
+    // 5) Um deinen bestehenden 60s-Trigger weiter zu benutzen:
+    // Wir setzen g_timer_60000ms_backup so, dass der nächste "60s abgelaufen" genau nach delta_s Sekunden passiert.
+    //
+    // Trigger: (millis() - backup > 60000)  =>  backup = millis() - (60000 - delta_ms)
+    uint32_t delta_ms = (uint32_t)delta_s * 1000UL;
+    g_timer_60000ms_backup = millis() - (timer_60000ms - delta_ms);
+
+    //logger.debug("Time sync(epoch): cloud_phase=%d now_s=%d target_s=%d delta=%ds fetch=%ds guard=%ds -> next in %lums",
+    //             phase_s, now_s, target_s, delta_s, fetch_s, guard_s, (unsigned long)delta_ms);
+    logger.debug("TimeSync: now=%ld (s=%02d) cloud=%ld (s=%02d) phase=%02d fetch=%dms guard=%ds -> target=%02d delta=%ds | backup=%lu now_ms=%lu",
+                (long)now_epoch, (int)(now_epoch % 60),
+                (long)cloud_epoch, (int)(cloud_epoch % 60),
+                phase_s,
+                (int)librelinkup.https_llu_api_fetch_time,
+                guard_s,
+                target_s,
+                delta_s,
+                (unsigned long)g_timer_60000ms_backup,
+                (unsigned long)millis()
+            );
 }
 
 /**
@@ -1939,7 +2037,8 @@ void update_glucose_data() {
     // Check if LLU timestamp is valid and process data
     if (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_VALID) {
         
-        synchronize_time_offset();
+        //synchronize_time_offset();
+        synchronize_time_offset_epoch();
 
         if (librelinkup.sensor_reconnect == 1) {
             handle_sensor_reconnect();
@@ -2693,10 +2792,13 @@ void setup()
 
     
     // ------------------------ Initial data & UI push -------------------------
-    update_glucose_data();          ///< First data fetch from LibreLinkUp backend
-    update_five_minute_counter();   ///< Prime 5-minute chart refresh counter
-    update_mqtt_publish();          ///< Publish first MQTT snapshot if enabled
-    update_glucose_json_logging();  ///< Persist first reading to JSON log
+    if(settings.config.mqtt_master_mode == true || flag_mqtt_master_rx == true){
+        flag_mqtt_master_rx = false;
+        update_glucose_data();          ///< First data fetch from LibreLinkUp backend
+        update_five_minute_counter();   ///< Prime 5-minute chart refresh counter
+        update_mqtt_publish();          ///< Publish first MQTT snapshot if enabled
+        update_glucose_json_logging();  ///< Persist first reading to JSON log
+    }
 
     // Switch to the main screen as the default UI
     lv_disp_load_scr(ui_Main_screen);

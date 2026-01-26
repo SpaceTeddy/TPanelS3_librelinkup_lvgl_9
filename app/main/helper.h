@@ -75,17 +75,12 @@ class HELPER {
         uint32_t convertToMillis(uint8_t hours, uint8_t minutes, uint8_t seconds);
 
         /**
-         * @brief Synchronizes local time with the server time.
-         * @param serverHours Server-provided hours.
-         * @param serverMinutes Server-provided minutes.
-         * @param serverSeconds Server-provided seconds.
-         * @param localHours Local device hours.
-         * @param localMinutes Local device minutes.
-         * @param localSeconds Local device seconds.
-         * @return The calculated time difference in milliseconds.
+         * @brief Synchronizes local time with server epoch time.
+         * @param server_epoch The server epoch time.
+         * @param local_epoch The local epoch time.
+         * @return Time difference in milliseconds.
          */
-        int32_t synchronizeWithServer(uint8_t serverHours, uint8_t serverMinutes, uint8_t serverSeconds, 
-                                      uint8_t localHours, uint8_t localMinutes, uint8_t localSeconds);
+        int32_t syncWithServerEpoch(time_t server_epoch, time_t local_epoch);
 
         /**
          * @brief convertion of Unix-Timestamp to "HH:MM"
