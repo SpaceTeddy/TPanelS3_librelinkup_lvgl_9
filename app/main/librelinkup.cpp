@@ -901,13 +901,7 @@ bool LIBRELINKUP::parse_graph_json_doc() {
     llu_sensor_data.sensor_state              = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["pt"].as<int>();
     llu_sensor_data.sensor_activation_time    = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["a"].as<int>();
 
-    // check timezone offset
-    /*
-    update_timezone_offset(
-        llu_glucose_data.str_measurement_timestamp,
-        llu_glucose_data.str_measurement_factorytimestamp
-    );*/
-
+    // --- Update timezone offset once ---
     update_tz_offset_once(
         (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["Timestamp"].as<String>(),
         (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["FactoryTimestamp"].as<String>()
@@ -994,7 +988,6 @@ void LIBRELINKUP::check_https_connection(const char* url){
         // Free https resources
         https.end();
     }
-
 }
 
 // set new root certificate

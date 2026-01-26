@@ -1924,10 +1924,12 @@ void update_glucose_data() {
         librelinkup.llu_sensor_data.sensor_non_activ_unixtime, 
         librelinkup.llu_sensor_data.sensor_runtime);
     
+    // Validate timestamp
     librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp_factory(
             librelinkup.llu_glucose_data.str_measurement_factorytimestamp,
             librelinkup.llu_glucose_data.str_measurement_timestamp, 1);
-    
+            
+    // Convert timestamp to Unix time
     librelinkup.llu_status.last_timestamp_unixtime = helper.convertStrToUnixTime(
         librelinkup.llu_glucose_data.str_measurement_timestamp);
     
