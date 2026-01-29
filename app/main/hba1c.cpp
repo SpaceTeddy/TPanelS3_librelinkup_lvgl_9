@@ -211,7 +211,7 @@ void HBA1C::printJsonFileTelnet(const char* filename) {
 void HBA1C::listJsonFilesTelnet() {
     File root = LittleFS.open("/");
     if (!root) {
-        logger.notice("Fehler: LittleFS konnte nicht geöffnet werden!");
+        logger.err("Fehler: LittleFS konnte nicht geöffnet werden!");
         return;
     }
 
@@ -221,7 +221,7 @@ void HBA1C::listJsonFilesTelnet() {
     while (file) {
         String filename = file.name();
         if (filename.endsWith(".json")) {
-            logger.notice("Datei: %s | Größe: %d Bytes", filename.c_str(), file.size());
+            //logger.debug("Datei: %s | Größe: %d Bytes", filename.c_str(), file.size());
         }
         file = root.openNextFile();
     }
@@ -237,13 +237,13 @@ void HBA1C::listJsonFilesTelnet() {
 void HBA1C::loadJsonFromFile(const char* filename, DynamicJsonDocument &jsonDoc) {
     File file = LittleFS.open(filename, "r");
     if (!file) {
-        logger.debug("📂 Datei %s nicht gefunden, neue Datei wird erstellt!", filename);
+        logger.err("📂 Datei %s nicht gefunden, neue Datei wird erstellt!", filename);
         jsonDoc.clear();
         jsonDoc.to<JsonArray>();
         return;
     }
 
-    logger.debug("📂 Lade Datei %s...", filename);
+    //logger.debug("📂 Lade Datei %s...", filename);
 
     jsonDoc.clear();
     DeserializationError error = deserializeJson(jsonDoc, file);
@@ -255,7 +255,7 @@ void HBA1C::loadJsonFromFile(const char* filename, DynamicJsonDocument &jsonDoc)
         jsonDoc.to<JsonArray>();
     }
 
-    logger.debug("📄 Datei %s geladen mit %d Einträgen.", filename, jsonDoc.size());
+    //logger.debug("📄 Datei %s geladen mit %d Einträgen.", filename, jsonDoc.size());
 }
 
 /**
@@ -533,10 +533,10 @@ float HBA1C::calculateGlucoseMeanForLast7Days() {
 
         double diff_days = difftime(now, file_time) / (60 * 60 * 24);
         if (diff_days >= 0 && diff_days <= 7) {
-            logger.debug("📂 Einbeziehen: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
+            //logger.debug("📂 Einbeziehen: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
             sum += processJsonFile(filepath.c_str(), count);
         } else {
-            logger.debug("📂 Ignoriert: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
+            //logger.debug("📂 Ignoriert: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
         }
 
         file = root.openNextFile();
@@ -548,7 +548,7 @@ float HBA1C::calculateGlucoseMeanForLast7Days() {
     }
 
     float mean = (float)sum / count;
-    logger.notice("📊 Durchschnittlicher Glucosewert der letzten 7 Tage: %.2f mg/dL (aus %d Werten)", mean, count);
+    logger.debug("📊 Durchschnittlicher Glucosewert der letzten 7 Tage: %.2f mg/dL (aus %d Werten)", mean, count);
     return mean;
 }
 
