@@ -175,7 +175,7 @@ uint8_t update_ota_progress_screen(int progress) {
 
 /// Time zone string for Central European Time (CET/CEST)
 /// Format: std offset dst [offset],start[/time],end[/time]
-const char* tz = "CET-1CEST-2,M3.5.0/2,M10.5.0/3";
+const char* tz = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 
 ///////////////////// OTA UPDATE ////////////////////
 
@@ -2102,8 +2102,7 @@ void update_glucose_data() {
 void update_glucose_json_logging() {
     uint32_t unixtime_now = librelinkup.get_epoch_time();
     hba1c.addGlucoseValue(unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement);
-    logger.debug("addGlucoseValue to LittleFS: %d / %d", 
-                unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement);
+    //logger.debug("addGlucoseValue to LittleFS: %d / %d", unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement);
 }
 
 /**
@@ -2836,7 +2835,7 @@ void loop()
         if(flag_mqtt_master_rx == true){
             flag_mqtt_master_rx = false;
             update_glucose_data();        ///< Fetch and render latest values
-            update_five_minute_counter(); ///< Advance 5-minute chart cadence
+            //update_five_minute_counter(); ///< Advance 5-minute chart cadence
             update_mqtt_publish();        ///< Push telemetry if MQTT enabled
         }
 
