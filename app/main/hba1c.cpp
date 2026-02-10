@@ -109,7 +109,7 @@ void HBA1C::updateFilename() {
     time_t now = time(nullptr);
     struct tm *timeinfo = localtime(&now);
     strftime(today_json_filename, sizeof(today_json_filename), "/%Y-%m-%d.json", timeinfo);
-    logger.debug("UpdateFilename: %s", today_json_filename);
+    //logger.debug("UpdateFilename: %s", today_json_filename);
 }
 
 /**
@@ -320,7 +320,7 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
     struct tm *last_timeinfo = localtime(&last_timestamp);
 
     if (last_timeinfo->tm_mday != timeinfo->tm_mday) {
-        logger.debug("🟢 Neuer Tag erkannt, Datei wechseln zu %s...", today_json_filename);
+        //logger.debug("🟢 Neuer Tag erkannt, Datei wechseln zu %s...", today_json_filename);
         updateFilename();
     }
 
@@ -355,7 +355,7 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
     saveJsonToFile(today_json_filename, *globalJsonDoc);
     globalJsonDoc->clear();
 
-    logger.debug("✅ Neuer Wert gespeichert: %ld | Glucose: %d mg/dL in Datei: %s", timestamp, glucose, today_json_filename);
+    //logger.debug("✅ Neuer Wert gespeichert: %ld | Glucose: %d mg/dL in Datei: %s", timestamp, glucose, today_json_filename);
 }
 
 /**
@@ -479,7 +479,7 @@ float HBA1C::calculateGlucoseMeanFromJson(const char* filename) {
     }
 
     float mean = (float)sum / count;
-    logger.debug("📊 Berechneter Glucose-Mean aus %s: %.2f mg/dL (aus %d Einträgen)", filename, mean, count);
+    //logger.debug("📊 Berechneter Glucose-Mean aus %s: %.2f mg/dL (aus %d Einträgen)", filename, mean, count);
     return mean;
 }
 
