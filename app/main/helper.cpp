@@ -186,12 +186,12 @@ String HELPER::get_esp_time_date(){
 
     strftime(timeinfo_hour,3, "%H", &timeinfo);
     
-    //if (timeinfo.tm_isdst == 1){                            // check for daylight save time
-    //    hour_localtime = atoi(timeinfo_hour);// + librelinkup.timezone;
-    //}
-    //else{
-        hour_localtime = atoi(timeinfo_hour) + librelinkup.timezone;
-    //}
+    if (timeinfo.tm_isdst == 1){                            // check for daylight save time
+        hour_localtime = atoi(timeinfo_hour) - 1;// + librelinkup.timezone;
+    }
+    else{
+        hour_localtime = atoi(timeinfo_hour);
+    }
     
     strftime(timeinfo_minute,3, "%M", &timeinfo);
     minute_localtime = atoi(timeinfo_minute);
