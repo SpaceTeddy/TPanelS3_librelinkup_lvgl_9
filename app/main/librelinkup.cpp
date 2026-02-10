@@ -374,6 +374,7 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     uint8_t print_mode)
 {
 
+    struct tm timeinfo;
     time_t now = time(nullptr);
     if (now < 1700000000) {
         logger.notice("Failed to obtain valid time (NTP?)");
@@ -389,17 +390,24 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
 
     // Local = Factory + offset
     time_t tLocalMeas = tFactory;
-    tLocalMeas = tFactory + (time_t)tz_offset_s_locked;
-    
-    int32_t diff_ms = (int32_t)difftime(now, tLocalMeas) * 1000;
+    //tLocalMeas = tFactory + (time_t)tz_offset_s_locked;
+    tLocalMeas = now;
+    int32_t diff_ms = 0;
+    int16_t tm_is_dst_offset = 0;
+    if(timeinfo.tm_isdst == 1){
+        tm_is_dst_offset = 7200;
+    }else{
+        tm_is_dst_offset = 3600;
+    }
+
+    diff_ms = (int32_t)(tLocalMeas - (tFactory + tm_is_dst_offset)) * 1000;
 
     if (print_mode == 1) {
         logger.debug("tz_locked=%d offset_s=%ld", (int)tz_locked, (long)tz_offset_s_locked);
-        logger.debug("ESP32 now epoch               : %ld", (long)now);
-        logger.debug("Factory epoch                 : %ld", (long)tFactory);
-        logger.debug("Cloud TS epoch                : %ld", (long)tCloud);
-        logger.debug("Local(Factory - offset) epoch : %ld", (long)tLocalMeas);
-        logger.debug("diff_ms                       : %ld (timeout=%ld)",
+        logger.debug("ESP32 now epoch                   : %ld", (long)now);
+        logger.debug("Factory epoch                     : %ld", (long)tFactory);
+        logger.debug("Cloud TS epoch                    : %ld", (long)tCloud);
+        logger.debug("diff_ms                            : %ld (timeout=%ld)",
                       (long)diff_ms, (long)LIBRELINKUPSENSORTIMEOUT);
     }
 
