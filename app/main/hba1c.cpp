@@ -279,7 +279,7 @@ void HBA1C::saveJsonToFile(const char* filename, DynamicJsonDocument &jsonDoc) {
     file.flush();
     file.close();
 
-    logger.debug("✅ Datei %s erfolgreich gespeichert mit %d Einträgen.", filename, jsonDoc.size());
+    //logger.debug("✅ Datei %s erfolgreich gespeichert mit %d Einträgen.", filename, jsonDoc.size());
     jsonDoc.clear();
 }
 
@@ -406,7 +406,7 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
         return 0;
     }
 
-    logger.debug("📂 Lade Datei %s...", filename);
+    //logger.debug("📂 Lade Datei %s...", filename);
 
     globalJsonDoc->clear();
     DeserializationError error = deserializeJson(*globalJsonDoc, file);
@@ -435,7 +435,7 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
     }
 
     count += local_count;
-    logger.debug("📄 Datei %s verarbeitet: %d Werte gefunden.", filename, local_count);
+    //logger.debug("📄 Datei %s verarbeitet: %d Werte gefunden.", filename, local_count);
     globalJsonDoc->clear();
     return sum;
 }
@@ -548,7 +548,7 @@ float HBA1C::calculateGlucoseMeanForLast7Days() {
     }
 
     float mean = (float)sum / count;
-    logger.debug("📊 Durchschnittlicher Glucosewert der letzten 7 Tage: %.2f mg/dL (aus %d Werten)", mean, count);
+    //logger.debug("📊 Durchschnittlicher Glucosewert der letzten 7 Tage: %.2f mg/dL (aus %d Werten)", mean, count);
     return mean;
 }
 
