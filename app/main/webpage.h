@@ -413,4 +413,15 @@ const char index_html[] PROGMEM = R"rawliteral(
 
 )rawliteral";
 
+
+// -------------------- Dashboard Erweiterung --------------------
+// Neue Route-Registrierung (Dashboard + API)
+#include <ESPAsyncWebServer.h>
+void register_webpage_routes(AsyncWebServer& server);
+
+// API Hooks (werden in web_glucose_api.cpp überschrieben)
+String web_get_glucose_latest_json();
+String web_get_glucose_history_json();
+
+
 #endif // webpage_H
