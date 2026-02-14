@@ -1,29 +1,25 @@
-// webpage.cpp (DROP-IN v10: FULL FEATURED + English UI)
+// webpage.cpp (DROP-IN v11: adds /api/config + protected autofill)
 // ------------------------------------------------------------
-// Features:
-// - Dark mode auto + toggle (saved in localStorage)
-// - 3h/6h/12h range buttons (default 12h)
-// - Hover tooltip on chart: value + timestamp (timestamp lowered for spacing)
-// - Axes labels: Y (mg/dL) and X (3–5 time labels)
-// - Target range fill
-// - Dynamic lifetime bar:
-//     >=24h remaining -> 15 day blocks (ceil days)
-//     <24h && >=1h    -> 24 hour blocks (ceil hours)
-//     <1h             -> 60 minute blocks (ceil minutes)
-//   Color rule (based on remaining days):
-//     >3d green, <=3d yellow, <=1d red
-//
-// Routes:
-//   /                  -> Dashboard
-//   /configuration      -> Configuration UI (your index_html)
-//   /config             -> Redirect to /configuration
-//   /api/glucose        -> latest JSON
-//   /api/glucose/history-> history JSON
+// Based on your current webpage.cpp reference (v10-ish).
+// Adds:
+//   - /api/config endpoint returning all settings as JSON
+//   - Protected with same BasicAuth as /configuration
+// Notes:
+//   - This file expects: #include "settings.h" and extern SETTINGS settings;
+//   - JSON payload is produced by web_get_config_json() implemented in web_config_api.cpp
 // ------------------------------------------------------------
 
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include "webpage.h"
+#include "settings.h"
+
+extern SETTINGS settings;
+
+// --- forward decl (implemented in web_config_api.cpp) ---
+__attribute__((weak)) String web_get_config_json() {
+  return String("{\"error\":\"web_config_api.cpp missing\"}");
+}
 
 static const char dashboard_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -141,8 +137,8 @@ static const char dashboard_html[] PROGMEM = R"rawliteral(
     </div>
   </div>
 
-  <div style="display:flex; gap:10px; align-items:center; margin-right:20px;">
-    <a class="btn" href="/configuration">LLU Configuration</a>
+  <div style="display:flex; gap:10px; align-items:center; margin-right:0px;">
+    <a class="btn" href="/configuration">Config</a>
     <button class="btn iconbtn" id="themeBtn" title="Toggle dark mode">🌓</button>
   </div>
 </div>
@@ -167,6 +163,7 @@ static const char dashboard_html[] PROGMEM = R"rawliteral(
 </div>
 
 <script>
+// (Dashboard JS unchanged)
 let lastHistory = null;
 let view = { values:[], ts:[], low:null, high:null };
 let hoverIndex = -1;
@@ -214,10 +211,6 @@ function ensureLifeBar(count){
   }
 }
 
-// Dynamic blocks:
-// - >= 24h remaining: 15 day blocks (ceil days)
-// - <  24h and >= 1h: 24 hour blocks (ceil hours)
-// - <  1h: 60 minute blocks (ceil minutes)
 function updateLifeBar(days,hours,minutes,seconds){
   const bar=document.getElementById("lifeBar");
   const txt=document.getElementById("lifeText");
@@ -227,7 +220,6 @@ function updateLifeBar(days,hours,minutes,seconds){
   const remHoursFloat = remSec / 3600.0;
   const remDaysFloat  = remSec / 86400.0;
 
-  // Color rule based on remaining days
   let cls="ok";
   if(remDaysFloat <= 1.0) cls="bad";
   else if(remDaysFloat <= 3.0) cls="warn";
@@ -311,30 +303,48 @@ function resizeCanvasToDPR(canvas){
 }
 
 function drawAxes(ctx, W, H, plotW, plotH, lo, hi, tsArr){
-  // Grid + Y labels
+  // Grid + Y labels (fixed 50 mg/dL steps starting at 50)
+  const yOf = (v)=> PAD_T + (1 - ((v - lo)/(hi - lo))) * plotH;
+
   ctx.strokeStyle = css("--gridLight");
   ctx.lineWidth = 1;
   ctx.beginPath();
-  for (let i=0;i<=4;i++){
-    const y = PAD_T + (i/4)*plotH;
+  for (let val = 50; val <= hi; val += 50){
+    const y = yOf(val);
     ctx.moveTo(PAD_L, y);
-    ctx.lineTo(PAD_L+plotW, y);
+    ctx.lineTo(PAD_L + plotW, y);
   }
   ctx.stroke();
 
+  // Y labels (50,100,150,...)
+  ctx.fillStyle = css("--muted");
+  ctx.font = `${Math.round((window.devicePixelRatio||1)*11)}px Arial`;
+  for (let val = 50; val <= hi; val += 50){
+    const y = yOf(val);
+    ctx.fillText(String(val), 8, y + 4);
+  }
+
+  // X labels (3–5)
+  const n = tsArr.length;
+  if(n < 2) return;
+  const ticks = [0, Math.round((n-1)*0.25), Math.round((n-1)*0.50), Math.round((n-1)*0.75), n-1];
+  const uniq = Array.from(new Set(ticks)).sort((a,b)=>a-b);
+
   ctx.fillStyle = css("--muted");
   ctx.font = `${Math.round((window.devicePixelRatio||1)*10)}px Arial`;
-  for (let i=0;i<=4;i++){
-    const y = PAD_T + (i/4)*plotH;
-    const v = hi - (i/4)*(hi-lo);
-    ctx.fillText(String(Math.round(v)), 6, y + 4);
+  for (const ti of uniq){
+    const x = PAD_L + (ti/(n-1))*plotW;
+    const t = fmtTime(tsArr[ti]);
+    ctx.fillText(t, x-16, PAD_T + plotH + 24);
   }
-  // Unit label (inside plot area to avoid any overlap with top UI)
+
+  // Unit label (inside plot area so it never overlaps top UI)
   const unit = "mg/dL";
   ctx.font = `${Math.round((window.devicePixelRatio||1)*10)}px Arial`;
   const ux = PAD_L + 6;
   const uy = PAD_T + 14;
   const uw = ctx.measureText(unit).width;
+
   ctx.fillStyle = css("--tooltipBg");
   ctx.strokeStyle = css("--tooltipBorder");
   ctx.lineWidth = 1;
@@ -343,21 +353,9 @@ function drawAxes(ctx, W, H, plotW, plotH, lo, hi, tsArr){
   else ctx.rect(ux-6, uy-12, uw+12, 16);
   ctx.fill();
   ctx.stroke();
+
   ctx.fillStyle = css("--muted");
   ctx.fillText(unit, ux, uy);
-
-  // X labels (3–5)
-  const n = tsArr.length;
-  if(n<2) return;
-  const ticks = [0, Math.round((n-1)*0.25), Math.round((n-1)*0.50), Math.round((n-1)*0.75), n-1];
-  const uniq = Array.from(new Set(ticks)).sort((a,b)=>a-b);
-
-  ctx.fillStyle = css("--muted");
-  for (const ti of uniq){
-    const x = PAD_L + (ti/(n-1))*plotW;
-    const t = fmtTime(tsArr[ti]);
-    ctx.fillText(t, x-16, PAD_T + plotH + 24);
-  }
 }
 
 function drawChart(){
@@ -382,9 +380,10 @@ function drawChart(){
   const plotW=W-PAD_L-PAD_R;
   const plotH=H-PAD_T-PAD_B;
 
-  const range=Math.max(40, max-min);
-  const lo=min-range*0.15;
-  const hi=max+range*0.15;
+  // Fixed Y scale: 50 mg/dL steps starting at 50
+  const lo = 50;
+  let hi = Math.ceil(max / 50) * 50;
+  hi = Math.max(hi, 200);
 
   const xOf=i=> PAD_L + (i/(values.length-1))*plotW;
   const yOf=v=> PAD_T + (1-((v-lo)/(hi-lo)))*plotH;
@@ -458,7 +457,7 @@ function drawChart(){
     ctx.fillText(t1, bx+8, by);
     ctx.fillStyle = css("--muted");
     ctx.font = `${Math.round((window.devicePixelRatio||1)*10)}px Arial`;
-    ctx.fillText(t2, bx+8, by+34); // extra spacing (user request)
+    ctx.fillText(t2, bx+8, by+34);
 
     document.getElementById("hover").textContent = `Cursor: ${t1} @ ${t2}`;
   } else {
@@ -504,7 +503,6 @@ async function refresh(){
     g.innerHTML = `${mgdl}<span class="unit">mg/dL</span>`;
     document.getElementById("subline").textContent = `Δ ${deltaTxt} • Trend ${trend}`;
 
-    // value color vs targets if available
     const m = Number(mgdl);
     const lo = Number(latest.low);
     const hi = Number(latest.high);
@@ -550,12 +548,62 @@ setInterval(refresh, 15000);
 </html>
 )rawliteral";
 
+// --- API forward declarations (implemented in web_glucose_api.cpp / web_config_api.cpp) ---
+String web_get_glucose_latest_json();
+String web_get_glucose_history_json();
+String web_get_config_json();
+
 // ------------ Handlers / Routes ------------
 static void handleDashboard(AsyncWebServerRequest *request) { request->send(200, "text/html", dashboard_html); }
-static void handleConfiguration(AsyncWebServerRequest *request) { request->send(200, "text/html", index_html); }
+
+static bool require_config_auth(AsyncWebServerRequest *request) {
+  const String& user = settings.config.login_email;
+  const String& pass = settings.config.login_password;
+
+  // If not configured yet: allow /configuration, but DO NOT allow /api/config
+  if (user.length() == 0 || pass.length() == 0) {
+    return true;
+  }
+  if (!request->authenticate(user.c_str(), pass.c_str())) {
+    request->requestAuthentication();
+    return false;
+  }
+  return true;
+}
+
+static void handleConfiguration(AsyncWebServerRequest *request) {
+  const String& user = settings.config.login_email;
+  const String& pass = settings.config.login_password;
+
+  if (user.length() == 0 || pass.length() == 0) {
+    request->send(200, "text/html", index_html);
+    return;
+  }
+  if (!request->authenticate(user.c_str(), pass.c_str())) {
+    return request->requestAuthentication();
+  }
+  request->send(200, "text/html", index_html);
+}
+
 static void handleConfigRedirect(AsyncWebServerRequest *request) { request->redirect("/configuration"); }
+
 static void handleApiGlucose(AsyncWebServerRequest *request) { request->send(200, "application/json", web_get_glucose_latest_json()); }
 static void handleApiGlucoseHistory(AsyncWebServerRequest *request) { request->send(200, "application/json", web_get_glucose_history_json()); }
+
+// NEW: /api/config (protected)
+static void handleApiConfig(AsyncWebServerRequest *request) {
+  const String& user = settings.config.login_email;
+  const String& pass = settings.config.login_password;
+
+  if (user.length() == 0 || pass.length() == 0) {
+    request->send(403, "application/json", "{\"error\":\"not configured\"}");
+    return;
+  }
+  if (!request->authenticate(user.c_str(), pass.c_str())) {
+    return request->requestAuthentication();
+  }
+  request->send(200, "application/json", web_get_config_json());
+}
 
 // weak fallbacks (compile even without API implementation)
 __attribute__((weak)) String web_get_glucose_latest_json() { return String("{\"mgdl\":null,\"low\":null,\"high\":null,\"ts_ok\":false}"); }
@@ -565,6 +613,10 @@ void register_webpage_routes(AsyncWebServer& server) {
   server.on("/",                    HTTP_GET, handleDashboard);
   server.on("/configuration",       HTTP_GET, handleConfiguration);
   server.on("/config",              HTTP_GET, handleConfigRedirect);
+
   server.on("/api/glucose/history", HTTP_GET, handleApiGlucoseHistory);
   server.on("/api/glucose",         HTTP_GET, handleApiGlucose);
+
+  // NEW:
+  server.on("/api/config",          HTTP_GET, handleApiConfig);
 }

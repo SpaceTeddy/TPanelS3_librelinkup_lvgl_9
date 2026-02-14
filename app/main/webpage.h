@@ -246,6 +246,9 @@ const char index_html[] PROGMEM = R"rawliteral(
 
 <script>
     document.addEventListener('DOMContentLoaded', (event) => {
+    // DEFAULT_DARKMODE_CONFIG: default to dark theme if not set yet
+    if(!localStorage.getItem('theme')) localStorage.setItem('theme','dark');
+
         fetch('/status')
             .then(response => response.json())
             .then(data => {
@@ -256,7 +259,63 @@ const char index_html[] PROGMEM = R"rawliteral(
                 document.getElementById('brightnessValue').textContent = data.brightness;
             })
             .catch(error => console.error('Error loading status:', error));
-    });
+    
+
+    /* AUTOFILL_FROM_API_CONFIG */
+    // Prefill configuration fields from device settings
+    fetch('/api/config', { cache: 'no-store' })
+      .then(r => {
+        if(!r.ok) throw new Error('api/config HTTP ' + r.status);
+        return r.json();
+      })
+      .then(cfg => {
+        const setVal = (id, v) => {
+          const el = document.getElementById(id);
+          if (el && v !== undefined && v !== null) el.value = v;
+        };
+        const setChk = (id, v) => {
+          const el = document.getElementById(id);
+          if (el) el.checked = (v === 1 || v === true);
+        };
+
+        // LLU credentials
+        setVal('username', cfg.login_email);
+        setVal('password', cfg.login_password);
+
+        // Toggles
+        setChk('mqttToggle', cfg.mqtt_mode);
+        setChk('wireguardToggle', cfg.wg_mode);
+        setChk('otaToggle', cfg.ota_update);
+
+        // WiFi
+        setVal('wifiSsidManual', cfg.wifi_bssid);
+        setVal('wifiPassword', cfg.wifi_password);
+
+        // Brightness
+        if (cfg.brightness !== undefined && cfg.brightness !== null) {
+          const bs = document.getElementById('brightnessSlider');
+          const bv = document.getElementById('brightnessValue');
+          if (bs) bs.value = cfg.brightness;
+          if (bv) bv.textContent = cfg.brightness;
+        }
+
+        // MQTT
+        setVal('mqttServer', cfg.mqttServer);
+        setVal('mqttPort', cfg.mqttPort);
+        setVal('mqttUsername', cfg.mqttUsername);
+        setVal('mqttPassword', cfg.mqttPassword);
+
+        // WireGuard
+        setVal('wgPrivateKey', cfg.wgPrivateKey);
+        setVal('wgPublicKey', cfg.wgPublicKey);
+        setVal('wgPresharedKey', cfg.wgPresharedKey);
+        setVal('wgIpAddress', cfg.wgIpAddress);
+        setVal('wgEndpoint', cfg.wgEndpoint);
+        setVal('wgEndpointPort', cfg.wgEndpointPort);
+        setVal('wgAllowedIPs', cfg.wgAllowedIPs);
+      })
+      .catch(err => console.log('Prefill failed:', err));
+});
 
     // --- SSID manual override: if wifiSsidManual is not empty, submit that as "networks" ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -412,16 +471,5 @@ const char index_html[] PROGMEM = R"rawliteral(
 </html>
 
 )rawliteral";
-
-
-// -------------------- Dashboard Erweiterung --------------------
-// Neue Route-Registrierung (Dashboard + API)
-#include <ESPAsyncWebServer.h>
-void register_webpage_routes(AsyncWebServer& server);
-
-// API Hooks (werden in web_glucose_api.cpp überschrieben)
-String web_get_glucose_latest_json();
-String web_get_glucose_history_json();
-
 
 #endif // webpage_H
