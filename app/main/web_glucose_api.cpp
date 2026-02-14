@@ -1,105 +1,91 @@
-// web_glucose_api.cpp  (robust, drop-in)
+// web_glucose_api.cpp (DROP-IN v8: prefer local timestamp[] over factory_timestamp[])
 // ------------------------------------------------------------
-// Liefert Glukose-Daten für das Web-Dashboard (/)
-// Voraussetzungen laut User:
-//   - Header: librelinkup.h
-//   - Globales Objekt: librelinkup
+// Latest:  /api/glucose  -> mgdl, delta, trend, targets, ts_ok, life_*
+// History: /api/glucose/history -> values: [null | {v,ts}]  (ts in epoch seconds)
+// IMPORTANT: uses llu_sensor_history_data.timestamp[i] if available, otherwise factory_timestamp[i]
 // ------------------------------------------------------------
 
 #include <Arduino.h>
+#include <time.h>
 #include "librelinkup.h"
 
 extern LIBRELINKUP librelinkup;
-extern int glucose_delta;
-
-// Konfiguration:
-// Wenn keine History vorhanden ist: Fallback-Verhalten.
-// - true = wiederhole den letzten bekannten Messwert N-mal (zeichnet eine gerade Linie)
-// - false = sende N mal null (zeichnet Lücken)
-static const bool FALLBACK_REPEAT_LAST = true;
+extern int16_t glucose_delta;
 
 String web_get_glucose_latest_json() {
     const uint16_t mgdl = (uint16_t)librelinkup.llu_glucose_data.glucoseMeasurement;
     const uint16_t low  = (uint16_t)librelinkup.llu_glucose_data.glucosetargetLow;
     const uint16_t high = (uint16_t)librelinkup.llu_glucose_data.glucosetargetHigh;
     const bool ts_ok    = (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_VALID);
-const int delta = (int)glucose_delta;  // du sagst: global im System gespeichert
-    const char* trend = librelinkup.llu_glucose_data.str_trendArrow.c_str(); // z.B. "↑" o.ä.
+
+    const int delta = (int)glucose_delta;
+    const char* trend = librelinkup.llu_glucose_data.str_trendArrow.c_str();
+
+    // Restlaufzeit (15 Tage) aus activation_time
+    const uint32_t activation = (uint32_t)librelinkup.llu_sensor_data.sensor_activation_time;
+    const uint32_t lifetime_s = 15UL * 24UL * 3600UL;
+    const uint32_t now = (uint32_t)time(nullptr);
+
+    uint32_t remaining = 0;
+    if (activation > 0 && now > activation) {
+        const uint32_t end = activation + lifetime_s;
+        if (end > now) remaining = end - now;
+    }
+
+    const int life_days    = (int)(remaining / 86400UL);
+    const int life_hours   = (int)((remaining % 86400UL) / 3600UL);
+    const int life_minutes = (int)((remaining % 3600UL) / 60UL);
+    const int life_seconds = (int)(remaining % 60UL);
 
     String out;
-    out.reserve(220);
+    out.reserve(256);
     out += "{";
-    out += "\"src\":\"web_glucose_api\",";
-    out += "\"mgdl\":";
-    out += String(mgdl);
-    out += ",\"delta\":";
-    out += String(delta);
-    out += ",\"trend\":";
-    out += "\"";
-    // Achtung: trend ist ein String. Falls er jemals Anführungszeichen enthalten könnte, müssten wir escapen.
-    out += (trend ? trend : "");
-    out += "\"";
-    out += ",\"low\":";
-    out += String(low);
-    out += ",\"high\":";
-    out += String(high);
-    out += ",\"ts_ok\":";
-    out += (ts_ok ? "true" : "false");
+    out += "\"mgdl\":"; out += mgdl;
+    out += ",\"delta\":"; out += delta;
+    out += ",\"trend\":\""; out += (trend ? trend : ""); out += "\"";
+    out += ",\"low\":"; out += low;
+    out += ",\"high\":"; out += high;
+    out += ",\"ts_ok\":"; out += (ts_ok ? "true" : "false");
+    out += ",\"life_days\":"; out += life_days;
+    out += ",\"life_hours\":"; out += life_hours;
+    out += ",\"life_minutes\":"; out += life_minutes;
+    out += ",\"life_seconds\":"; out += life_seconds;
     out += "}";
     return out;
 }
 
 String web_get_glucose_history_json() {
-    // GRAPHDATAARRAYSIZE kommt aus deinem librelinkup-Objekt
     const uint16_t N = (uint16_t)librelinkup.GRAPHDATAARRAYSIZE;
+    const uint16_t low  = (uint16_t)librelinkup.llu_glucose_data.glucosetargetLow;
+    const uint16_t high = (uint16_t)librelinkup.llu_glucose_data.glucosetargetHigh;
 
-    // Dein LVGL-Code schreibt einen "last point" auf index GRAPHDATAARRAYSIZE.
-    // Das ist nur sicher, wenn graph_data tatsächlich N+1 Elemente hat.
-    // Wir versuchen zuerst, valide Punkte via check_graphdata() zu lesen.
-    uint16_t data_count = 0;
-    bool have_check = true;
-    // Manche Builds bringen check_graphdata als Methode, prüfen ob verfügbar:
-    // Wir gehen davon aus, dass check_graphdata() existiert (wie in deinem LVGL-Beispiel).
-    data_count = librelinkup.check_graphdata();
-
-    // Prepare JSON as String (RAM-schonend)
     String out;
-    out.reserve(64 + (N + 1) * 6);
+    out.reserve(120 + N * 26);
 
     out += "{";
-    out += "\"src\":\"web_glucose_api\",";
-    out += "\"low\":";
-    out += String((uint16_t)librelinkup.llu_glucose_data.glucosetargetLow);
-    out += ",\"high\":";
-    out += String((uint16_t)librelinkup.llu_glucose_data.glucosetargetHigh);
-    out += ",\"n\":";
-    out += String((unsigned)N);
+    out += "\"low\":"; out += low;
+    out += ",\"high\":"; out += high;
     out += ",\"values\":[";
 
-    // If data_count == 0 -> no valid historic points found
-    if (data_count == 0) {
-        // Fallback: either repeat last measurement or produce nulls
-        uint16_t last = (uint16_t)librelinkup.llu_glucose_data.glucoseMeasurement;
-        for (uint16_t i = 0; i < N; i++) {
-            if (FALLBACK_REPEAT_LAST) {
-                // if last==0 (also not available) output null
-                if (last == 0) out += "null";
-                else out += String(last);
-            } else {
-                out += "null";
-            }
-            out += (i + 1 < N ? "," : "");
+    for (uint16_t i = 0; i < N; i++) {
+        const uint16_t v = (uint16_t)librelinkup.llu_sensor_history_data.graph_data[i];
+
+        // Prefer local timestamp[i] if present
+        uint32_t ts = 0;
+        // Some builds may name it timestamp (as user said). Fallback to factory_timestamp.
+        ts = (uint32_t)librelinkup.llu_sensor_history_data.timestamp[i];
+        if (ts == 0) ts = (uint32_t)librelinkup.llu_sensor_history_data.factory_timestamp[i];
+
+        if (v == 0 || ts == 0) {
+            out += "null";
+        } else {
+            out += "{\"v\":";
+            out += v;
+            out += ",\"ts\":";
+            out += ts;
+            out += "}";
         }
-    } else {
-        // We will transmit the last N points in the graph_data array as you store them.
-        // Behavior mirrors your LVGL drawing: indices 0..N-1 correspond to older->newer.
-        // Ensure we don't read out-of-bounds: assume graph_data has at least N elements.
-        for (uint16_t i = 0; i < N; i++) {
-            uint16_t v = (uint16_t)librelinkup.llu_sensor_history_data.graph_data[i];
-            if (v == 0) out += "null";
-            else out += String(v);
-            out += (i + 1 < N ? "," : "");
-        }
+        if (i + 1 < N) out += ",";
     }
 
     out += "]}";
