@@ -2746,7 +2746,7 @@ void setup()
 
     // --- VPN / mDNS / MQTT / App backends -----------------------------------
     setup_wg(settings.config.wg_mode);    ///< Enable/disable WireGuard based on config
-    //setup_mdns();                         ///< Start mDNS responder
+    setup_mdns();                         ///< Start mDNS responder
     setup_mqtt();                         ///< Configure and (re)connect MQTT client
     setup_librelinkup();                  ///< Initialize LibreLinkUp client
 
@@ -2945,6 +2945,16 @@ void loop()
                 update_mqtt_publish();        ///< Push telemetry if MQTT enabled
             }
             update_five_minute_counter(); ///< Advance 5-minute chart cadence
+            
+            // Check WireGuard status and re-initialize if enabled but not connected
+            
+            if(settings.config.wg_mode == 1 && Ping.ping(ping_ip) == false){
+                DBGprint; 
+                Serial.println("Re-Initializing WG interface...");
+                lv_label_set_text(ui_Label_WelcomeWifiInfo, "Re-Initializing WG interface...");
+                lv_timer_handler();
+                setup_wg(1);
+            }
         }
 
         // 120 s tick (reserved)
