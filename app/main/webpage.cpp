@@ -50,7 +50,7 @@ static const char dashboard_html[] PROGMEM = R"rawliteral(
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Libre Dashboard</title>
+<title>Glucose Dashboard</title>
 <style>
   :root{
     --bg:#ffffff;
