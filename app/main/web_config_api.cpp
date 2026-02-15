@@ -16,7 +16,7 @@ static String json_escape(const String& in) {
   for (size_t i = 0; i < in.length(); i++) {
     const char c = in[i];
     switch (c) {
-      case '\\\\': out += "\\\\\\\\"; break;
+      case '\\': out += "\\\\"; break;
       case '\"':  out += "\\\\\""; break;
       case '\n':  out += "\\\\n"; break;
       case '\r':  out += "\\\\r"; break;

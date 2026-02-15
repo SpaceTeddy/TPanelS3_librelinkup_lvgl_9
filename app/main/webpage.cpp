@@ -1,25 +1,48 @@
-// webpage.cpp (DROP-IN v11: adds /api/config + protected autofill)
+// webpage.cpp (MERGED: Dashboard + Config + Legacy Config Handlers)
 // ------------------------------------------------------------
-// Based on your current webpage.cpp reference (v10-ish).
-// Adds:
-//   - /api/config endpoint returning all settings as JSON
-//   - Protected with same BasicAuth as /configuration
-// Notes:
-//   - This file expects: #include "settings.h" and extern SETTINGS settings;
-//   - JSON payload is produced by web_get_config_json() implemented in web_config_api.cpp
+// - /                 -> Dashboard (dark mode, chart, etc.)
+// - /configuration    -> Config UI (index_html) with BasicAuth (uses LLU login_email/login_password)
+// - Legacy endpoints used by the Config page are preserved:
+//     /scan, /login, /connect, /status, /toggle, /setBrightness,
+//     /configureWireGuard, /configureMQTT
+// - API endpoints for dashboard:
+//     /api/glucose, /api/glucose/history
+// - Optional config prefill API (if web_config_api.cpp provided):
+//     /api/config
 // ------------------------------------------------------------
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
+#include <ElegantOTA.h>
 #include <ESPAsyncWebServer.h>
+
+#include <string>
+#include <vector>
+#include <uuid/common.h>
+#include <uuid/console.h>
+#include <uuid/telnet.h>
+#include <uuid/log.h>
+
 #include "webpage.h"
 #include "settings.h"
+#include "tpanels3.h"
+
+//------------------------[ uuid logger ]-----------------------------------
+static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
+//-------------------------------------------------------------------------
 
 extern SETTINGS settings;
+extern TPanelS3 tpanels3;
+extern String availableNetworks;
 
-// --- forward decl (implemented in web_config_api.cpp) ---
-__attribute__((weak)) String web_get_config_json() {
-  return String("{\"error\":\"web_config_api.cpp missing\"}");
-}
+// For handlers needing server access (OTA toggle)
+static AsyncWebServer* g_server = nullptr;
+
+// Local state (legacy)
+static String username;
+static String password;
+static String wifi_bssid;
+static String wifi_password;
 
 static const char dashboard_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -165,7 +188,7 @@ static const char dashboard_html[] PROGMEM = R"rawliteral(
 <script>
 // (Dashboard JS unchanged)
 let lastHistory = null;
-let view = { values:[], ts:[], low:null, high:null };
+let view = { values:[], ts:[], low:null, high:null, live:[], from:0, to:0 };
 let hoverIndex = -1;
 let zoomHours = 12; // default
 
@@ -262,34 +285,37 @@ function updateLifeBar(days,hours,minutes,seconds){
 }
 
 function buildView(history){
-  const raw = history?.values ?? [];
-  const allV = raw.map(p => p ? Number(p.v) : null);
-  const allT = raw.map(p => p ? Number(p.ts) : null);
+  const rawVals = history?.values ?? [];
+  const allV = rawVals.map(p => p ? Number(p.v) : null);
+  const allT = rawVals.map(p => p ? Number(p.ts) : null);
   const low = history?.low ?? null;
   const high = history?.high ?? null;
 
-  let lastTs=null;
-  for(let i=allT.length-1;i>=0;i--){
-    if(Number.isFinite(allT[i]) && allV[i]!==null){ lastTs=allT[i]; break; }
-  }
-  if(!Number.isFinite(lastTs)){
-    view={values:allV, ts:allT, low, high};
-    return;
-  }
+  const nowTs = Math.floor(Date.now()/1000);
+  const fromTs = nowTs - zoomHours*3600;
 
-  const fromTs = lastTs - zoomHours*3600;
+  // keep points within [fromTs, nowTs]
   const idx=[];
   for(let i=0;i<allT.length;i++){
-    if(Number.isFinite(allT[i]) && allT[i]>=fromTs) idx.push(i);
+    const t = allT[i];
+    if(Number.isFinite(t) && t>=fromTs && t<=nowTs) idx.push(i);
   }
+
   if(!idx.length){
-    view={values:allV, ts:allT, low, high};
-    return;
+    view = { values: allV, ts: allT, low, high, live: rawVals.map(p=>!!p?.live), from: fromTs, to: nowTs };
+  } else {
+    view = {
+      values: idx.map(i=>allV[i]),
+      ts:     idx.map(i=>allT[i]),
+      low, high,
+      live:   idx.map(i=>!!rawVals[i]?.live),
+      from:   fromTs,
+      to:     nowTs
+    };
   }
-  view={ values: idx.map(i=>allV[i]), ts: idx.map(i=>allT[i]), low, high };
 
   document.getElementById("rangeInfo").textContent =
-    `Range: ${fmtTime(view.ts[0])}–${fmtTime(view.ts[view.ts.length-1])} (${zoomHours}h)`;
+    `Range: ${fmtTime(view.from)}–${fmtTime(view.to)} (${zoomHours}h)`;
 }
 
 function resizeCanvasToDPR(canvas){
@@ -324,18 +350,40 @@ function drawAxes(ctx, W, H, plotW, plotH, lo, hi, tsArr){
     ctx.fillText(String(val), 8, y + 4);
   }
 
-  // X labels (3–5)
-  const n = tsArr.length;
-  if(n < 2) return;
-  const ticks = [0, Math.round((n-1)*0.25), Math.round((n-1)*0.50), Math.round((n-1)*0.75), n-1];
-  const uniq = Array.from(new Set(ticks)).sort((a,b)=>a-b);
+  // X labels (3–5) based on time range (app-like: axis ends at now)
+  const fromTs = view.from || (tsArr && tsArr.length ? tsArr[0] : 0);
+  const toTs   = view.to   || (tsArr && tsArr.length ? tsArr[tsArr.length-1] : 0);
+  if (Number.isFinite(fromTs) && Number.isFinite(toTs) && toTs > fromTs) {
+    const ticks = [0, 0.25, 0.5, 0.75, 1];
+    ctx.fillStyle = css("--muted");
+    ctx.font = `${Math.round((window.devicePixelRatio||1)*10)}px Arial`;
 
-  ctx.fillStyle = css("--muted");
-  ctx.font = `${Math.round((window.devicePixelRatio||1)*10)}px Arial`;
-  for (const ti of uniq){
-    const x = PAD_L + (ti/(n-1))*plotW;
-    const t = fmtTime(tsArr[ti]);
-    ctx.fillText(t, x-16, PAD_T + plotH + 24);
+    for (const f of ticks){
+      const t = Math.round(fromTs + f*(toTs-fromTs));
+      const label = fmtTime(t);
+
+      let x = PAD_L + f*plotW;
+      const y = PAD_T + plotH + 24;
+
+      const tw = ctx.measureText(label).width;
+
+      const minX = PAD_L + 2;
+      const maxX = PAD_L + plotW - 2;
+
+      if (f === 0) {
+        ctx.textAlign = "left";
+        x = Math.max(minX, x);
+      } else if (f === 1) {
+        ctx.textAlign = "right";
+        x = Math.min(maxX, x);
+      } else {
+        ctx.textAlign = "center";
+        x = Math.min(maxX - tw/2, Math.max(minX + tw/2, x));
+      }
+
+      ctx.fillText(label, x, y);
+    }
+    ctx.textAlign = "left";
   }
 
   // Unit label (inside plot area so it never overlaps top UI)
@@ -380,12 +428,18 @@ function drawChart(){
   const plotW=W-PAD_L-PAD_R;
   const plotH=H-PAD_T-PAD_B;
 
+  // Guard for time scale
+  if(!Number.isFinite(view.from) || !Number.isFinite(view.to) || view.to <= view.from){
+    return;
+  }
+
   // Fixed Y scale: 50 mg/dL steps starting at 50
   const lo = 50;
   let hi = Math.ceil(max / 50) * 50;
   hi = Math.max(hi, 200);
 
-  const xOf=i=> PAD_L + (i/(values.length-1))*plotW;
+  const xOfTs = (t)=> PAD_L + ((t - view.from) / (view.to - view.from)) * plotW;
+  const xOf = (i)=> xOfTs(tsArr[i]);
   const yOf=v=> PAD_T + (1-((v-lo)/(hi-lo)))*plotH;
 
   // Target fill
@@ -413,15 +467,31 @@ function drawChart(){
   }
   ctx.stroke();
 
-  // Last point marker
+  // Last point marker (highlight live point)
   for(let i=values.length-1;i>=0;i--){
     const v=values[i];
     if(v===null) continue;
     const x=xOf(i), y=yOf(v);
-    ctx.fillStyle = css("--fg");
-    ctx.beginPath();
-    ctx.arc(x,y, Math.max(6, Math.round((window.devicePixelRatio||1)*4)), 0, Math.PI*2);
-    ctx.fill();
+    const isLive = (view.live && view.live[i] === true);
+
+    if (isLive) {
+      // Outer ring (green)
+      ctx.fillStyle = "#22c55e";
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(10, Math.round((window.devicePixelRatio||1)*7)), 0, Math.PI*2);
+      ctx.fill();
+
+      // Inner dot (white)
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(6, Math.round((window.devicePixelRatio||1)*4)), 0, Math.PI*2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = css("--fg");
+      ctx.beginPath();
+      ctx.arc(x,y, Math.max(6, Math.round((window.devicePixelRatio||1)*4)), 0, Math.PI*2);
+      ctx.fill();
+    }
     break;
   }
 
@@ -471,10 +541,26 @@ function setupHover(){
     if(!view.values?.length) return;
     const rect=c.getBoundingClientRect();
     const x = (clientX-rect.left) * (c.width/rect.width);
+
     const plotW = c.width - PAD_L - PAD_R;
     const rel = (x - PAD_L)/plotW;
-    if(rel<0 || rel>1) hoverIndex=-1;
-    else hoverIndex = Math.round(rel*(view.values.length-1));
+
+    if(rel<0 || rel>1 || !Number.isFinite(view.from) || !Number.isFinite(view.to) || view.to<=view.from){
+      hoverIndex=-1;
+      drawChart();
+      return;
+    }
+
+    const t = view.from + rel*(view.to - view.from);
+
+    let best=-1, bestDt=1e18;
+    for(let i=0;i<view.ts.length;i++){
+      const ti=view.ts[i];
+      if(!Number.isFinite(ti)) continue;
+      const dt=Math.abs(ti - t);
+      if(dt<bestDt){ bestDt=dt; best=i; }
+    }
+    hoverIndex=best;
     drawChart();
   }
   c.addEventListener("mousemove", e=>handle(e.clientX));
@@ -494,37 +580,107 @@ function setZoom(h){
 async function refresh(){
   try{
     const latest = await fetch("/api/glucose", {cache:"no-store"}).then(r=>r.json());
-    const mgdl = latest.mgdl ?? "--";
+
+    const sensorOk = (latest.ts_ok === true);
+    const mgdl = Number(latest.mgdl);
     const delta = Number(latest.delta);
     const trend = latest.trend ?? "--";
-    const deltaTxt = Number.isFinite(delta) ? (delta>0?`+${delta}`:`${delta}`) : "--";
 
-    const g=document.getElementById("glucose");
-    g.innerHTML = `${mgdl}<span class="unit">mg/dL</span>`;
-    document.getElementById("subline").textContent = `Δ ${deltaTxt} • Trend ${trend}`;
+    const g = document.getElementById("glucose");
+    const sub = document.getElementById("subline");
 
-    const m = Number(mgdl);
-    const lo = Number(latest.low);
-    const hi = Number(latest.high);
-    if(Number.isFinite(m) && Number.isFinite(lo) && Number.isFinite(hi)){
-      if(m < lo) g.style.color = "#2563eb";
-      else if(m > hi) g.style.color = "#dc2626";
-      else g.style.color = css("--fg");
+    if(sensorOk && Number.isFinite(mgdl) && mgdl > 0){
+      let deltaTxt = "--";
+        if (Number.isFinite(delta)) {
+            if (delta > 0) {
+                deltaTxt = `+${delta}`;
+            } else if (delta < 0) {
+                deltaTxt = `${delta}`;
+            } else {
+                deltaTxt = `±${delta}`;
+            }
+        }
+
+      g.innerHTML = `${mgdl}<span class="unit">mg/dL</span>`;
+      sub.textContent = `Δ ${deltaTxt} • Trend ${trend}`;
+
+      // Colorize large value when outside target range
+      const lo = Number(latest.low);
+      const hi = Number(latest.high);
+      if (Number.isFinite(lo) && Number.isFinite(hi)) {
+        if (mgdl < lo) g.style.color = "#2563eb";      // low -> blue
+        else if (mgdl > hi) g.style.color = "#dc2626"; // high -> red
+        else g.style.color = css("--fg");              // in range
+      } else {
+        g.style.color = css("--fg");
+      }
+    } else {
+      // Sensor invalid → show placeholders
+      g.innerHTML = `---<span class="unit">mg/dL</span>`;
+      sub.textContent = `Δ --- • Trend -`;
+      g.style.color = css("--fg");
     }
 
-    updateLifeBar(Number(latest.life_days), Number(latest.life_hours), Number(latest.life_minutes), Number(latest.life_seconds));
+    // Lifetime still independent
+    updateLifeBar(
+      Number(latest.life_days),
+      Number(latest.life_hours),
+      Number(latest.life_minutes),
+      Number(latest.life_seconds)
+    );
 
-    document.getElementById("status").textContent = `Status: ${latest.ts_ok ? "Time OK" : "Time invalid"}`;
-    document.getElementById("updated").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+    document.getElementById("status").textContent =
+      `Status: ${sensorOk ? "Time OK" : "Sensor invalid"}`;
+    document.getElementById("updated").textContent =
+      `Updated: ${new Date().toLocaleTimeString()}`;
+
   }catch(e){
     document.getElementById("status").textContent = "Status: /api/glucose error";
   }
 
   try{
     const hist = await fetch("/api/glucose/history", {cache:"no-store"}).then(r=>r.json());
+
+    // Append live value ONLY if sensor valid
+    try{
+      const latest = await fetch("/api/glucose", {cache:"no-store"}).then(r=>r.json());
+      const mg = Number(latest.mgdl);
+      const sensorOk = (latest.ts_ok === true);
+
+      if (sensorOk && Number.isFinite(mg) && mg > 0){
+        const arr0 = hist.values || [];
+
+        // Keep max 141 history points
+        if (arr0.length > 141)
+          hist.values = arr0.slice(arr0.length - 141);
+
+        const arr = hist.values || arr0;
+
+        let lastTs = null;
+        for(let i=arr.length-1;i>=0;i--){
+          const p = arr[i];
+          const ts = p ? Number(p.ts) : null;
+          const v  = p ? Number(p.v)  : null;
+          if (Number.isFinite(ts) && Number.isFinite(v)) {
+            lastTs = ts;
+            break;
+          }
+        }
+
+        const nowTs = Math.floor(Date.now()/1000);
+        // Prefer aligned cadence but clamp to "now" if too far behind
+        let liveTs = Number.isFinite(lastTs) ? (lastTs + 300) : nowTs;
+        if (nowTs - liveTs > 480) liveTs = nowTs;
+
+        hist.values = arr;
+        hist.values.push({ v: mg, ts: liveTs, live: true });
+      }
+    }catch(e){}
+
     lastHistory = hist;
     buildView(hist);
     drawChart();
+
   }catch(e){}
 }
 
@@ -548,75 +704,236 @@ setInterval(refresh, 15000);
 </html>
 )rawliteral";
 
-// --- API forward declarations (implemented in web_glucose_api.cpp / web_config_api.cpp) ---
-String web_get_glucose_latest_json();
-String web_get_glucose_history_json();
-String web_get_config_json();
+// -------------------- Dashboard/API hooks (implemented elsewhere) --------------------
+// Provide these in web_glucose_api.cpp (recommended). Weak fallbacks keep compilation working.
+__attribute__((weak)) String web_get_glucose_latest_json() { return String("{\"mgdl\":null,\"low\":null,\"high\":null,\"delta\":null,\"trend\":\"--\",\"ts_ok\":false}"); }
+__attribute__((weak)) String web_get_glucose_history_json() { return String("{\"low\":null,\"high\":null,\"values\":[]}"); }
 
-// ------------ Handlers / Routes ------------
-static void handleDashboard(AsyncWebServerRequest *request) { request->send(200, "text/html", dashboard_html); }
+// Optional: config prefill API (provide web_config_api.cpp). Weak fallback keeps compilation working.
+__attribute__((weak)) String web_get_config_json() { return String("{\"ok\":false}"); }
 
-static bool require_config_auth(AsyncWebServerRequest *request) {
-  const String& user = settings.config.login_email;
-  const String& pass = settings.config.login_password;
-
-  // If not configured yet: allow /configuration, but DO NOT allow /api/config
-  if (user.length() == 0 || pass.length() == 0) {
-    return true;
-  }
-  if (!request->authenticate(user.c_str(), pass.c_str())) {
-    request->requestAuthentication();
-    return false;
-  }
-  return true;
+// -------------------- Handlers: Dashboard + Config --------------------
+static void handleDashboard(AsyncWebServerRequest *request) {
+    request->send(200, "text/html", dashboard_html);
 }
 
 static void handleConfiguration(AsyncWebServerRequest *request) {
-  const String& user = settings.config.login_email;
-  const String& pass = settings.config.login_password;
+    const String& user = settings.config.login_email;
+    const String& pass = settings.config.login_password;
 
-  if (user.length() == 0 || pass.length() == 0) {
+    // If no credentials configured, leave open
+    if (user.length() == 0 || pass.length() == 0) {
+        request->send(200, "text/html", index_html);
+        return;
+    }
+
+    if (!request->authenticate(user.c_str(), pass.c_str())) {
+        return request->requestAuthentication();
+    }
+
     request->send(200, "text/html", index_html);
-    return;
-  }
-  if (!request->authenticate(user.c_str(), pass.c_str())) {
-    return request->requestAuthentication();
-  }
-  request->send(200, "text/html", index_html);
 }
 
-static void handleConfigRedirect(AsyncWebServerRequest *request) { request->redirect("/configuration"); }
+static void handleConfigRedirect(AsyncWebServerRequest *request) {
+    request->redirect("/configuration");
+}
 
-static void handleApiGlucose(AsyncWebServerRequest *request) { request->send(200, "application/json", web_get_glucose_latest_json()); }
-static void handleApiGlucoseHistory(AsyncWebServerRequest *request) { request->send(200, "application/json", web_get_glucose_history_json()); }
+static void handleApiGlucose(AsyncWebServerRequest *request) {
+    request->send(200, "application/json", web_get_glucose_latest_json());
+}
 
-// NEW: /api/config (protected)
+static void handleApiGlucoseHistory(AsyncWebServerRequest *request) {
+    request->send(200, "application/json", web_get_glucose_history_json());
+}
+
 static void handleApiConfig(AsyncWebServerRequest *request) {
-  const String& user = settings.config.login_email;
-  const String& pass = settings.config.login_password;
-
-  if (user.length() == 0 || pass.length() == 0) {
-    request->send(403, "application/json", "{\"error\":\"not configured\"}");
-    return;
-  }
-  if (!request->authenticate(user.c_str(), pass.c_str())) {
-    return request->requestAuthentication();
-  }
-  request->send(200, "application/json", web_get_config_json());
+    // Optional prefill endpoint used by config page JS
+    request->send(200, "application/json", web_get_config_json());
 }
 
-// weak fallbacks (compile even without API implementation)
-__attribute__((weak)) String web_get_glucose_latest_json() { return String("{\"mgdl\":null,\"low\":null,\"high\":null,\"ts_ok\":false}"); }
-__attribute__((weak)) String web_get_glucose_history_json() { return String("{\"low\":null,\"high\":null,\"values\":[]}"); }
+// -------------------- Legacy handlers used by index_html --------------------
+static void handleLogin(AsyncWebServerRequest *request) {
+    if (request->hasParam("username", true)) {
+        username = request->getParam("username", true)->value();
+    }
+    if (request->hasParam("password", true)) {
+        password = request->getParam("password", true)->value();
+    }
 
+    settings.config.login_email    = username;
+    settings.config.login_password = password;
+    settings.saveConfiguration(settings.config_filename, settings.config);
+
+    request->send(200, "text/html", "Login successful!<br><a href='/configuration'>Back</a>");
+}
+
+static void handleScan(AsyncWebServerRequest *request) {
+    request->send(200, "application/json", availableNetworks);
+}
+
+static void handleConnect(AsyncWebServerRequest *request) {
+    if (request->hasParam("networks", true)) {
+        wifi_bssid = request->getParam("networks", true)->value();
+        settings.config.wifi_bssid = wifi_bssid;
+    }
+    if (request->hasParam("wifiPassword", true)) {
+        wifi_password = request->getParam("wifiPassword", true)->value();
+        settings.config.wifi_password = wifi_password;
+    }
+
+    settings.saveConfiguration(settings.config_filename, settings.config);
+    ESP.restart();
+}
+
+static void handleStatus(AsyncWebServerRequest *request) {
+    settings.loadConfiguration("/config.json", settings.config);
+
+    DynamicJsonDocument json_config(512);
+    json_config["ota_update"] = settings.config.ota_update;
+    json_config["wg_mode"]    = settings.config.wg_mode;
+    json_config["mqtt_mode"]  = settings.config.mqtt_mode;
+    json_config["brightness"] = settings.config.brightness;
+
+    String jsonResponse;
+    serializeJson(json_config, jsonResponse);
+    request->send(200, "application/json", jsonResponse);
+}
+
+static void handleToggleFeature(AsyncWebServerRequest *request) {
+    if (!(request->hasParam("feature") && request->hasParam("status"))) {
+        request->send(400, "application/json", "{\"error\": \"Missing parameters\"}");
+        return;
+    }
+
+    String feature = request->getParam("feature")->value();
+    int status = request->getParam("status")->value().toInt();
+
+    if (feature == "ota_update") {
+        settings.config.ota_update = status;
+        logger.notice("OTA_Update: %d", settings.config.ota_update);
+
+        // Best practice: do NOT stop/start the AsyncWebServer at runtime.
+        // ElegantOTA endpoints are registered once (see register_webpage_routes()).
+        // This toggle only enables/disables OTA on the UI side (your index_html can hide/show),
+        // and can be checked by your firmware if you want to gate access.
+        settings.saveConfiguration(settings.config_filename, settings.config);
+
+    } else if (feature == "wg_mode") {
+        settings.config.wg_mode = status;
+        logger.notice("wg_mode: %d", settings.config.wg_mode);
+        setup_wg(settings.config.wg_mode);
+    } else if (feature == "mqtt_mode") {
+        settings.config.mqtt_mode = status;
+        logger.notice("mqtt_mode: %d", settings.config.mqtt_mode);
+    } else {
+        request->send(400, "application/json", "{\"error\": \"Unknown feature\"}");
+        return;
+    }
+
+    request->send(200, "application/json", "{\"status\": \"updated\"}");
+}
+
+static void handleSetBrightness(AsyncWebServerRequest *request) {
+    if (!request->hasParam("value")) {
+        request->send(400, "application/json", "{\"error\": \"Invalid parameters\"}");
+        return;
+    }
+
+    int brightness = request->getParam("value")->value().toInt();
+    if (brightness < 0) brightness = 0;
+    if (brightness > 255) brightness = 255;
+
+    settings.config.brightness = brightness;
+    tpanels3.set_backlight_brightness(brightness);
+
+    request->send(200, "application/json", "{\"brightness\": " + String(brightness) + "}");
+}
+
+static void handleConfigureWireGuard(AsyncWebServerRequest *request) {
+    String privateKey, publicKey, presharedKey, ipAddress, endpoint, allowedIPs;
+    int endpointPort = 0;
+
+    if (request->hasParam("privateKey", true))   privateKey   = request->getParam("privateKey", true)->value();
+    if (request->hasParam("publicKey", true))    publicKey    = request->getParam("publicKey", true)->value();
+    if (request->hasParam("presharedKey", true)) presharedKey = request->getParam("presharedKey", true)->value();
+    if (request->hasParam("ipAddress", true))    ipAddress    = request->getParam("ipAddress", true)->value();
+    if (request->hasParam("endpoint", true))     endpoint     = request->getParam("endpoint", true)->value();
+    if (request->hasParam("endpointPort", true)) endpointPort = request->getParam("endpointPort", true)->value().toInt();
+    if (request->hasParam("allowedIPs", true))   allowedIPs   = request->getParam("allowedIPs", true)->value();
+
+    const bool ok = !privateKey.isEmpty() && !publicKey.isEmpty() && !presharedKey.isEmpty() &&
+                    !ipAddress.isEmpty() && !endpoint.isEmpty() && endpointPort > 0 && !allowedIPs.isEmpty();
+
+    if (!ok) {
+        logger.notice("Missing WireGuard parameters in request");
+        request->send(400, "application/json", "{\"error\": \"Missing parameters\"}");
+        return;
+    }
+
+    settings.config.wgPrivateKey   = privateKey;
+    settings.config.wgPublicKey    = publicKey;
+    settings.config.wgPresharedKey = presharedKey;
+    settings.config.wgIpAddress    = ipAddress;
+    settings.config.wgEndpoint     = endpoint;
+    settings.config.wgEndpointPort = endpointPort;
+    settings.config.wgAllowedIPs   = allowedIPs;
+
+    logger.notice("WireGuard configuration parsed and saved");
+    settings.saveConfiguration(settings.config_filename, settings.config);
+
+    request->send(200, "application/json", "{\"status\": \"WireGuard configuration saved\"}");
+}
+
+static void handleConfigureMQTT(AsyncWebServerRequest *request) {
+    String serverName, user, pass;
+    int port = 0;
+
+    if (request->hasParam("server", true))   serverName = request->getParam("server", true)->value();
+    if (request->hasParam("port", true))     port       = request->getParam("port", true)->value().toInt();
+    if (request->hasParam("username", true)) user       = request->getParam("username", true)->value();
+    if (request->hasParam("password", true)) pass       = request->getParam("password", true)->value();
+
+    if (serverName.isEmpty() || port <= 0) {
+        logger.notice("Missing 'server' or 'port' parameters in request");
+        request->send(400, "application/json", "{\"error\": \"Missing server or port parameters\"}");
+        return;
+    }
+
+    settings.config.mqttServer   = serverName;
+    settings.config.mqtt_port    = port;
+    settings.config.mqttUsername = user;
+    settings.config.mqttPassword = pass;
+
+    logger.notice("MQTT configuration parsed and saved");
+    settings.saveConfiguration(settings.config_filename, settings.config);
+
+    request->send(200, "application/json", "{\"status\": \"MQTT configuration saved\"}");
+}
+
+// -------------------- Route registration --------------------
 void register_webpage_routes(AsyncWebServer& server) {
-  server.on("/",                    HTTP_GET, handleDashboard);
-  server.on("/configuration",       HTTP_GET, handleConfiguration);
-  server.on("/config",              HTTP_GET, handleConfigRedirect);
+    g_server = &server;
 
-  server.on("/api/glucose/history", HTTP_GET, handleApiGlucoseHistory);
-  server.on("/api/glucose",         HTTP_GET, handleApiGlucose);
+    // Register OTA endpoints once. Do NOT stop the webserver at runtime.
+    ElegantOTA.begin(g_server);
 
-  // NEW:
-  server.on("/api/config",          HTTP_GET, handleApiConfig);
+    // Dashboard + config page split
+    server.on("/",              HTTP_GET,  handleDashboard);
+    server.on("/configuration", HTTP_GET,  handleConfiguration);
+    server.on("/config",        HTTP_GET,  handleConfigRedirect);
+
+    // Dashboard APIs (order matters: longer first)
+    server.on("/api/glucose/history", HTTP_GET, handleApiGlucoseHistory);
+    server.on("/api/glucose",         HTTP_GET, handleApiGlucose);
+    server.on("/api/config",          HTTP_GET, handleApiConfig);
+
+    // Legacy config endpoints (used by index_html JS)
+    server.on("/scan",               HTTP_GET,  handleScan);
+    server.on("/login",              HTTP_POST, handleLogin);
+    server.on("/connect",            HTTP_POST, handleConnect);
+    server.on("/status",             HTTP_GET,  handleStatus);
+    server.on("/toggle",             HTTP_POST, handleToggleFeature);
+    server.on("/setBrightness",      HTTP_POST, handleSetBrightness);
+    server.on("/configureWireGuard", HTTP_POST, handleConfigureWireGuard);
+    server.on("/configureMQTT",      HTTP_POST, handleConfigureMQTT);
 }
