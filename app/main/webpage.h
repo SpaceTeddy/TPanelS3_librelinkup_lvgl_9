@@ -24,108 +24,201 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
 <head>
+<script>
+(function(){
+  // Theme is controlled on the Dashboard. Config page only reads localStorage.
+  const v = localStorage.getItem("theme"); // "dark" | "light" | null
+  document.documentElement.classList.remove("dark","light");
+  if(v==="dark") document.documentElement.classList.add("dark");
+  if(v==="light") document.documentElement.classList.add("light");
+})();
+</script>
+
     <title>LibreLinkup Client User Login and Settings</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            background-color: #f8f9fa;
-            margin: 0;
-            padding: 20px;
-            color: #333;
-            transition: background-color 0.3s, color 0.3s;
-        }
-        .container {
-            max-width: 600px;
-            margin: auto;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-            transition: background-color 0.3s, color 0.3s;
-        }
-        h2 { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 5px; }
-        input[type="text"], input[type="password"], input[type="number"], select {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            background-color: #fff;
-            color: #333;
-            transition: background-color 0.3s, color 0.3s;
-        }
-        button, input[type="submit"] {
-            background-color: #007bff;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            cursor: pointer;
-            border-radius: 5px;
-            transition: background-color 0.3s, color 0.3s;
-        }
-        button:hover, input[type="submit"]:hover { background-color: #0056b3; }
-        .switch-container, .brightness-container {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 15px;
-        }
-        .switch-label { font-size: 0.9em; }
-        .switch { position: relative; display: inline-block; width: 30px; height: 17px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #ccc;
-            transition: .4s;
-            border-radius: 17px;
-        }
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 13px; width: 13px;
-            left: 2px; bottom: 2px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
-        input:checked + .slider { background-color: #007bff; }
-        input:checked + .slider:before { transform: translateX(13px); }
-        ul { list-style-type: none; padding: 0; }
-        li {
-            background: #e9ecef;
-            margin-bottom: 5px;
-            padding: 10px;
-            border-radius: 5px;
-        }
-        .dark-mode { background-color: #333; color: #f8f9fa; }
-        .dark-mode .container { background-color: #444; color: #f8f9fa; }
-        .dark-mode input[type="text"],
-        .dark-mode input[type="password"],
-        .dark-mode input[type="number"],
-        .dark-mode select {
-            background-color: #555;
-            color: #f8f9fa;
-            border: 1px solid #888;
-        }
-        .dark-mode button,
-        .dark-mode input[type="submit"] {
-            background-color: #1a73e8;
-            color: #fff;
-        }
-        .dark-mode button:hover,
-        .dark-mode input[type="submit"]:hover { background-color: #0056b3; }
-        .dark-mode .slider { background-color: #888; }
-        .dark-mode .slider:before { background-color: #fff; }
-        .dark-mode li { background-color: #555; }
-        .hint { font-size: 0.85em; opacity: 0.85; margin-top: -6px; margin-bottom: 10px; }
-    </style>
+  :root{
+    --bg:#ffffff;
+    --fg:#0b0f14;
+    --muted:#6b7280;
+    --card:#ffffff;
+    --border:#e5e7eb;
+
+    --ok:#16a34a;
+    --warn:#eab308;
+    --bad:#dc2626;
+
+    --btnBg: var(--card);
+    --btnFg: var(--fg);
+  }
+  html.dark{
+    --bg:#0b0f14;
+    --fg:#e7eaf0;
+    --muted: rgba(231,234,240,.75);
+    --card:#0f1620;
+    --border:#1e2a3a;
+    --btnBg: var(--card);
+    --btnFg: var(--fg);
+  }
+  @media (prefers-color-scheme: dark){
+    html:not(.light){
+      --bg:#0b0f14;
+      --fg:#e7eaf0;
+      --muted: rgba(231,234,240,.75);
+      --card:#0f1620;
+      --border:#1e2a3a;
+      --btnBg: var(--card);
+      --btnFg: var(--fg);
+    }
+  }
+
+  body{
+    margin:0;
+    padding:18px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--fg);
+  }
+
+  /* Old layout uses .container blocks */
+  .container{
+    max-width: 780px;
+    margin: 0 auto 14px auto;
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    box-shadow: none;
+  }
+
+  h1,h2{
+    margin: 0 0 12px 0;
+    letter-spacing: -0.2px;
+  }
+  p, label{
+    color: var(--muted);
+  }
+
+  input, select, textarea{
+    width:100%;
+    box-sizing:border-box;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--fg);
+    outline: none;
+  }
+
+  button, .btn, a.button, input[type="submit"]{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding:10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--btnBg);
+    color: var(--btnFg);
+    cursor:pointer;
+    text-decoration:none;
+  }
+
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .pill{
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    color:var(--muted);
+    font-size:13px;
+  }
+
+  /* Slider */
+  input[type="range"]{ width: 100%; }
+
+  /* Remove Config-page appearance toggle (theme is controlled on dashboard only) */
+  #darkModeToggle{ display:none !important; }
+  label[for="darkModeToggle"]{ display:none !important; }
+
+  /* Make links look like dashboard buttons */
+  a{ color: inherit; }
+
+
+  /* iPhone-like switches (restore original UX) */
+  .switch-container{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    margin: 10px 0;
+  }
+  .switch-label{
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .switch{
+    position: relative;
+    display: inline-block;
+    width: 52px;
+    height: 30px;
+    flex: 0 0 auto;
+  }
+  .switch input{
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .slider{
+    position:absolute;
+    cursor:pointer;
+    top:0; left:0; right:0; bottom:0;
+    background: var(--used, #c8ced8);
+    transition: .2s;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+  }
+  .slider:before{
+    position:absolute;
+    content:"";
+    height:24px; width:24px;
+    left:3px; top:50%;
+    transform: translateY(-50%);
+    background: var(--card);
+    transition: .2s;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+  }
+  input:checked + .slider{
+    background: var(--ok);
+    border-color: rgba(0,0,0,0);
+  }
+  input:checked + .slider:before{
+    transform: translate(22px,-50%);
+    border-color: rgba(0,0,0,0);
+  }
+
+
+  .topbar{
+    max-width: 780px;
+    margin: 0 auto 14px auto;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+  }
+  .topbar h1{
+    margin:0;
+    font-size: 22px;
+    letter-spacing:-0.2px;
+  }
+</style>
 </head>
 <body id="body">
+<div class="topbar">
+  <h1>Config</h1>
+  <a class="btn" href="/">Dashboard</a>
+</div>
+
 <div class="container">
     <h2>LibreLinkup User Login</h2>
     <form action="/login" method="post">
@@ -180,6 +273,14 @@ const char index_html[] PROGMEM = R"rawliteral(
             <span class="slider"></span>
         </label>
     </div>
+    <div class="switch-container">
+        <span class="switch-label">MQTT Master Mode</span>
+        <label class="switch">
+            <input type="checkbox" id="mqttMasterToggle" onchange="toggleFeature('mqtt_master_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+
     <div class="brightness-container">
         <div class="brightness-label">Brightness: <span id="brightnessValue">50</span></div>
         <input type="range" id="brightnessSlider" min="0" max="255" value="50" oninput="updateBrightness(this.value)">
@@ -233,89 +334,22 @@ const char index_html[] PROGMEM = R"rawliteral(
     </form>
 </div>
 
-<div class="container">
-    <h2>Appearance</h2>
-    <div class="switch-container">
-        <span class="switch-label">Dark Mode</span>
-        <label class="switch">
-            <input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode(this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
 </div>
 
 <script>
     document.addEventListener('DOMContentLoaded', (event) => {
-    // DEFAULT_DARKMODE_CONFIG: default to dark theme if not set yet
-    if(!localStorage.getItem('theme')) localStorage.setItem('theme','dark');
-
         fetch('/status')
             .then(response => response.json())
             .then(data => {
                 document.getElementById('otaToggle').checked = data.ota_update === 1;
                 document.getElementById('wireguardToggle').checked = data.wg_mode === 1;
                 document.getElementById('mqttToggle').checked = data.mqtt_mode === 1;
+                if (document.getElementById('mqttMasterToggle')) document.getElementById('mqttMasterToggle').checked = data.mqtt_master_mode === 1;
                 document.getElementById('brightnessSlider').value = data.brightness;
                 document.getElementById('brightnessValue').textContent = data.brightness;
             })
             .catch(error => console.error('Error loading status:', error));
-    
-
-    /* AUTOFILL_FROM_API_CONFIG */
-    // Prefill configuration fields from device settings
-    fetch('/api/config', { cache: 'no-store' })
-      .then(r => {
-        if(!r.ok) throw new Error('api/config HTTP ' + r.status);
-        return r.json();
-      })
-      .then(cfg => {
-        const setVal = (id, v) => {
-          const el = document.getElementById(id);
-          if (el && v !== undefined && v !== null) el.value = v;
-        };
-        const setChk = (id, v) => {
-          const el = document.getElementById(id);
-          if (el) el.checked = (v === 1 || v === true);
-        };
-
-        // LLU credentials
-        setVal('username', cfg.login_email);
-        setVal('password', cfg.login_password);
-
-        // Toggles
-        setChk('mqttToggle', cfg.mqtt_mode);
-        setChk('wireguardToggle', cfg.wg_mode);
-        setChk('otaToggle', cfg.ota_update);
-
-        // WiFi
-        setVal('wifiSsidManual', cfg.wifi_bssid);
-        setVal('wifiPassword', cfg.wifi_password);
-
-        // Brightness
-        if (cfg.brightness !== undefined && cfg.brightness !== null) {
-          const bs = document.getElementById('brightnessSlider');
-          const bv = document.getElementById('brightnessValue');
-          if (bs) bs.value = cfg.brightness;
-          if (bv) bv.textContent = cfg.brightness;
-        }
-
-        // MQTT
-        setVal('mqttServer', cfg.mqttServer);
-        setVal('mqttPort', cfg.mqttPort);
-        setVal('mqttUsername', cfg.mqttUsername);
-        setVal('mqttPassword', cfg.mqttPassword);
-
-        // WireGuard
-        setVal('wgPrivateKey', cfg.wgPrivateKey);
-        setVal('wgPublicKey', cfg.wgPublicKey);
-        setVal('wgPresharedKey', cfg.wgPresharedKey);
-        setVal('wgIpAddress', cfg.wgIpAddress);
-        setVal('wgEndpoint', cfg.wgEndpoint);
-        setVal('wgEndpointPort', cfg.wgEndpointPort);
-        setVal('wgAllowedIPs', cfg.wgAllowedIPs);
-      })
-      .catch(err => console.log('Prefill failed:', err));
-});
+    });
 
     // --- SSID manual override: if wifiSsidManual is not empty, submit that as "networks" ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -467,6 +501,71 @@ const char index_html[] PROGMEM = R"rawliteral(
         .catch(error => console.error('Error saving MQTT configuration:', error));
     }
 </script>
+
+<script>
+(function(){
+  function setVal(id, v){
+    const el = document.getElementById(id);
+    if(!el) return;
+    if(v === undefined || v === null) return;
+    // Don't overwrite password fields with empty strings
+    if(el.type === "password" && String(v).length === 0) return;
+    el.value = String(v);
+  }
+  function setCheck(id, v){
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.checked = (Number(v) === 1 || v === true);
+  }
+
+  async function prefill(){
+    try{
+      const r = await fetch("/api/config", {cache:"no-store"});
+      if(!r.ok) return;
+      const cfg = await r.json();
+
+      // LLU login
+      setVal("username", cfg.login_email);
+      setVal("password", cfg.login_password);
+
+      // WiFi: user requested wifi_bssid -> SSID/manual field
+      setVal("wifiSsidManual", cfg.wifi_bssid);
+      setVal("wifiPassword", cfg.wifi_password);
+
+      // MQTT
+      setVal("mqttServer", cfg.mqttServer);
+      setVal("mqttPort", cfg.mqttPort);
+      setVal("mqttUsername", cfg.mqttUsername);
+      setVal("mqttPassword", cfg.mqttPassword);
+
+      // WireGuard
+      setVal("wgPrivateKey", cfg.wgPrivateKey);
+      setVal("wgPublicKey", cfg.wgPublicKey);
+      setVal("wgPresharedKey", cfg.wgPresharedKey);
+      setVal("wgIpAddress", cfg.wgIpAddress);
+      setVal("wgEndpoint", cfg.wgEndpoint);
+      setVal("wgEndpointPort", cfg.wgEndpointPort);
+      setVal("wgAllowedIPs", cfg.wgAllowedIPs);
+
+      // Toggles + brightness (existing /status logic may also update these)
+      setCheck("otaToggle", cfg.ota_update);
+      setCheck("wireguardToggle", cfg.wg_mode);
+      setCheck("mqttToggle", cfg.mqtt_mode);
+      setCheck("mqttMasterToggle", cfg.mqtt_master_mode);
+
+      const bs = document.getElementById("brightnessSlider");
+      const bv = document.getElementById("brightnessValue");
+      if(bs && (cfg.brightness !== undefined && cfg.brightness !== null)){
+        bs.value = String(cfg.brightness);
+        if(bv) bv.textContent = String(cfg.brightness);
+      }
+    }catch(e){}
+  }
+
+  document.addEventListener("DOMContentLoaded", prefill);
+})();
+</script>
+
 </body>
 </html>
 

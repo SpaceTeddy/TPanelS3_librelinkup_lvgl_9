@@ -590,16 +590,9 @@ async function refresh(){
     const sub = document.getElementById("subline");
 
     if(sensorOk && Number.isFinite(mgdl) && mgdl > 0){
-      let deltaTxt = "--";
-        if (Number.isFinite(delta)) {
-            if (delta > 0) {
-                deltaTxt = `+${delta}`;
-            } else if (delta < 0) {
-                deltaTxt = `${delta}`;
-            } else {
-                deltaTxt = `±${delta}`;
-            }
-        }
+      const deltaTxt = Number.isFinite(delta)
+        ? (delta > 0 ? `+${delta}` : `${delta}`)
+        : "--";
 
       g.innerHTML = `${mgdl}<span class="unit">mg/dL</span>`;
       sub.textContent = `Δ ${deltaTxt} • Trend ${trend}`;
@@ -747,7 +740,17 @@ static void handleApiGlucoseHistory(AsyncWebServerRequest *request) {
 }
 
 static void handleApiConfig(AsyncWebServerRequest *request) {
-    // Optional prefill endpoint used by config page JS
+    // Prefill endpoint used by config page JS. Protect it with the same BasicAuth as /configuration.
+    const String& user = settings.config.login_email;
+    const String& pass = settings.config.login_password;
+
+    // If no credentials configured, leave open (same behavior as config page).
+    if (user.length() != 0 && pass.length() != 0) {
+        if (!request->authenticate(user.c_str(), pass.c_str())) {
+            return request->requestAuthentication();
+        }
+    }
+
     request->send(200, "application/json", web_get_config_json());
 }
 
@@ -791,8 +794,9 @@ static void handleStatus(AsyncWebServerRequest *request) {
     DynamicJsonDocument json_config(512);
     json_config["ota_update"] = settings.config.ota_update;
     json_config["wg_mode"]    = settings.config.wg_mode;
-    json_config["mqtt_mode"]  = settings.config.mqtt_mode;
-    json_config["brightness"] = settings.config.brightness;
+    json_config["mqtt_mode"]         = settings.config.mqtt_mode;
+    json_config["mqtt_master_mode"]  = settings.config.mqtt_master_mode;
+    json_config["brightness"]        = settings.config.brightness;
 
     String jsonResponse;
     serializeJson(json_config, jsonResponse);
@@ -825,11 +829,15 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
     } else if (feature == "mqtt_mode") {
         settings.config.mqtt_mode = status;
         logger.notice("mqtt_mode: %d", settings.config.mqtt_mode);
+    } else if (feature == "mqtt_master_mode") {
+        settings.config.mqtt_master_mode = status;
+        logger.notice("mqtt_master_mode: %d", settings.config.mqtt_master_mode);
     } else {
         request->send(400, "application/json", "{\"error\": \"Unknown feature\"}");
         return;
     }
 
+    settings.saveConfiguration(settings.config_filename, settings.config);
     request->send(200, "application/json", "{\"status\": \"updated\"}");
 }
 
