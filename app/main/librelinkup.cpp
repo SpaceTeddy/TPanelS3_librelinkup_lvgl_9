@@ -407,7 +407,7 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
         logger.debug("ESP32 now epoch                   : %ld", (long)now);
         logger.debug("Factory epoch                     : %ld", (long)tFactory);
         logger.debug("Cloud TS epoch                    : %ld", (long)tCloud);
-        logger.debug("diff_ms                            : %ld (timeout=%ld)",
+        logger.debug("diff_ms                           : %ld (timeout=%ld)",
                       (long)diff_ms, (long)LIBRELINKUPSENSORTIMEOUT);
     }
 
