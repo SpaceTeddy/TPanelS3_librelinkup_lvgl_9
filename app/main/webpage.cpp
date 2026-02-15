@@ -284,6 +284,29 @@ function updateLifeBar(days,hours,minutes,seconds){
   }
 }
 
+
+// Warm-up bar: 59 minute blocks (Libre-style warmup ~59min)
+function updateWarmupBar(minutesRemaining){
+  const bar=document.getElementById("lifeBar");
+  const txt=document.getElementById("lifeText");
+  if(!bar || !txt) return;
+
+  const blocks = 59;
+  const filled = Math.max(0, Math.min(blocks, Math.ceil(Number(minutesRemaining)||0)));
+
+  ensureLifeBar(blocks);
+  bar.style.gap = "1px";
+
+  if (filled <= 0) txt.textContent = "Sensor warm-up finished";
+  else txt.textContent = (filled === 1) ? "Sensor ready in 1 minute" : `Sensor ready in ${filled} minutes`;
+
+  const segs=[...bar.children];
+  for(let i=0;i<segs.length;i++){
+    segs[i].classList.remove("ok","warn","bad");
+    if(i<filled) segs[i].classList.add("warn");
+  }
+}
+
 function buildView(history){
   const rawVals = history?.values ?? [];
   const allV = rawVals.map(p => p ? Number(p.v) : null);
@@ -591,7 +614,7 @@ async function refresh(){
 
     if(sensorOk && Number.isFinite(mgdl) && mgdl > 0){
       const deltaTxt = Number.isFinite(delta)
-        ? (delta > 0 ? `+${delta}` : `${delta}`)
+        ? (delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : `±0`))
         : "--";
 
       g.innerHTML = `${mgdl}<span class="unit">mg/dL</span>`;
@@ -601,9 +624,9 @@ async function refresh(){
       const lo = Number(latest.low);
       const hi = Number(latest.high);
       if (Number.isFinite(lo) && Number.isFinite(hi)) {
-        if (mgdl < lo) g.style.color = "#2563eb";      // low -> blue
+        if (mgdl < lo) g.style.color = "#dc2626";      // low  -> red
         else if (mgdl > hi) g.style.color = "#dc2626"; // high -> red
-        else g.style.color = css("--fg");              // in range
+        else g.style.color = css("--fg");                // in range
       } else {
         g.style.color = css("--fg");
       }
@@ -615,15 +638,21 @@ async function refresh(){
     }
 
     // Lifetime still independent
-    updateLifeBar(
-      Number(latest.life_days),
-      Number(latest.life_hours),
-      Number(latest.life_minutes),
-      Number(latest.life_seconds)
-    );
+    // Warm-up override: prefer sensor_state==SENSOR_STARTING (Libre warmup)
+    const sensorState = Number(latest.sensor_state);
+    const warmupMin = Number(latest.warmup_min);
+    const warmupSec = Number(latest.warmup_sec);
+    const warmupActive = (latest.warmup_active === true) || (Number.isFinite(warmupMin) && warmupMin > 0) || (Number.isFinite(warmupSec) && warmupSec > 0);
+
+    if (warmupActive) {
+      const m = (Number.isFinite(warmupMin) && warmupMin > 0) ? warmupMin : Math.ceil((Number.isFinite(warmupSec) ? warmupSec : 0) / 60);
+      updateWarmupBar(m);
+    } else {
+      updateLifeBar(Number(latest.life_days), Number(latest.life_hours), Number(latest.life_minutes), Number(latest.life_seconds));
+    }
 
     document.getElementById("status").textContent =
-      `Status: ${sensorOk ? "Time OK" : "Sensor invalid"}`;
+      `Status: ${sensorOk ? "Sensor valid" : "Sensor invalid"}`;
     document.getElementById("updated").textContent =
       `Updated: ${new Date().toLocaleTimeString()}`;
 
@@ -732,11 +761,11 @@ static void handleConfigRedirect(AsyncWebServerRequest *request) {
 }
 
 static void handleApiGlucose(AsyncWebServerRequest *request) {
-    request->send(200, "application/json", web_get_glucose_latest_json());
+    request->send(200, "application/json; charset=utf-8", web_get_glucose_latest_json());
 }
 
 static void handleApiGlucoseHistory(AsyncWebServerRequest *request) {
-    request->send(200, "application/json", web_get_glucose_history_json());
+    request->send(200, "application/json; charset=utf-8", web_get_glucose_history_json());
 }
 
 static void handleApiConfig(AsyncWebServerRequest *request) {

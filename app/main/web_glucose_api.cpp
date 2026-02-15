@@ -18,7 +18,25 @@ String web_get_glucose_latest_json() {
     const uint16_t high = (uint16_t)librelinkup.llu_glucose_data.glucosetargetHigh;
     const bool ts_ok    = (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_VALID);
 
-    const int delta = (int)glucose_delta;
+    
+    // Warm-up (Libre): sensor starting -> remaining warmup minutes (based on sensor_non_activ_unixtime)
+    const int sensor_state = (int)librelinkup.llu_status.sensor_state;
+    int warmup_min = 0;
+    int warmup_sec = 0;
+    bool warmup_active = false;
+    if (sensor_state == SENSOR_STARTING) {
+        // Your project already uses this helper; keep behavior consistent with device UI
+        // App-like rounding: compute remaining seconds and use ceil(minutes)
+        time_t now = time(NULL);
+        time_t end = (time_t)librelinkup.llu_sensor_data.sensor_non_activ_unixtime + (60 * 60);
+        long rem_sec = (long)(end - now);
+        if (rem_sec < 0) rem_sec = 0;
+        warmup_sec = (int)rem_sec;
+        warmup_min = (int)((rem_sec + 59) / 60); // ceil to match app
+if (warmup_min < 0) warmup_min = 0;
+        // Best-effort seconds (minute resolution)        warmup_active = (warmup_min > 0);
+    }
+const int delta = (int)glucose_delta;
     const char* trend = librelinkup.llu_glucose_data.str_trendArrow.c_str();
 
     // Restlaufzeit (15 Tage) aus activation_time
@@ -50,7 +68,12 @@ String web_get_glucose_latest_json() {
     out += ",\"life_hours\":"; out += life_hours;
     out += ",\"life_minutes\":"; out += life_minutes;
     out += ",\"life_seconds\":"; out += life_seconds;
-    out += "}";
+    
+    out += ",\"sensor_state\":"; out += sensor_state;
+    out += ",\"warmup_active\":"; out += (warmup_active ? "true" : "false");
+    out += ",\"warmup_min\":"; out += warmup_min;
+    out += ",\"warmup_sec\":"; out += warmup_sec;
+out += "}";
     return out;
 }
 
