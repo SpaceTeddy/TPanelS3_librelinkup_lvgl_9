@@ -15,6 +15,8 @@
 #include <ArduinoJson.h>
 #include <ElegantOTA.h>
 #include <ESPAsyncWebServer.h>
+#include <WiFi.h>
+#include <time.h>
 
 #include <string>
 #include <vector>
@@ -35,8 +37,15 @@ extern SETTINGS settings;
 extern TPanelS3 tpanels3;
 extern String availableNetworks;
 
+
+// int16_t fix (used by debug endpoint)
+extern int16_t glucose_delta;
 // For handlers needing server access (OTA toggle)
 static AsyncWebServer* g_server = nullptr;
+
+// Forward declarations (used by debug endpoint)
+String web_get_glucose_latest_json();
+
 
 // Local state (legacy)
 static String username;
@@ -162,6 +171,7 @@ static const char dashboard_html[] PROGMEM = R"rawliteral(
 
   <div style="display:flex; gap:10px; align-items:center; margin-right:0px;">
     <a class="btn" href="/configuration">Config</a>
+    <a class="btn" href="/debug">Debug</a>
     <button class="btn iconbtn" id="themeBtn" title="Toggle dark mode">🌓</button>
   </div>
 </div>
@@ -726,6 +736,286 @@ setInterval(refresh, 15000);
 </html>
 )rawliteral";
 
+
+// -------------------- Debug page --------------------
+static const char debug_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Debug</title>
+<style>
+  :root{
+    --bg:#ffffff;
+    --fg:#0b0f14;
+    --muted:#6b7280;
+    --card:#ffffff;
+    --border:#e5e7eb;
+    --ok:#16a34a;
+    --warn:#eab308;
+    --bad:#dc2626;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  body.dark{
+    --bg:#0b0f14;
+    --fg:#e7eaf0;
+    --muted: rgba(231,234,240,.75);
+    --card:#0f1620;
+    --border:#1e2a3a;
+  }
+  @media (prefers-color-scheme: dark) {
+    body:not(.light){
+      --bg:#0b0f14;
+      --fg:#e7eaf0;
+      --muted: rgba(231,234,240,.75);
+      --card:#0f1620;
+      --border:#1e2a3a;
+    }
+  }
+
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--fg);
+    padding:18px;
+  }
+
+  .topbar{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;}
+  .btn{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:var(--card);
+    color:var(--fg);
+    text-decoration:none;
+    cursor:pointer;
+    user-select:none;
+  }
+  .row{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;}
+  .pill{padding:6px 10px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--muted); font-size:13px;}
+  .card{border:1px solid var(--border); background:var(--card); border-radius:16px; padding:14px; margin-top:12px;}
+  .grid{display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px;}
+  @media (max-width: 800px){ .grid{grid-template-columns:1fr;} }
+
+  .k{color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em;}
+  .v{font-size:18px; font-weight:700; margin-top:4px; word-break:break-word;}
+  .small{font-size:13px; color:var(--muted); margin-top:6px; word-break:break-word;}
+  .badge{display:inline-flex; align-items:center; gap:8px;}
+  .dot{width:10px; height:10px; border-radius:999px; background:var(--warn);}
+  .dot.ok{background:var(--ok);}
+  .dot.bad{background:var(--bad);}
+
+  details summary{cursor:pointer; color:var(--muted); user-select:none;}
+  pre{
+    margin:10px 0 0 0;
+    padding:12px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    background:rgba(0,0,0,0.06);
+    color:var(--fg);
+    overflow:auto;
+    font-family:var(--mono);
+    font-size:12px;
+    line-height:1.45;
+    white-space:pre;
+  }
+  body.dark pre{ background: rgba(255,255,255,0.06); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="btn" href="/">Dashboard</a>
+  <div class="row">
+    <span class="pill" id="updated">Updated: --</span>
+    <button class="btn" id="refreshBtn">Refresh</button>
+    <a class="btn" href="/configuration">Config</a>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="k">Time</div>
+    <div class="v" id="timeEpoch">--</div>
+    <div class="small" id="timeHuman">--</div>
+    <div class="small" id="millis">--</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Wi‑Fi</div>
+    <div class="v badge"><span class="dot" id="wifiDot"></span><span id="wifiState">--</span></div>
+    <div class="small" id="wifiSsid">SSID: --</div>
+    <div class="small" id="wifiRssi">RSSI: --</div>
+    <div class="small" id="wifiIp">IP: --</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Heap</div>
+    <div class="v" id="heapFree">--</div>
+    <div class="small" id="heapMin">Min free: --</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Glucose</div>
+    <div class="v" id="gMain">--</div>
+    <div class="small" id="gMeta">--</div>
+    <div class="small" id="gLife">--</div>
+  </div>
+</div>
+
+<div class="card">
+  <details>
+    <summary>Raw JSON</summary>
+    <pre id="raw">{}</pre>
+  </details>
+</div>
+
+<script>
+function pad2(n){ return String(n).padStart(2,'0'); }
+function applyThemeFromStorage(){
+  const v = localStorage.getItem("theme"); // dark|light|null
+  document.body.classList.remove("dark","light");
+  if (v==="dark") document.body.classList.add("dark");
+  if (v==="light") document.body.classList.add("light");
+}
+applyThemeFromStorage();
+
+function fmtDateTime(ts){
+  if(!Number.isFinite(ts) || ts<=0) return "--";
+  const d=new Date(ts*1000);
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+function setDot(el, ok){
+  el.classList.remove("ok","bad");
+  if(ok===true) el.classList.add("ok");
+  else if(ok===false) el.classList.add("bad");
+}
+
+async function load(){
+  const btn=document.getElementById("refreshBtn");
+  if(btn) btn.disabled=true;
+  try{
+    const j = await fetch("/api/debug", {cache:"no-store"}).then(r=>r.json());
+
+    document.getElementById("updated").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+    document.getElementById("raw").textContent = JSON.stringify(j, null, 2);
+
+    const epoch = Number(j.time_epoch);
+    document.getElementById("timeEpoch").textContent = Number.isFinite(epoch) ? String(epoch) : "--";
+    document.getElementById("timeHuman").textContent = `Local: ${fmtDateTime(epoch)}`;
+    document.getElementById("millis").textContent = `millis(): ${Number(j.millis) || 0}`;
+
+    const w = j.wifi || {};
+    const wConn = (w.connected === true);
+    setDot(document.getElementById("wifiDot"), wConn);
+    document.getElementById("wifiState").textContent = wConn ? "Connected" : "Disconnected";
+    document.getElementById("wifiSsid").textContent = `SSID: ${w.ssid ?? "--"}`;
+    document.getElementById("wifiRssi").textContent = `RSSI: ${Number.isFinite(Number(w.rssi)) ? w.rssi + " dBm" : "--"}`;
+    document.getElementById("wifiIp").textContent = `IP: ${w.ip ?? "--"}`;
+
+    const h = j.heap || {};
+    document.getElementById("heapFree").textContent = (h.free != null) ? `${h.free} bytes` : "--";
+    document.getElementById("heapMin").textContent = (h.min_free != null) ? `Min free: ${h.min_free} bytes` : "Min free: --";
+
+    const g = j.glucose || {};
+    const tsOk = (g.ts_ok === true);
+    const state = Number(g.sensor_state);
+    const warm = (g.warmup_active === true);
+    document.getElementById("gMain").textContent = tsOk ? `${g.mgdl ?? "--"} mg/dL` : "-- (invalid)";
+    document.getElementById("gMeta").textContent =
+      `Δ ${g.delta ?? "--"} • Trend ${g.trend ?? "--"} • State ${Number.isFinite(state)?state:"--"}${warm ? " • Warmup" : ""}`;
+    document.getElementById("gLife").textContent =
+      `Life: ${g.life_days ?? "--"}d ${g.life_hours ?? "--"}h ${g.life_minutes ?? "--"}m ${g.life_seconds ?? "--"}s`;
+
+  }catch(e){
+    document.getElementById("raw").textContent = "Failed to fetch /api/debug";
+    document.getElementById("updated").textContent = "Updated: --";
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
+
+document.getElementById("refreshBtn").addEventListener("click", load);
+load();
+</script>
+
+</body>
+</html>
+)rawliteral";
+
+// -------------------- Debug handlers --------------------
+static void handleDebugPage(AsyncWebServerRequest *request) {
+    // same BasicAuth behavior as /configuration
+    const String& user = settings.config.login_email;
+    const String& pass = settings.config.login_password;
+
+    if (user.length() != 0 && pass.length() != 0) {
+        if (!request->authenticate(user.c_str(), pass.c_str())) {
+            return request->requestAuthentication();
+        }
+    }
+    request->send(200, "text/html; charset=utf-8", debug_html);
+}
+
+static void handleApiDebug(AsyncWebServerRequest *request) {
+    // same BasicAuth behavior as /configuration
+    const String& user = settings.config.login_email;
+    const String& pass = settings.config.login_password;
+
+    if (user.length() != 0 && pass.length() != 0) {
+        if (!request->authenticate(user.c_str(), pass.c_str())) {
+            return request->requestAuthentication();
+        }
+    }
+
+    DynamicJsonDocument doc(8192);
+
+    doc["millis"] = (uint32_t)millis();
+    time_t now = time(nullptr);
+    doc["time_epoch"] = (uint32_t)now;
+
+    JsonObject wifi = doc.createNestedObject("wifi");
+    wifi["connected"] = WiFi.isConnected();
+    wifi["ssid"] = WiFi.SSID();
+    wifi["rssi"] = WiFi.isConnected() ? WiFi.RSSI() : 0;
+    wifi["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : String("");
+
+    JsonObject heap = doc.createNestedObject("heap");
+    heap["free"] = ESP.getFreeHeap();
+#ifdef ESP32
+    heap["min_free"] = ESP.getMinFreeHeap();
+#endif
+
+    // Embed the normal /api/glucose payload
+    DynamicJsonDocument glu(2048);
+    DeserializationError e1 = deserializeJson(glu, web_get_glucose_latest_json());
+    if (!e1) {
+        doc["glucose"] = glu.as<JsonVariant>();
+    } else {
+        doc["glucose_parse_error"] = e1.c_str();
+        doc["glucose_raw"] = web_get_glucose_latest_json();
+    }
+
+    // Provide delta as int16_t sanity check
+    doc["glucose_delta_int16"] = (int)glucose_delta;
+
+    // Add a small config snapshot (no secrets)
+    JsonObject cfg = doc.createNestedObject("config");
+    cfg["ota_update"] = settings.config.ota_update;
+    cfg["wg_mode"] = settings.config.wg_mode;
+    cfg["mqtt_mode"] = settings.config.mqtt_mode;
+    cfg["mqtt_master_mode"] = settings.config.mqtt_master_mode;
+    cfg["brightness"] = settings.config.brightness;
+
+    String out;
+    serializeJson(doc, out);
+    request->send(200, "application/json; charset=utf-8", out);
+}
+
+
 // -------------------- Dashboard/API hooks (implemented elsewhere) --------------------
 // Provide these in web_glucose_api.cpp (recommended). Weak fallbacks keep compilation working.
 __attribute__((weak)) String web_get_glucose_latest_json() { return String("{\"mgdl\":null,\"low\":null,\"high\":null,\"delta\":null,\"trend\":\"--\",\"ts_ok\":false}"); }
@@ -958,6 +1248,11 @@ void register_webpage_routes(AsyncWebServer& server) {
     server.on("/",              HTTP_GET,  handleDashboard);
     server.on("/configuration", HTTP_GET,  handleConfiguration);
     server.on("/config",        HTTP_GET,  handleConfigRedirect);
+
+
+    // Debug page
+    server.on("/debug",     HTTP_GET, handleDebugPage);
+    server.on("/api/debug", HTTP_GET, handleApiDebug);
 
     // Dashboard APIs (order matters: longer first)
     server.on("/api/glucose/history", HTTP_GET, handleApiGlucoseHistory);
