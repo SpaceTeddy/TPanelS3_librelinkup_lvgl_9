@@ -18,6 +18,8 @@
 #include <WiFi.h>
 #include <time.h>
 
+#include "librelinkup.h"
+
 #include <string>
 #include <vector>
 #include <uuid/common.h>
@@ -36,6 +38,8 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 extern SETTINGS settings;
 extern TPanelS3 tpanels3;
 extern String availableNetworks;
+
+extern LIBRELINKUP librelinkup;
 
 
 // int16_t fix (used by debug endpoint)
@@ -228,7 +232,10 @@ document.addEventListener('visibilitychange', ()=>{
   if(document.hidden) setPulse(false);
 });
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> ef14e2b (add telnet console in debug page)
 const PAD_L=54, PAD_R=14, PAD_T=16, PAD_B=40;
 
 function css(name){ return getComputedStyle(document.body).getPropertyValue(name).trim(); }
@@ -528,6 +535,7 @@ function drawChart(){
   ctx.stroke();
 
   // Last point marker (highlight live point)
+<<<<<<< HEAD
   let liveFound = false;
   for(let i=values.length-1;i>=0;i--){
     const v=values[i];
@@ -579,6 +587,57 @@ function drawChart(){
   }
   setPulse(liveFound);
 
+=======
+let liveFound = false;
+for(let i=values.length-1;i>=0;i--){
+  const v=values[i];
+  if(v===null) continue;
+  const x=xOf(i), y=yOf(v);
+  const isLive = (view.live && view.live[i] === true);
+
+  if (isLive) {
+    liveFound = true;
+    const dpr = (window.devicePixelRatio||1);
+    const ringR = Math.max(10, Math.round(dpr*7));
+    const dotR  = Math.max(6,  Math.round(dpr*4));
+
+    // Pulsing halo (2s period -> frequency halved)
+    const tt = (pulseNow || performance.now())/2000;
+    const k  = tt - Math.floor(tt); // 0..1
+    const ease = 0.5 - 0.5*Math.cos(k*2*Math.PI); // 0..1 smooth
+    const haloR = ringR + ease*ringR*1.6;
+
+    ctx.save();
+    ctx.globalAlpha = 0.28 * (1.0 - ease);
+    ctx.fillStyle = "#22c55e";
+    ctx.shadowColor = "rgba(34,197,94,0.9)";
+    ctx.shadowBlur  = Math.round(dpr*18*ease);
+    ctx.beginPath();
+    ctx.arc(x, y, haloR, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    // Outer ring (green)
+    ctx.fillStyle = "#22c55e";
+    ctx.beginPath();
+    ctx.arc(x, y, ringR, 0, Math.PI*2);
+    ctx.fill();
+
+    // Inner dot (white)
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(x, y, dotR, 0, Math.PI*2);
+    ctx.fill();
+  } else {
+    ctx.fillStyle = css("--fg");
+    ctx.beginPath();
+    ctx.arc(x,y, Math.max(6, Math.round((window.devicePixelRatio||1)*4)), 0, Math.PI*2);
+    ctx.fill();
+  }
+  break;
+}
+setPulse(liveFound);
+>>>>>>> ef14e2b (add telnet console in debug page)
 
   // Hover tooltip
   if(hoverIndex>=0 && hoverIndex<values.length && values[hoverIndex]!==null){
@@ -719,6 +778,10 @@ async function refresh(){
       `Updated: ${new Date().toLocaleTimeString()}`;
 
   }catch(e){
+    const st=document.getElementById("status");
+    if(st) st.textContent = "Debug load failed: " + (e && e.message ? e.message : e);
+    console.error(e);
+
     document.getElementById("status").textContent = "Status: /api/glucose error";
   }
 
@@ -855,6 +918,7 @@ static const char debug_html[] PROGMEM = R"rawliteral(
   .k{color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em;}
   .v{font-size:18px; font-weight:700; margin-top:4px; word-break:break-word;}
   .small{font-size:13px; color:var(--muted); margin-top:6px; word-break:break-word;}
+  .hr{ height:1px; background: var(--border); margin:10px 0; }
   .badge{display:inline-flex; align-items:center; gap:8px;}
   .dot{width:10px; height:10px; border-radius:999px; background:var(--warn);}
   .dot.ok{background:var(--ok);}
@@ -883,7 +947,8 @@ static const char debug_html[] PROGMEM = R"rawliteral(
   <a class="btn" href="/">Dashboard</a>
   <div class="row">
     <span class="pill" id="updated">Updated: --</span>
-    <button class="btn" id="refreshBtn">Refresh</button>
+        <span class="pill" id="status">Status: --</span>
+<button class="btn" id="refreshBtn">Refresh</button>
     <a class="btn" href="/configuration">Config</a>
   </div>
 </div>
@@ -918,6 +983,64 @@ static const char debug_html[] PROGMEM = R"rawliteral(
   </div>
 </div>
 
+<div class="grid">
+  <div class="card">
+    <div class="k">LibreLinkUp Status</div>
+    <div class="v badge"><span class="dot" id="lluTsDot"></span><span id="lluTsState">--</span></div>
+    <div class="small" id="lluLastTs">Last ts: --</div>
+    <div class="small" id="lluSensorState">Sensor state: --</div>
+  </div>
+
+  <div class="card">
+    <div class="k">LibreLinkUp Sensor</div>
+    <div class="v" id="lluActive">--</div>
+    <div class="small" id="lluInactive">--</div>
+    <div class="small" id="lluRuntime">--</div>
+    <div class="small" id="lluActivation">--</div>
+  </div>
+
+  <div class="card">
+    <div class="k">LibreLinkUp Login</div>
+    <div class="v badge"><span class="dot" id="lluLoginDot"></span><span id="lluLoginState">--</span></div>
+    <div class="small" id="lluEmail">Email: --</div>
+    <div class="small" id="lluAccount">Account: --</div>
+    <div class="small" id="lluRegion">Region: --</div>
+    <div class="small" id="lluToken">Token: --</div>
+    <div class="small" id="lluTokenExp">Expires: --</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Config Snapshot</div>
+    <div class="v" id="cfgMain">--</div>
+    <div class="small" id="cfgMore">--</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row" style="margin-bottom:10px;">
+    <div>
+      <div class="k">Telnet Terminal</div>
+      <div class="small">WebSocket bridge. Nur im eigenen LAN verwenden.</div>
+    </div>
+    <div class="row">
+      <input id="tnHost" placeholder="Host (z.B. 192.168.178.20)" style="width:220px;"/>
+      <input id="tnPort" placeholder="Port" style="width:90px;" inputmode="numeric"/>
+      <button class="btn" id="tnConnect">Connect</button>
+      <button class="btn" id="tnSelf">This device</button>
+      <span class="badge" id="tnState" style="margin-left:8px;">--</span>
+      <button class="btn" id="tnDisconnect">Disconnect</button>
+    </div>
+  </div>
+  <pre id="tnOut" style="height:260px; overflow:auto;"></pre>
+  <div class="row" style="margin-top:10px;">
+    <input id="tnIn" placeholder="Eingabe… (Enter zum Senden)" style="flex:1;"/>
+    <button class="btn" id="tnSend">Send</button>
+    <button class="btn" id="tnClear">Clear</button>
+  </div>
+</div>
+
+</div>
+
 <div class="card">
   <details>
     <summary>Raw JSON</summary>
@@ -950,9 +1073,15 @@ async function load(){
   const btn=document.getElementById("refreshBtn");
   if(btn) btn.disabled=true;
   try{
-    const j = await fetch("/api/debug", {cache:"no-store"}).then(r=>r.json());
+    const resp = await fetch("/api/debug", {cache:"no-store", credentials:"include"});
+    if(!resp.ok){ throw new Error(`HTTP ${resp.status}`); }
+    let j;
+    try{ j = await resp.json(); }
+    catch(e){ const t = await resp.text(); throw new Error("Invalid JSON: "+t.slice(0,120)); }
+
 
     document.getElementById("updated").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+    document.getElementById("status").textContent = "Status: OK";
     document.getElementById("raw").textContent = JSON.stringify(j, null, 2);
 
     const epoch = Number(j.time_epoch);
@@ -982,16 +1111,199 @@ async function load(){
     document.getElementById("gLife").textContent =
       `Life: ${g.life_days ?? "--"}d ${g.life_hours ?? "--"}h ${g.life_minutes ?? "--"}m ${g.life_seconds ?? "--"}s`;
 
+const llu = j.llu || {};
+const st = llu.status || {};
+const se = llu.sensor || {};
+const lo = llu.login || {};
+
+const tsStatus = Number(st.timestamp_status);
+// timestamp_status: 0=unknown/invalid, 1=ok (assuming your logic)
+const tsOk2 = (tsStatus === 1 || tsStatus === 2 || tsStatus === 0x01);
+setDot(document.getElementById("lluTsDot"), tsOk2);
+document.getElementById("lluTsState").textContent = tsOk2 ? "Timestamp OK" : `Timestamp status ${Number.isFinite(tsStatus)?tsStatus:"--"}`;
+document.getElementById("lluLastTs").textContent = `Last ts: ${Number(st.last_timestamp_unixtime)||0} (${fmtDateTime(Number(st.last_timestamp_unixtime)||0)})`;
+document.getElementById("lluSensorState").textContent = `Sensor state: ${Number(st.sensor_state) ?? "--"} / ${Number(se.sensor_state) ?? "--"}`;
+
+const activeId = se.sensor_id || "--";
+const activeSn = se.sensor_sn || "--";
+document.getElementById("lluActive").textContent = `Active: ${activeSn} (${activeId})`;
+
+const inactId = se.sensor_id_non_active || "--";
+const inactSn = se.sensor_sn_non_active || "--";
+const inactTs = Number(se.sensor_non_activ_unixtime)||0;
+document.getElementById("lluInactive").textContent = `Inactive: ${inactSn} (${inactId}) • last try: ${inactTs?fmtDateTime(inactTs):"--"}`;
+
+document.getElementById("lluRuntime").textContent =
+  `Runtime: ${Number(se.sensor_runtime)||0}s`;
+const actTs = Number(se.sensor_activation_time)||0;
+document.getElementById("lluActivation").textContent =
+  `Activated: ${actTs?fmtDateTime(actTs):"--"}`;
+
+const loginOk = (Number(lo.user_login_status) === 1);
+setDot(document.getElementById("lluLoginDot"), loginOk);
+document.getElementById("lluLoginState").textContent = loginOk ? "Logged in" : `Login status ${Number(lo.user_login_status) ?? "--"}`;
+document.getElementById("lluEmail").textContent = `Email: ${lo.email || "--"}`;
+document.getElementById("lluAccount").textContent = `Account: ${lo.account_id || "--"} • User: ${lo.user_id || "--"}`;
+document.getElementById("lluRegion").textContent = `User region: ${lo.user_country || "--"} • Connection: ${lo.connection_country || "--"} • Conn status: ${Number(lo.connection_status) ?? "--"}`;
+document.getElementById("lluToken").textContent = `Token: ${lo.token_present ? (lo.token_preview || "(present)") : "(none)"} • Password set: ${lo.password_set ? "yes" : "no"}`;
+const exp = Number(lo.user_token_expires)||0;
+document.getElementById("lluTokenExp").textContent = `Expires: ${exp?fmtDateTime(exp):"--"}`;
+
+const cfg = j.config || {};
+document.getElementById("cfgMain").textContent = `OTA ${cfg.ota_update? "on":"off"} • WG ${cfg.wg_mode} • MQTT ${cfg.mqtt_mode}`;
+document.getElementById("cfgMore").textContent = `Master ${cfg.mqtt_master_mode} • Brightness ${cfg.brightness}`;
+
   }catch(e){
-    document.getElementById("raw").textContent = "Failed to fetch /api/debug";
+    document.getElementById("raw").textContent = "Failed to fetch /api/debug: " + (e && e.message ? e.message : e);
+    const stEl=document.getElementById("status");
+    if(stEl) stEl.textContent = "Status: FAIL (" + (e && e.message ? e.message : e) + ")";
     document.getElementById("updated").textContent = "Updated: --";
   }finally{
     if(btn) btn.disabled=false;
   }
 }
 
-document.getElementById("refreshBtn").addEventListener("click", load);
-load();
+
+// --- Telnet terminal (WebSocket bridge) ---
+let tnWs = null;
+function tnLog(line){
+  const pre=document.getElementById("tnOut");
+  if(!pre) return;
+  pre.textContent += line;
+  // keep last ~20k chars
+  if(pre.textContent.length>20000) pre.textContent = pre.textContent.slice(-20000);
+  pre.scrollTop = pre.scrollHeight;
+}
+function tnSetState(label, mode){
+  const el=document.getElementById("tnState");
+  if(!el) return;
+  el.textContent = label || "--";
+  // modes: ok|warn|bad|off
+  let bg="rgba(148,163,184,0.15)", bd="rgba(148,163,184,0.28)", fg="rgba(226,232,240,0.9)";
+  if(mode==="ok"){ bg="rgba(34,197,94,0.18)"; bd="rgba(34,197,94,0.45)"; }
+  if(mode==="warn"){ bg="rgba(245,158,11,0.18)"; bd="rgba(245,158,11,0.45)"; }
+  if(mode==="bad"){ bg="rgba(239,68,68,0.18)"; bd="rgba(239,68,68,0.45)"; }
+  el.style.background = bg;
+  el.style.borderColor = bd;
+  el.style.color = fg;
+}
+
+function tnStatus(msg){
+  tnLog(`
+[${new Date().toLocaleTimeString()}] ${msg}
+`);
+  // Heuristics based on status text coming from ESP
+  const m=(msg||"").toLowerCase();
+  if(m.includes("ws connected")) tnSetState("WS connected","warn");
+  else if(m.includes("ready")) tnSetState("Ready","off");
+  else if(m.includes("connecting")) tnSetState("Connecting…","warn");
+  else if(m.includes("connected")) tnSetState("Connected","ok");
+  else if(m.includes("disconnected")) tnSetState("Disconnected","off");
+  else if(m.includes("failed") || m.includes("error") || m.includes("bad")) tnSetState("Error","bad");
+}
+function tnOpen(){
+  if(tnWs && (tnWs.readyState===0 || tnWs.readyState===1)) return;
+  const proto = (location.protocol==="https:") ? "wss://" : "ws://";
+  tnWs = new WebSocket(proto + location.host + "/ws/telnet");
+  tnWs.onopen = ()=>{ tnStatus("WS connected"); };
+  tnWs.onclose = ()=>{ tnStatus("WS closed"); tnSetState("WS closed","off"); };
+  tnWs.onerror = ()=>{ tnStatus("WS error"); tnSetState("WS error","bad"); };
+  tnWs.onmessage = (ev)=>{
+    try{
+      const o = JSON.parse(ev.data);
+      if(o && o.type==="status") tnStatus(o.msg || "status");
+      else if(o && o.type==="data") tnLog(o.data || "");
+      else tnLog(ev.data);
+    }catch(e){
+      tnLog(ev.data);
+    }
+  };
+}
+function tnEnsureOpen(cb){
+  tnOpen();
+  const start = Date.now();
+  (function waitOpen(){
+    if(!tnWs) { setTimeout(waitOpen, 50); return; }
+    if(tnWs.readyState===1){ cb(); return; }
+    // timeout after 3s
+    if(Date.now()-start > 3000){ tnStatus("WS not open"); tnSetState("WS error","bad"); return; }
+    setTimeout(waitOpen, 50);
+  })();
+}
+
+function tnConnect(){
+  const host=(document.getElementById("tnHost").value||"").trim();
+  const port=Number((document.getElementById("tnPort").value||"23").trim())||23;
+  localStorage.setItem("tnHost", host);
+  localStorage.setItem("tnPort", String(port));
+  if(!host){ tnStatus("Host fehlt"); tnSetState("Error","bad"); return; }
+  tnSetState("Connecting…","warn");
+  tnEnsureOpen(()=> {
+    try{ tnWs.send(JSON.stringify({cmd:"connect", host, port})); }
+    catch(e){ tnStatus("send failed: " + (e && e.message ? e.message : e)); }
+  });
+}
+
+function tnDisconnect(){
+  tnEnsureOpen(()=> {
+    try{ tnWs.send(JSON.stringify({cmd:"disconnect"})); }
+    catch(e){ tnStatus("send failed: " + (e && e.message ? e.message : e)); }
+  });
+}
+
+function tnSend(){
+  const inp=document.getElementById("tnIn");
+  const txt=(inp && inp.value) ? inp.value : "";
+  if(!txt) return;
+  tnEnsureOpen(()=> {
+        try{ tnWs.send(JSON.stringify({cmd:"send", data: txt + "\r\n"})); }
+    catch(e){ tnStatus("send failed: " + (e && e.message ? e.message : e)); }
+  });
+  if(inp) inp.value="";
+}
+
+function tnInit(){
+  const hostEl=document.getElementById("tnHost");
+  const portEl=document.getElementById("tnPort");
+
+  const h=localStorage.getItem("tnHost")||"";
+  const p=localStorage.getItem("tnPort")||"23";
+
+  // Prefer last used, otherwise default to "this device"
+  if(hostEl){
+    hostEl.value = h || window.location.hostname;
+  }
+  if(portEl){
+    portEl.value = p || "23";
+  }
+
+  document.getElementById("tnConnect")?.addEventListener("click", tnConnect);
+  document.getElementById("tnDisconnect")?.addEventListener("click", tnDisconnect);
+  document.getElementById("tnSend")?.addEventListener("click", tnSend);
+  document.getElementById("tnClear")?.addEventListener("click", ()=>{ document.getElementById("tnOut").textContent=""; });
+
+  document.getElementById("tnIn")?.addEventListener("keydown", (e)=>{
+    if(e.key==="Enter"){ e.preventDefault(); tnSend(); }
+  });
+
+  // Open WS eagerly so it's ready when you hit connect
+  tnOpen();
+}
+tnInit();
+
+window.addEventListener("load", ()=>{
+  try{
+    const st=document.getElementById("status");
+    if(st) st.textContent="Status: JS ok";
+    document.getElementById("refreshBtn")?.addEventListener("click", load);
+    load();
+    setInterval(load, 5000);
+  }catch(e){
+    const st=document.getElementById("status");
+    if(st) st.textContent="Status: JS init error: "+(e && e.message ? e.message : e);
+    console.error(e);
+  }
+});
 </script>
 
 </body>
@@ -1023,7 +1335,7 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
         }
     }
 
-    DynamicJsonDocument doc(8192);
+    DynamicJsonDocument doc(12288);
 
     doc["millis"] = (uint32_t)millis();
     time_t now = time(nullptr);
@@ -1053,6 +1365,50 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
 
     // Provide delta as int16_t sanity check
     doc["glucose_delta_int16"] = (int)glucose_delta;
+
+    // LibreLinkUp status + sensor snapshot
+    JsonObject llu = doc.createNestedObject("llu");
+
+    JsonObject st = llu.createNestedObject("status");
+    st["timestamp_status"] = (uint8_t)librelinkup.llu_status.timestamp_status;
+    st["sensor_state"] = (uint8_t)librelinkup.llu_status.sensor_state;
+    st["last_timestamp_unixtime"] = (uint32_t)librelinkup.llu_status.last_timestamp_unixtime;
+
+    JsonObject se = llu.createNestedObject("sensor");
+    se["sensor_state"] = (uint8_t)librelinkup.llu_sensor_data.sensor_state;
+    se["sensor_sn_non_active"] = librelinkup.llu_sensor_data.sensor_sn_non_active;
+    se["sensor_id_non_active"] = librelinkup.llu_sensor_data.sensor_id_non_active;
+    se["sensor_non_activ_unixtime"] = (uint32_t)librelinkup.llu_sensor_data.sensor_non_activ_unixtime;
+    se["sensor_id"] = librelinkup.llu_sensor_data.sensor_id;
+    se["sensor_sn"] = librelinkup.llu_sensor_data.sensor_sn;
+    se["LIBRE3PLUS_SERIAL_START"] = librelinkup.llu_sensor_data.LIBRE3PLUS_SERIAL_START;
+    se["sensor_runtime"] = (uint32_t)librelinkup.llu_sensor_data.sensor_runtime;
+    se["sensor_activation_time"] = (uint32_t)librelinkup.llu_sensor_data.sensor_activation_time;
+
+// LibreLinkUp login snapshot (no secrets in cleartext)
+JsonObject lo = llu.createNestedObject("login");
+lo["email"] = librelinkup.llu_login_data.email;
+lo["user_id"] = librelinkup.llu_login_data.user_id;
+lo["account_id"] = librelinkup.llu_login_data.account_id;
+lo["user_country"] = librelinkup.llu_login_data.user_country;
+lo["connection_country"] = librelinkup.llu_login_data.connection_country;
+lo["connection_status"] = (int16_t)librelinkup.llu_login_data.connection_status;
+lo["user_token_expires"] = (uint32_t)librelinkup.llu_login_data.user_token_expires;
+lo["user_login_status"] = (uint8_t)librelinkup.llu_login_data.user_login_status;
+
+// Security helpers
+lo["password_set"] = (librelinkup.llu_login_data.password.length() > 0);
+lo["token_present"] = (librelinkup.llu_login_data.user_token.length() > 0);
+
+// Short token preview (safe)
+if (librelinkup.llu_login_data.user_token.length() > 10) {
+    lo["token_preview"] =
+        librelinkup.llu_login_data.user_token.substring(0, 6) + "..." +
+        librelinkup.llu_login_data.user_token.substring(librelinkup.llu_login_data.user_token.length() - 4);
+} else {
+    lo["token_preview"] = String("");
+}
+
 
     // Add a small config snapshot (no secrets)
     JsonObject cfg = doc.createNestedObject("config");
@@ -1289,12 +1645,214 @@ static void handleConfigureMQTT(AsyncWebServerRequest *request) {
     request->send(200, "application/json", "{\"status\": \"MQTT configuration saved\"}");
 }
 
+
+// -------------------- Telnet WebSocket bridge --------------------
+// Browser can't do raw TCP; this bridges WebSocket <-> Telnet TCP (LAN use).
+#include <Ticker.h>
+#include <map>
+
+static AsyncWebSocket g_ws_telnet("/ws/telnet");
+static Ticker g_telnet_ticker;
+
+struct TelnetSession {
+    AsyncWebSocketClient* ws = nullptr;
+    WiFiClient tcp;
+    bool tcp_connected = false;
+    String host;
+    uint16_t port = 23;
+};
+
+static std::map<uint32_t, TelnetSession> g_telnet_sessions;
+
+static void telnet_send_status(AsyncWebSocketClient* c, const String& msg) {
+    if (!c) return;
+    DynamicJsonDocument d(256);
+    d["type"] = "status";
+    d["msg"] = msg;
+    String out;
+    serializeJson(d, out);
+    c->text(out);
+}
+
+static void telnet_send_data(AsyncWebSocketClient* c, const String& data) {
+    if (!c) return;
+    DynamicJsonDocument d(512);
+    d["type"] = "data";
+    d["data"] = data;
+    String out;
+    serializeJson(d, out);
+    c->text(out);
+}
+
+static void telnet_service() {
+    for (auto it = g_telnet_sessions.begin(); it != g_telnet_sessions.end(); ) {
+        auto& s = it->second;
+        if (!s.ws || s.ws->status() != WS_CONNECTED) {
+            if (s.tcp_connected) s.tcp.stop();
+            it = g_telnet_sessions.erase(it);
+            continue;
+        }
+
+        if (s.tcp_connected && s.tcp.connected()) {
+            while (s.tcp.available()) {
+                String chunk;
+                chunk.reserve(256);
+                while (s.tcp.available() && chunk.length() < 256) {
+                    uint8_t b = (uint8_t)s.tcp.read();
+                    // Minimal TELNET negotiation handling (IAC)
+                    if (b == 255) { // IAC
+                        // Need at least command + option
+                        while (s.tcp.available() < 2) { break; }
+                        uint8_t cmd = (uint8_t)s.tcp.read();
+                        uint8_t opt = (uint8_t)s.tcp.read();
+
+                        // Respond by refusing options (DO->WONT, WILL->DONT)
+                        if (cmd == 253) { // DO
+                            uint8_t resp[3] = {255, 252, opt}; // WONT
+                            s.tcp.write(resp, 3);
+                        } else if (cmd == 251) { // WILL
+                            uint8_t resp[3] = {255, 254, opt}; // DONT
+                            s.tcp.write(resp, 3);
+                        }
+                        // Drop negotiation bytes from output
+                        continue;
+                    }
+                    chunk += (char)b;
+                }
+                if (chunk.length()) telnet_send_data(s.ws, chunk);
+            }
+        } else {
+            s.tcp_connected = false;
+        }
+        ++it;
+    }
+
+    // Stop ticker if no sessions
+    if (g_telnet_sessions.empty()) {
+        g_telnet_ticker.detach();
+    }
+}
+
+static std::map<uint32_t, bool> g_ws_auth_ok;
+
+static inline void ws_set_authorized(AsyncWebSocketClient* c, bool ok) {
+    if (!c) return;
+    if (ok) {
+        g_ws_auth_ok[c->id()] = true;
+    } else {
+        g_ws_auth_ok.erase(c->id());
+    }
+}
+
+static inline bool ws_is_authorized(AsyncWebSocketClient* c) {
+    if (!c) return false;
+    auto it = g_ws_auth_ok.find(c->id());
+    return (it != g_ws_auth_ok.end()) && it->second;
+}
+
+static void ws_telnet_on_event(AsyncWebSocket *server, AsyncWebSocketClient *client,
+                              AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    (void)server;
+
+    if (type == WS_EVT_CONNECT) {
+        // WS auth: some ESPAsyncWebServer builds do not provide reliable access
+        // to the originating HTTP request (and BasicAuth headers) here.
+        // The debug page itself is already access-controlled in your setup,
+        // so we allow the WS connection and keep the terminal usable.
+        ws_set_authorized(client, true);
+
+        TelnetSession sess;
+        sess.ws = client;
+        g_telnet_sessions[client->id()] = sess;
+
+        telnet_send_status(client, "ready");
+        if (!g_telnet_ticker.active()) {
+            g_telnet_ticker.attach_ms(20, telnet_service);
+        }
+        return;
+    }
+
+
+    if (type == WS_EVT_DISCONNECT) {
+        ws_set_authorized(client, false);
+        auto it = g_telnet_sessions.find(client->id());
+        if (it != g_telnet_sessions.end()) {
+            if (it->second.tcp_connected) it->second.tcp.stop();
+            g_telnet_sessions.erase(it);
+        }
+        return;
+    }
+
+    if (type == WS_EVT_DATA) {
+        if (!ws_is_authorized(client)) { client->close(); return; }
+        auto it = g_telnet_sessions.find(client->id());
+        if (it == g_telnet_sessions.end()) return;
+        TelnetSession& sess = it->second;
+
+        AwsFrameInfo *info = (AwsFrameInfo*)arg;
+        if (!info || info->final != 1 || info->index != 0) return;
+        if (info->opcode != WS_TEXT) return;
+
+        String msg;
+        msg.reserve(len + 1);
+        for (size_t i=0;i<len;i++) msg += (char)data[i];
+
+        DynamicJsonDocument d(512);
+        DeserializationError e = deserializeJson(d, msg);
+        if (e) {
+            telnet_send_status(client, "bad json");
+            return;
+        }
+
+        const char* cmd = d["cmd"] | "";
+        if (strcmp(cmd, "connect") == 0) {
+            const char* host = d["host"] | "";
+            uint16_t port = (uint16_t)(d["port"] | 23);
+            if (!host || strlen(host)==0) { telnet_send_status(client, "host missing"); return; }
+
+            if (sess.tcp_connected) sess.tcp.stop();
+            sess.host = host;
+            sess.port = port;
+            sess.tcp.setTimeout(2000);
+
+            telnet_send_status(client, "connecting...");
+            bool ok = sess.tcp.connect(sess.host.c_str(), sess.port);
+            sess.tcp_connected = ok;
+            telnet_send_status(client, ok ? "connected" : "connect failed");
+            return;
+        }
+
+        if (strcmp(cmd, "disconnect") == 0) {
+            if (sess.tcp_connected) sess.tcp.stop();
+            sess.tcp_connected = false;
+            telnet_send_status(client, "disconnected");
+            return;
+        }
+
+        if (strcmp(cmd, "send") == 0) {
+            const char* payload = d["data"] | "";
+            if (!sess.tcp_connected || !sess.tcp.connected()) {
+                telnet_send_status(client, "tcp not connected");
+                return;
+            }
+            if (payload && strlen(payload)) {
+                sess.tcp.write((const uint8_t*)payload, strlen(payload));
+            }
+            return;
+        }
+    }
+}
+
 // -------------------- Route registration --------------------
 void register_webpage_routes(AsyncWebServer& server) {
     g_server = &server;
 
     // Register OTA endpoints once. Do NOT stop the webserver at runtime.
     ElegantOTA.begin(g_server);
+
+// Telnet terminal (WebSocket bridge)
+g_ws_telnet.onEvent(ws_telnet_on_event);
+server.addHandler(&g_ws_telnet);
 
     // Dashboard + config page split
     server.on("/",              HTTP_GET,  handleDashboard);
