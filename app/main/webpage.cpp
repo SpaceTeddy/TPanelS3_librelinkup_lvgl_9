@@ -232,10 +232,6 @@ document.addEventListener('visibilitychange', ()=>{
   if(document.hidden) setPulse(false);
 });
 
-<<<<<<< HEAD
-
-=======
->>>>>>> ef14e2b (add telnet console in debug page)
 const PAD_L=54, PAD_R=14, PAD_T=16, PAD_B=40;
 
 function css(name){ return getComputedStyle(document.body).getPropertyValue(name).trim(); }
@@ -535,59 +531,6 @@ function drawChart(){
   ctx.stroke();
 
   // Last point marker (highlight live point)
-<<<<<<< HEAD
-  let liveFound = false;
-  for(let i=values.length-1;i>=0;i--){
-    const v=values[i];
-    if(v===null) continue;
-    const x=xOf(i), y=yOf(v);
-    const isLive = (view.live && view.live[i] === true);
-
-    if (isLive) {
-      liveFound = true;
-      const dpr = (window.devicePixelRatio||1);
-      const ringR = Math.max(10, Math.round(dpr*7));
-      const dotR  = Math.max(6,  Math.round(dpr*4));
-
-      // Pulsing halo
-      const PULSE_PERIOD_MS = 2000; // 1000 = schnell, 2000 = ruhiger
-      const tt = (pulseNow || performance.now()) / PULSE_PERIOD_MS;
-      const k  = tt - Math.floor(tt); // 0..1
-      const ease = 0.5 - 0.5*Math.cos(k*2*Math.PI); // 0..1 smooth
-      const haloR = ringR + ease*ringR*1.6;
-
-      ctx.save();
-      ctx.globalAlpha = 0.28 * (1.0 - ease);
-      ctx.fillStyle = "#22c55e";
-      ctx.shadowColor = "rgba(34,197,94,0.9)";
-      ctx.shadowBlur  = Math.round(dpr*18*ease);
-      ctx.beginPath();
-      ctx.arc(x, y, haloR, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
-
-      // Outer ring (green)
-      ctx.fillStyle = "#22c55e";
-      ctx.beginPath();
-      ctx.arc(x, y, ringR, 0, Math.PI*2);
-      ctx.fill();
-
-      // Inner dot (white)
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.arc(x, y, dotR, 0, Math.PI*2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = css("--fg");
-      ctx.beginPath();
-      ctx.arc(x,y, Math.max(6, Math.round((window.devicePixelRatio||1)*4)), 0, Math.PI*2);
-      ctx.fill();
-    }
-    break;
-  }
-  setPulse(liveFound);
-
-=======
 let liveFound = false;
 for(let i=values.length-1;i>=0;i--){
   const v=values[i];
@@ -637,7 +580,6 @@ for(let i=values.length-1;i>=0;i--){
   break;
 }
 setPulse(liveFound);
->>>>>>> ef14e2b (add telnet console in debug page)
 
   // Hover tooltip
   if(hoverIndex>=0 && hoverIndex<values.length && values[hoverIndex]!==null){
