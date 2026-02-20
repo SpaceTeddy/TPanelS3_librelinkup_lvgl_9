@@ -18,6 +18,11 @@
 #include <WiFi.h>
 #include <time.h>
 
+#ifdef ESP32
+#include <esp_system.h>
+#include <esp_heap_caps.h>
+#endif
+
 #include "librelinkup.h"
 
 #include <string>
@@ -261,6 +266,19 @@ function fmtDateTime(ts){
   const d=new Date(ts*1000);
   return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
+function fmtUptime(ms){
+  if(!Number.isFinite(ms) || ms < 0) return "--";
+  let s = Math.floor(ms/1000);
+  const days = Math.floor(s/86400); s -= days*86400;
+  const hours = Math.floor(s/3600); s -= hours*3600;
+  const minutes = Math.floor(s/60); s -= minutes*60;
+  const seconds = s;
+  let out = "";
+  if(days > 0) out += `${days}d `;
+  out += `${pad2(hours)}h ${pad2(minutes)}m ${pad2(seconds)}s`;
+  return out.trim();
+}
+
 
 function ensureLifeBar(count){
   const bar=document.getElementById("lifeBar");
@@ -898,9 +916,9 @@ static const char debug_html[] PROGMEM = R"rawliteral(
 <div class="grid">
   <div class="card">
     <div class="k">Time</div>
-    <div class="v" id="timeEpoch">--</div>
+    <div class="small" id="timeEpoch">Local epoch: --</div>
     <div class="small" id="timeHuman">--</div>
-    <div class="small" id="millis">--</div>
+    <div class="small" id="millis">Uptime: --</div>
   </div>
 
   <div class="card">
@@ -913,8 +931,10 @@ static const char debug_html[] PROGMEM = R"rawliteral(
 
   <div class="card">
     <div class="k">Heap</div>
-    <div class="v" id="heapFree">--</div>
-    <div class="small" id="heapMin">Min free: --</div>
+    <div class="small" id="heapFree">--</div>
+    <div class="small" id="heapLargest">Largest free block: --</div>
+    <div class="small" id="heapInternal">Internal RAM (DMA capable): --</div>
+    <div class="small" id="heapPsram">PSRAM available: --</div>
   </div>
 
   <div class="card">
@@ -954,7 +974,7 @@ static const char debug_html[] PROGMEM = R"rawliteral(
 
   <div class="card">
     <div class="k">Config Snapshot</div>
-    <div class="v" id="cfgMain">--</div>
+    <div class="small" id="cfgMain">--</div>
     <div class="small" id="cfgMore">--</div>
   </div>
 </div>
@@ -1006,6 +1026,19 @@ function fmtDateTime(ts){
   const d=new Date(ts*1000);
   return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
+function fmtUptime(ms){
+  if(!Number.isFinite(ms) || ms < 0) return "--";
+  let s = Math.floor(ms/1000);
+  const days = Math.floor(s/86400); s -= days*86400;
+  const hours = Math.floor(s/3600); s -= hours*3600;
+  const minutes = Math.floor(s/60); s -= minutes*60;
+  const seconds = s;
+  let out = "";
+  if(days > 0) out += days + "d ";
+  out += pad2(hours) + "h " + pad2(minutes) + "m " + pad2(seconds) + "s";
+  return out.trim();
+}
+
 function setDot(el, ok){
   el.classList.remove("ok","bad");
   if(ok===true) el.classList.add("ok");
@@ -1028,9 +1061,9 @@ async function load(){
     document.getElementById("raw").textContent = JSON.stringify(j, null, 2);
 
     const epoch = Number(j.time_epoch);
-    document.getElementById("timeEpoch").textContent = Number.isFinite(epoch) ? String(epoch) : "--";
+    document.getElementById("timeEpoch").textContent = Number.isFinite(epoch) ? (`Local epoch: ${epoch}`) : "Local epoch: --";
     document.getElementById("timeHuman").textContent = `Local: ${fmtDateTime(epoch)}`;
-    document.getElementById("millis").textContent = `millis(): ${Number(j.millis) || 0}`;
+    document.getElementById("millis").textContent = `Uptime: ${fmtUptime(Number(j.millis) || 0)}`;
 
     const w = j.wifi || {};
     const wConn = (w.connected === true);
@@ -1041,8 +1074,20 @@ async function load(){
     document.getElementById("wifiIp").textContent = `IP: ${w.ip ?? "--"}`;
 
     const h = j.heap || {};
-    document.getElementById("heapFree").textContent = (h.free != null) ? `${h.free} bytes` : "--";
-    document.getElementById("heapMin").textContent = (h.min_free != null) ? `Min free: ${h.min_free} bytes` : "Min free: --";
+    // Show a richer heap breakdown when available (ESP32)
+    if (h.total_free != null) {
+      document.getElementById("heapFree").textContent = `Total free heap: ${h.total_free} Bytes`;
+      document.getElementById("heapLargest").textContent = `Largest free block: ${h.largest_free_block ?? "--"} Bytes`;
+      document.getElementById("heapInternal").textContent = `Internal RAM (DMA capable): ${h.internal_dma ?? "--"} Bytes`;
+      document.getElementById("heapPsram").textContent = `PSRAM available: ${h.psram ?? "--"} Bytes`;
+    } else {
+      // Fallback (older payload)
+      document.getElementById("heapFree").textContent = (h.free != null) ? `Total free heap: ${h.free} Bytes` : "--";
+      document.getElementById("heapLargest").textContent = `Largest free block: --`;
+      document.getElementById("heapInternal").textContent = `Internal RAM (DMA capable): --`;
+      document.getElementById("heapPsram").textContent = `PSRAM available: --`;
+    }
+
 
     const g = j.glucose || {};
     const tsOk = (g.ts_ok === true);
@@ -1103,9 +1148,10 @@ document.getElementById("lluActivation").textContent = `Activated: ${activatedSt
 document.getElementById("lluExpires").textContent    = `Expires:   ${expiresStr}`;
 document.getElementById("lluRemaining").textContent  = `Remaining: ${remainingStr}`;
 
-const loginOk = (Number(lo.user_login_status) === 1);
-setDot(document.getElementById("lluLoginDot"), loginOk);
-document.getElementById("lluLoginState").textContent = loginOk ? "Logged in" : `Login status ${Number(lo.user_login_status) ?? "--"}`;
+// Green dot if account + user data is present (more reliable than numeric status)
+const hasUserData = !!(lo.account_id && String(lo.account_id).length && lo.user_id && String(lo.user_id).length);
+setDot(document.getElementById("lluLoginDot"), hasUserData);
+document.getElementById("lluLoginState").textContent = hasUserData ? "Logged in" : "Not logged in";
 document.getElementById("lluEmail").textContent = `Email: ${lo.email || "--"}`;
 document.getElementById("lluAccount").textContent = `Account: ${lo.account_id || "--"} • User: ${lo.user_id || "--"}`;
 document.getElementById("lluRegion").textContent = `User region: ${lo.user_country || "--"} • Connection: ${lo.connection_country || "--"} • Conn status: ${Number(lo.connection_status) ?? "--"}`;
@@ -1114,8 +1160,21 @@ const exp = Number(lo.user_token_expires)||0;
 document.getElementById("lluTokenExp").textContent = `Expires: ${exp?fmtDateTime(exp):"--"}`;
 
 const cfg = j.config || {};
-document.getElementById("cfgMain").textContent = `OTA ${cfg.ota_update? "on":"off"} • WG ${cfg.wg_mode} • MQTT ${cfg.mqtt_mode}`;
-document.getElementById("cfgMore").textContent = `Master ${cfg.mqtt_master_mode} • Brightness ${cfg.brightness}`;
+const otaTxt = cfg.ota_update ? "on" : "off";
+const wgVal = (cfg.wg_mode ?? 0);
+const mqVal = (cfg.mqtt_mode ?? 0);
+const msVal = (cfg.mqtt_master_mode ?? 0);
+const brVal = (cfg.brightness ?? "--");
+const onOff = (v)=> (Number(v) ? "ON" : "OFF");
+const cfgLines = [
+  `OTA: ${onOff(cfg.ota_update ?? 0)}`,
+  `WG: ${onOff(cfg.wg_mode ?? 0)}`,
+  `MQTT: ${onOff(cfg.mqtt_mode ?? 0)}`,
+  `Master: ${onOff(cfg.mqtt_master_mode ?? 0)}`,
+  `Brightness: ${brVal}`
+];
+document.getElementById("cfgMain").innerHTML = cfgLines.join("<br>");
+document.getElementById("cfgMore").textContent = "";
 
   }catch(e){
     document.getElementById("raw").textContent = "Failed to fetch /api/debug: " + (e && e.message ? e.message : e);
@@ -1312,10 +1371,17 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
     wifi["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : String("");
 
     JsonObject heap = doc.createNestedObject("heap");
-    heap["free"] = ESP.getFreeHeap();
+    // Heap stats (ESP-IDF)
 #ifdef ESP32
-    heap["min_free"] = ESP.getMinFreeHeap();
+    heap["total_free"] = (uint32_t)esp_get_free_heap_size();
+    heap["largest_free_block"] = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    heap["internal_dma"] = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    heap["psram"] = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    heap["min_free"] = (uint32_t)ESP.getMinFreeHeap();
+#else
+    heap["total_free"] = (uint32_t)ESP.getFreeHeap();
 #endif
+
 
     // Embed the normal /api/glucose payload
     DynamicJsonDocument glu(2048);
