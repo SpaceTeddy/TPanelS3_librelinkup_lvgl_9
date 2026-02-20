@@ -937,8 +937,9 @@ static const char debug_html[] PROGMEM = R"rawliteral(
     <div class="k">LibreLinkUp Sensor</div>
     <div class="v" id="lluActive">--</div>
     <div class="small" id="lluInactive">--</div>
-    <div class="small" id="lluRuntime">--</div>
     <div class="small" id="lluActivation">--</div>
+    <div class="small" id="lluExpires">--</div>
+    <div class="small" id="lluRemaining">--</div>
   </div>
 
   <div class="card">
@@ -1075,11 +1076,32 @@ const inactSn = se.sensor_sn_non_active || "--";
 const inactTs = Number(se.sensor_non_activ_unixtime)||0;
 document.getElementById("lluInactive").textContent = `Inactive: ${inactSn} (${inactId}) • last try: ${inactTs?fmtDateTime(inactTs):"--"}`;
 
-document.getElementById("lluRuntime").textContent =
-  `Runtime: ${Number(se.sensor_runtime)||0}s`;
 const actTs = Number(se.sensor_activation_time)||0;
-document.getElementById("lluActivation").textContent =
-  `Activated: ${actTs?fmtDateTime(actTs):"--"}`;
+const runtimeSec = Number(se.sensor_runtime)||0;
+
+let activatedStr = actTs ? fmtDateTime(actTs) : "--";
+let expiresStr = "--";
+let remainingStr = "--";
+
+if (actTs && runtimeSec) {
+  const now = Math.floor(Date.now()/1000);
+  const expires = actTs + runtimeSec;
+  expiresStr = fmtDateTime(expires);
+
+  let rem = expires - now;
+  if (rem > 0) {
+    const d = Math.floor(rem/86400); rem -= d*86400;
+    const h = Math.floor(rem/3600);  rem -= h*3600;
+    const min = Math.floor(rem/60);
+    remainingStr = `${d}d ${h}h ${min}m`;
+  } else {
+    remainingStr = "expired";
+  }
+}
+
+document.getElementById("lluActivation").textContent = `Activated: ${activatedStr}`;
+document.getElementById("lluExpires").textContent    = `Expires:   ${expiresStr}`;
+document.getElementById("lluRemaining").textContent  = `Remaining: ${remainingStr}`;
 
 const loginOk = (Number(lo.user_login_status) === 1);
 setDot(document.getElementById("lluLoginDot"), loginOk);
