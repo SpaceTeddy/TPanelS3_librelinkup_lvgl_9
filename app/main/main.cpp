@@ -2803,7 +2803,7 @@ void setup()
         update_five_minute_counter();   ///< Prime 5-minute chart refresh counter
         update_mqtt_publish();          ///< Publish first MQTT snapshot if enabled
         update_glucose_json_logging();  ///< Persist first reading to JSON log
-        g_fsm.last_fetch_ms = millis();     ///< Prevent immediate refetch after boot
+        g_fsm.last_fetch_ms = millis(); ///< Prevent immediate refetch after boot
     }
 
     // Switch to the main screen as the default UI
@@ -2944,7 +2944,6 @@ void loop()
             g_timer_60000ms_backup = millis();
             // FSM handles fetch/publish/wg checks.
         }
-        }
 
         // 120 s tick (reserved)
         if (millis() - g_timer_120000ms_backup > timer_120000ms) {
@@ -2978,3 +2977,4 @@ void loop()
                         config_sleep_timer_backup, settings.config.brightness);
         }
     }
+}
