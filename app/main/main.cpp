@@ -2827,12 +2827,13 @@ void loop()
         // Keep this loop short to maintain UI responsiveness.
         
         // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
+        /*
         if (SerialPort.available() > 0)
         {
             UART_IPC_DATA1 = SerialPort.read();
             DBGprint; Serial.print(UART_IPC_DATA1);
             logger.notice("UART_IPC: %c", UART_IPC_DATA1);
-        }
+        }*/
 
         // --- LVGL: let the GUI process pending work ------------------------------
         lv_timer_handler();
