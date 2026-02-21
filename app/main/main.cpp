@@ -28,6 +28,7 @@
 
 #include <Arduino.h>
 #include "main.h"
+#include "app_fsm.h"
 #include <string.h>
 #include "lvgl.h"
 #include "Arduino_GFX_Library.h"
@@ -53,6 +54,8 @@ char UART_IPC_DATA1 = 0;  ///< Buffer for received UART data
 SETTINGS settings;  ///< Settings manager instance
 
 bool flag_mqtt_master_rx = true; // for first run
+
+static AppFsm g_fsm;  ///< Application state machine (polled from loop())
 
 /// @name System Status Counters
 /// @{
@@ -320,7 +323,7 @@ const uint64_t timer_10000ms = 10000;    ///< 10 second timer interval
 const uint64_t timer_60000ms = 60000;    ///< 60 second (1 minute) timer interval
 const uint64_t timer_120000ms = 120000;  ///< 2 minute timer interval
 const uint64_t timer_300100ms = 300100;  ///< 5 minute timer interval
-const uint64_t config_sleep_timer = 3600000;  ///< 60 minute (1 hour) sleep timer
+const uint64_t config_sleep_timer = 120000;  ///< 60 minute (1 hour) sleep timer
 /// @}
 
 /// @name Timer Backup Variables (last trigger time)
@@ -549,7 +552,8 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         //logger.debug("MQTT ingest ok=%d len=%u", ok, (unsigned)length);
 
         // do the glucose data update in client mode
-        flag_mqtt_master_rx = true;
+        flag_mqtt_master_rx = true; // kept for backward compatibility
+        app_fsm_notify_mqtt_master_rx(g_fsm);
         return; // <<< GANZ WICHTIG
     }
     
@@ -2038,8 +2042,9 @@ void update_glucose_data() {
     if (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_VALID) {
         
         //synchronize_time_offset();
+    if (settings.config.mqtt_master_mode) {
         synchronize_time_offset_epoch();
-
+    }
         if (librelinkup.sensor_reconnect == 1) {
             handle_sensor_reconnect();
         } else {
@@ -2185,9 +2190,6 @@ void LoopTask(void *pvParameters) {
         ElegantOTA.loop();
         
         //if(ota_in_progress == 0){
-            // MQTT client keep-alive
-            mqtt_client.loop();
-
             // Telnet console handling
             uuid::loop();
             telnet.loop();
@@ -2341,91 +2343,90 @@ void setup_load_system_config() {
  * 
  * @see WiFiMulti.run()
  */
+// app/main/main.cpp
+
+// app/main/main.cpp
+
+static bool g_ap_mode = false;  // optional: for UI/logik
+
 void setup_wifi() {
-  
     lv_label_set_text(ui_Label_WelcomeWifiInfo, "connecting to Wifi...");
     lv_timer_handler();
-    
-    // Set station mode
+
+    // --- STA ONLY attempt -------------------------------------------------
+    g_ap_mode = false;
+
     WiFi.mode(WIFI_STA);
-    WiFi.setTxPower(WIFI_POWER_11dBm);  // +10dBm
-    WiFi.setSleep(false); // Disable power save mode
-     
-    // Register WiFi network
-    wifiMulti.addAP(settings.config.wifi_bssid.c_str(), 
+    WiFi.setTxPower(WIFI_POWER_11dBm);
+    WiFi.setSleep(false);
+
+    wifiMulti.addAP(settings.config.wifi_bssid.c_str(),
                     settings.config.wifi_password.c_str());
-    
-    DBGprint; 
+
+    DBGprint;
     Serial.println(F("connecting to Wifi..."));
 
+    // NOTE: wifiMulti.run() returns uint8_t in your build; compare directly.
     if (wifiMulti.run(connectTimeoutMs) == WL_CONNECTED) {
-        
-        /*
-        // ---- Custom DNS ----
-        IPAddress dns1(1, 1, 1, 1);   // Cloudflare
-        IPAddress dns2(8, 8, 8, 8);   // Google (Fallback)
+        // Ensure AP is OFF (single-mode)
+        WiFi.softAPdisconnect(true);
 
-        // INADDR_NONE keeps IP via DHCP, but overrides DNS
-        if (!WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, dns1, dns2)) {
-            Serial.println("Failed to set custom DNS");
-        } else {
-            Serial.print("Custom DNS set: ");
-            Serial.println(WiFi.dnsIP());
-        }
-        */
         delay(100);
-        DBGprint; 
+        DBGprint;
         Serial.print(F("SSID:"));
-        Serial.print(WiFi.SSID()); 
-        Serial.print(F(" IP:")); 
+        Serial.print(WiFi.SSID());
+        Serial.print(F(" IP:"));
         Serial.print(WiFi.localIP());
         Serial.print(F(" RSSI: "));
-        Serial.println(WiFi.RSSI()); 
-        
+        Serial.println(WiFi.RSSI());
+
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "connected!");
         lv_timer_handler();
-        delay(500);
-        
+        delay(300);
+
         lv_label_set_text(ui_Label_WelcomeWifiInfo, WiFi.localIP().toString().c_str());
         lv_timer_handler();
-        delay(500);
+        delay(300);
 
-        // Get local time from NTP server
         DBGprint;
         Serial.println("Adjusting system time from ntp server..");
         configTime(0, 0, "pool.ntp.org", "ntp.nict.jp", "time.google.com");
         setenv("TZ", tz, 1);
         tzset();
         helper.printLocalTime(0);
-        
-        // Enable auto-reconnect
+
         WiFi.setAutoReconnect(true);
         WiFi.persistent(true);
+        return;
+    }
 
-        // Disable AP mode once connected
-        if (WiFi.softAPgetStationNum() == 0) {
-            WiFi.softAPdisconnect(true);
-            DBGprint;
-            Serial.println("AP disabled, connected to WiFi");
-            logger.notice("AP disabled, connected to WiFi");
-        }
+    // --- AP ONLY fallback -------------------------------------------------
+    g_ap_mode = true;
 
-    } else {
-        // No WiFi connection - start AP for configuration
-        settings.config.wifi_bssid = "";
-        settings.config.wifi_password = "";
-        settings.saveConfiguration(settings.config_filename, settings.config);
-        WiFi.softAP(settings.apSSID, settings.apPassword);
-        
-        DBGprint;
-        Serial.println("Access Point started, AP:");
-        DBGprint;
-        Serial.println(settings.apSSID);
-        
-        lv_label_set_text(ui_Label_WelcomeWifiInfo, "Wifi AP 192.168.4.1");
-        lv_timer_handler();
-        delay(1000);
-    }   
+    // Stop STA cleanly, then AP-only
+    WiFi.disconnect(true, true);
+    delay(100);
+    WiFi.mode(WIFI_AP);
+
+    // Optional: force AP IP (default is 192.168.4.1)
+    IPAddress ip(192,168,4,1), gw(192,168,4,1), sn(255,255,255,0);
+    WiFi.softAPConfig(ip, gw, sn);
+
+    WiFi.softAP(settings.apSSID, settings.apPassword);
+    const IPAddress ap_ip = WiFi.softAPIP();
+
+    DBGprint;
+    Serial.println("Access Point started, AP:");
+    DBGprint;
+    Serial.println(settings.apSSID);
+    DBGprint;
+    Serial.print("AP IP: ");
+    Serial.println(ap_ip);
+
+    String msg = "Wifi AP " + ap_ip.toString();
+    lv_label_set_text(ui_Label_WelcomeWifiInfo, msg.c_str());
+    lv_timer_handler();
+    delay(300);
 }
 
 /**
@@ -2639,17 +2640,20 @@ bool setup_mqtt() {
 void setup_OTA(bool mode) {
     
     if(mode == 1){
-        // Create WiFi scan background task
-        xTaskCreatePinnedToCore(
-            scanWiFiTask,           // Function
-            "WiFi Scan Task",       // Task name
-            4096,                   // Stack size
-            NULL,                   // Parameter
-            1,                      // Task priority
-            &wifiScanHandle,        // Task handle
-            1                       // Core 1
-        );
-
+        
+        if(g_ap_mode = false){
+            // Create WiFi scan background task
+            xTaskCreatePinnedToCore(
+                scanWiFiTask,           // Function
+                "WiFi Scan Task",       // Task name
+                4096,                   // Stack size
+                NULL,                   // Parameter
+                1,                      // Task priority
+                &wifiScanHandle,        // Task handle
+                1                       // Core 1
+            );
+        }
+        
         // Register web routes
         register_webpage_routes(server);
 
@@ -2665,9 +2669,9 @@ void setup_OTA(bool mode) {
 
     }
     else{
-        server.end();
-        DBGprint;
-        Serial.println("HTTP server stopped");
+        //server.end();
+        //DBGprint;
+        //Serial.println("HTTP server stopped");
     }
 }
 
@@ -2751,8 +2755,9 @@ void setup()
     setup_librelinkup();                  ///< Initialize LibreLinkUp client
 
     // --- OTA / HTTP server ---------------------------------------------------
-    setup_OTA(settings.config.ota_update); ///< Start/stop OTA + HTTP API (routes registered elsewhere)
-
+    //setup_OTA(settings.config.ota_update); ///< Start/stop OTA + HTTP API (routes registered elsewhere)
+    setup_OTA(settings.config.ota_update == 1 ? 1 : 0);
+    
     // --- Background tasks ----------------------------------------------------
     setup_task();                   ///< Launch LoopTask() on a dedicated core
     // ------------------------------------------------------------------------
@@ -2790,6 +2795,9 @@ void setup()
     // ------------------------------------------------------------------------
 
     
+    // ------------------------ Application FSM -------------------------------
+    app_fsm_init(g_fsm);
+
     // ------------------------ Initial data & UI push -------------------------
     if(settings.config.mqtt_master_mode == true || flag_mqtt_master_rx == true){
         flag_mqtt_master_rx = false;
@@ -2797,6 +2805,7 @@ void setup()
         update_five_minute_counter();   ///< Prime 5-minute chart refresh counter
         update_mqtt_publish();          ///< Publish first MQTT snapshot if enabled
         update_glucose_json_logging();  ///< Persist first reading to JSON log
+        g_fsm.last_fetch_ms = millis();     ///< Prevent immediate refetch after boot
     }
 
     // Switch to the main screen as the default UI
@@ -2831,15 +2840,10 @@ void loop()
         lv_timer_handler();
         delay(1);
 
-        // --- Main logic cadence: check for new MQTT master data ---------------
-        if(flag_mqtt_master_rx == true){
-            flag_mqtt_master_rx = false;
-            update_glucose_data();        ///< Fetch and render latest values
-            //update_five_minute_counter(); ///< Advance 5-minute chart cadence
-            update_mqtt_publish();        ///< Push telemetry if MQTT enabled
-        }
+        // --- Application state machine (connectivity/fetch/publish) -----------------
+        app_fsm_poll(g_fsm);
 
-        // ----------------------------- Software timers ---------------------------
+// ----------------------------- Software timers ---------------------------
         // 250 ms tick:
         if (millis() - g_timer_250ms_backup > timer_250ms) {
             g_timer_250ms_backup = millis();
@@ -2939,22 +2943,8 @@ void loop()
         // 60 s cadence: pull new LibreLinkUp data & refresh visuals (if not in OTA)
         if (millis() - g_timer_60000ms_backup > timer_60000ms) {
             g_timer_60000ms_backup = millis();
-
-            if (settings.config.mqtt_master_mode == 1) {
-                update_glucose_data();        ///< Fetch and render latest values
-                update_mqtt_publish();        ///< Push telemetry if MQTT enabled
-            }
-            update_five_minute_counter(); ///< Advance 5-minute chart cadence
-            
-            // Check WireGuard status and re-initialize if enabled but not connected
-            
-            if(settings.config.wg_mode == 1 && Ping.ping(ping_ip) == false){
-                DBGprint; 
-                Serial.println("Re-Initializing WG interface...");
-                lv_label_set_text(ui_Label_WelcomeWifiInfo, "Re-Initializing WG interface...");
-                lv_timer_handler();
-                setup_wg(1);
-            }
+            // FSM handles fetch/publish/wg checks.
+        }
         }
 
         // 120 s tick (reserved)
@@ -2989,4 +2979,3 @@ void loop()
                         config_sleep_timer_backup, settings.config.brightness);
         }
     }
-}
