@@ -250,7 +250,7 @@ void scanWiFiTask(void * parameter) {
 void onOTAStart() {
     Serial.println("OTA update started!");
     logger.notice("OTA Update Progress has started");
-    vTaskSuspend(wifiScanHandle);  // Pause WiFi scan task
+    //vTaskSuspend(wifiScanHandle);  // Pause WiFi scan task
     ota_in_progress = 1;
     if (ota_in_progress == 1 && lv_screen_active() != ui_FWUpdate_screen) {
             lv_disp_load_scr(ui_FWUpdate_screen);
@@ -1785,8 +1785,6 @@ void handle_invalid_timestamp() {
     g_timer_60000ms_backup = (helper.timedifference < helper.TIME_DIFF_THRESHOLD) ? 
         millis() : millis() + (helper.timedifference + librelinkup.https_llu_api_fetch_time);
 }*/
-
-
 
 void synchronize_time_offset()
 {
