@@ -202,36 +202,47 @@ String availableNetworks;      ///< JSON string of available networks
  * 
  * @param[in] parameter Task parameter (unused)
  */
-void scanWiFiTask(void * parameter) {
+// globals:
+static volatile bool g_scan_in_progress = false;
+
+void scanWiFiTask(void* parameter) {
+    (void)parameter;
+
     for (;;) {
-        if (ota_in_progress == 0) {
-            int n = WiFi.scanNetworks();
-
-            String json = "[";
-            for (int i = 0; i < n; ++i) {
-                String ssid = WiFi.SSID(i);
-
-                // Hidden networks überspringen
-                if (ssid.length() == 0) {
-                    continue;
-                }
-
-                if (json.length() > 1) json += ",";
-                json += "{";
-                json += "\"ssid\":\"" + ssid + "\",";
-                json += "\"rssi\":" + String(WiFi.RSSI(i));
-                json += "}";
-            }
-            json += "]";
-
-            availableNetworks = json;
-
-            WiFi.scanDelete();
-
-            vTaskDelay(36000 / portTICK_PERIOD_MS); // Scan every 36 seconds
-        } else {
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
+        if (ota_in_progress) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
         }
+
+        g_scan_in_progress = true;
+        int n = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/false);
+
+        // Build JSON with less fragmentation
+        String json;
+        json.reserve(256);
+        json = "[";
+
+        bool first = true;
+        for (int i = 0; i < n; ++i) {
+            String ssid = WiFi.SSID(i);
+            if (ssid.length() == 0) continue;
+
+            if (!first) json += ",";
+            first = false;
+
+            json += "{\"ssid\":\"";
+            json += ssid;
+            json += "\",\"rssi\":";
+            json += String(WiFi.RSSI(i));
+            json += "}";
+        }
+        json += "]";
+
+        availableNetworks = json;
+        WiFi.scanDelete();
+        g_scan_in_progress = false;
+
+        vTaskDelay(pdMS_TO_TICKS(36000)); // 36s
     }
 }
 
@@ -250,13 +261,20 @@ void scanWiFiTask(void * parameter) {
 void onOTAStart() {
     Serial.println("OTA update started!");
     logger.notice("OTA Update Progress has started");
-    //vTaskSuspend(wifiScanHandle);  // Pause WiFi scan task
+
+    // wait for scan to finish (max ~2s), no suspend
+    uint32_t t0 = millis();
+    while (g_scan_in_progress && (millis() - t0) < 2000) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
     ota_in_progress = 1;
-    if (ota_in_progress == 1 && lv_screen_active() != ui_FWUpdate_screen) {
-            lv_disp_load_scr(ui_FWUpdate_screen);
-            lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
-            lv_timer_handler();
-        }
+
+    if (lv_screen_active() != ui_FWUpdate_screen) {
+        lv_disp_load_scr(ui_FWUpdate_screen);
+        lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
+        lv_timer_handler();
+    }
 }
 
 /**
