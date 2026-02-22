@@ -51,6 +51,7 @@ extern void app_recover_offline();
 // Backlight PWM
 extern void ledcWrite(uint8_t channel, uint32_t duty);
 
+//------------------------[FSM implementation]-----------------------------------
 static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
 {
     if (v < lo)
@@ -60,6 +61,7 @@ static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
     return v;
 }
 
+// Exponential backoff with jitter: base * 2^exp + random(0, 1000)
 static uint32_t compute_backoff_ms(const AppFsm &fsm)
 {
     const uint32_t base = fsm.cfg.backoff_min_ms;
@@ -69,12 +71,14 @@ static uint32_t compute_backoff_ms(const AppFsm &fsm)
     return clamp_u32(static_cast<uint32_t>(val), fsm.cfg.backoff_min_ms, fsm.cfg.backoff_max_ms);
 }
 
+// State transition helper
 static void enter_state(AppFsm &fsm, AppState s)
 {
     fsm.state = s;
     fsm.last_state_change_ms = millis();
     }
 
+// Helper functions for state actions and conditions
 static bool wifi_ok()
 {
     return WiFi.status() == WL_CONNECTED;
@@ -90,6 +94,7 @@ static bool mqtt_ok()
     return mqtt_client.connected();
 }
 
+// Subscribe to MQTT topics based on the current configuration
 static void mqtt_subscribe_topics()
 {
     mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
@@ -99,6 +104,16 @@ static void mqtt_subscribe_topics()
     }
 }
 
+/**
+ * @brief Ensures that the WiFi connection is established within the specified timeout.
+ *
+ * This function checks if the WiFi is already connected. If not, it attempts to connect
+ * by calling `setup_wifi()`. It then waits for the connection to be established, checking
+ * periodically until the timeout is reached.
+ *
+ * @param timeout_ms The maximum time to wait for a WiFi connection, in milliseconds.
+ * @return `true` if the WiFi connection is established successfully, `false` otherwise.
+ */
 static bool ensure_wifi_connected(uint32_t timeout_ms)
 {
     if (wifi_ok())
@@ -120,6 +135,15 @@ static bool ensure_wifi_connected(uint32_t timeout_ms)
     return true;
 }
 
+/**
+ * @brief Ensures that the WireGuard VPN connection is active.
+ *
+ * This function checks if the WireGuard VPN is enabled in the settings. If it is enabled,
+ * it performs a connectivity check (using ESPPing if available) to verify that the VPN
+ * connection is working. If the check fails, it attempts to re-enable WireGuard and checks again.
+ *
+ * @return `true` if the WireGuard VPN connection is active or not enabled, `false` if it is enabled but not working.
+ */
 static bool ensure_wireguard_ok()
 {
     if (settings.config.wg_mode != 1)
@@ -139,6 +163,17 @@ static bool ensure_wireguard_ok()
 #endif
 }
 
+/**
+ * @brief Ensures that the MQTT connection is established within the specified timeout.
+ *
+ * This function checks if MQTT is enabled and already connected. If not, it attempts to connect
+ * to the MQTT broker using the configured credentials. It waits for the connection to be established,
+ * checking periodically until the timeout is reached. If the connection is successful, it subscribes
+ * to the necessary MQTT topics.
+ *
+ * @param timeout_ms The maximum time to wait for an MQTT connection, in milliseconds.
+ * @return `true` if the MQTT connection is established successfully or MQTT is not enabled, `false` otherwise.
+ */
 static bool ensure_mqtt_connected(uint32_t timeout_ms)
 {
     if (!mqtt_enabled())
@@ -165,6 +200,7 @@ static bool ensure_mqtt_connected(uint32_t timeout_ms)
     return false;
 }
 
+// Exponential backoff with jitter: base * 2^exp + random(0, 1000)
 static bool should_fetch_master(const AppFsm &fsm)
 {
     if (!settings.config.mqtt_master_mode)
@@ -172,6 +208,7 @@ static bool should_fetch_master(const AppFsm &fsm)
     return (millis() - fsm.last_fetch_ms) >= fsm.cfg.fetch_period_ms;
 }
 
+// Display dimming logic
 static bool should_dim_display(const AppFsm &fsm)
 {
     if (fsm.display_dim_active)
@@ -179,6 +216,7 @@ static bool should_dim_display(const AppFsm &fsm)
     return (millis() - fsm.last_user_activity_ms) >= fsm.cfg.display_dim_timeout_ms;
 }
 
+// Display dimming step
 static void display_dim_step(AppFsm &fsm)
 {
     const uint32_t step_ms = (fsm.cfg.display_dim_step_ms == 0) ? 30u : fsm.cfg.display_dim_step_ms;
@@ -192,6 +230,7 @@ static void display_dim_step(AppFsm &fsm)
     ledcWrite(0, settings.config.brightness);
 }
 
+// WireGuard check logic
 static bool should_wg_check(const AppFsm &fsm)
 {
     if (settings.config.wg_mode != 1)
@@ -199,6 +238,7 @@ static bool should_wg_check(const AppFsm &fsm)
     return (millis() - fsm.last_wg_check_ms) >= fsm.cfg.wg_check_period_ms;
 }
 
+// Internet health check logic
 void app_fsm_init(AppFsm &fsm)
 {
     fsm = AppFsm{};
@@ -212,11 +252,13 @@ void app_fsm_init(AppFsm &fsm)
     enter_state(fsm, AppState::BOOT);
 }
 
+// External triggers
 void app_fsm_notify_mqtt_master_rx(AppFsm &fsm)
 {
     fsm.mqtt_master_rx_pending = true;
 }
 
+// Call this on any user activity that should wake the display (e.g., touch, button press, etc.)
 void app_fsm_notify_user_activity(AppFsm &fsm)
 {
     fsm.last_user_activity_ms = millis();
@@ -234,6 +276,7 @@ void app_fsm_notify_user_activity(AppFsm &fsm)
     }
 }
 
+// Main FSM polling function to be called regularly (e.g., from loop())
 void app_fsm_poll(AppFsm &fsm)
 {
     if (ota_in_progress)

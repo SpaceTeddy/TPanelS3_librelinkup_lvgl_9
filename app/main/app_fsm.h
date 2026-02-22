@@ -74,7 +74,21 @@ struct AppFsm
   AppFsmConfig cfg;
 };
 
+/**
+ * @brief Initializes the FSM.
+ *
+ * @param fsm Reference to the FSM instance to initialize.
+ */
 void app_fsm_init(AppFsm &fsm);
+
+/**
+ * @brief Polls the FSM to handle state transitions and timeouts.
+ *
+ * This function should be called regularly (e.g., from the main loop) to allow the FSM
+ * to process events and manage state transitions based on timeouts and conditions.
+ *
+ * @param fsm Reference to the FSM instance to poll.
+ */
 void app_fsm_poll(AppFsm &fsm);
 
 /**
@@ -84,4 +98,16 @@ void app_fsm_poll(AppFsm &fsm);
  * `flag_mqtt_master_rx = true;`.
  */
 void app_fsm_notify_mqtt_master_rx(AppFsm &fsm);
+
+/**
+ * @brief Notify the FSM of user activity to reset display dimming.
+ *
+ * Call this from any place where you detect user activity that should prevent or
+ * interrupt display dimming (e.g., touch input, button press, etc.).
+ *
+ * If the display is currently dimmed, this will also restore brightness and return
+ * to RUN_IDLE.
+ *
+ * @param fsm Reference to the FSM instance to notify.
+ */
 void app_fsm_notify_user_activity(AppFsm &fsm);
