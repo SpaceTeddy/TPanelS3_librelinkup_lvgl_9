@@ -139,6 +139,28 @@ void update_glucose_json_logging();
  */
 void glucose_statistics();
 
+/**
+ * @brief Draws labels for glucose data on the display.
+ * 
+ * @param mode Display mode for the labels.
+ * @param _glucose_measurement_color Color of the glucose measurement label.
+ * @param _glucose_value Current glucose value to display.
+ * @param _trendarrow Trend arrow indicating glucose trend direction.
+ * @param _trendmessage Message describing the glucose trend.
+ * @param delta Change in glucose value since the last measurement.
+ */
 void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color, uint16_t _glucose_value, String _trendarrow, String _trendmessage, int16_t delta);
+
+/**
+ * @brief Checks the internet connection status.
+ * 
+ * @return An integer representing the internet status (e.g., 0 for connected, 1 for disconnected).
+ */
+int app_check_internet_status();
+
+/**
+ * @brief Performs recovery actions when the device is offline.
+ */
+void app_recover_offline();
 
 #endif // MAIN_H
