@@ -611,6 +611,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         else if (strcmp(cmd, "brightness") == 0) {
             settings.config.brightness = tpanels3.set_backlight_brightness(parameter1);
             config_sleep_timer_backup = millis();
+            app_fsm_notify_user_activity(g_fsm); // Notify FSM of user activity for potential state changes
             cmd_ok = true;
         }
 
@@ -856,6 +857,9 @@ static void touch_gesture_cb(lv_event_t * event) {
     // Get current input device and position
     lv_indev_t * indev = lv_event_get_indev(event);
     if(!indev) return;
+
+    // Notify FSM of user activity for potential state changes
+    app_fsm_notify_user_activity(g_fsm);
 
     lv_point_t p;
     lv_indev_get_point(indev, &p);  // Screen coordinates
@@ -2311,7 +2315,10 @@ void setup_tpanels3() {
     tpanels3.setRotation(0);     // optional: 0=portrait, 1=landscape, etc.
 
     // Set initial backlight brightness to 45%
-    tpanels3.set_backlight_brightness(45);  // Set to 45%
+    if(settings.config.brightness == 0){
+        settings.config.brightness = 50; // Default to 45% if not set
+    }
+    tpanels3.set_backlight_brightness(settings.config.brightness);  // Set to 45%
 
     // Initialize UI screens
     ui_init();
@@ -2862,9 +2869,11 @@ void loop()
 
 // ----------------------------- Software timers ---------------------------
         // 250 ms tick:
+        /*
         if (millis() - g_timer_250ms_backup > timer_250ms) {
             g_timer_250ms_backup = millis();
         }
+        */
 
         // 1 s tick: update debug view labels if visible (and not during OTA)
         if (millis() - g_timer_1000ms_backup > timer_1000ms) {
@@ -2925,48 +2934,39 @@ void loop()
         }
 
         // 5 s tick: MQTT auto-reconnect (if enabled) outside of OTA
+        /*
         if (millis() - g_timer_5000ms_backup > timer_5000ms) {
             g_timer_5000ms_backup = millis();
-
-            if (!mqtt_client.connected() && mqtt.mqtt_enable == 1) {
-                mqtt_client.connect((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name).c_str(),
-                                    mqtt.mqtt_user, mqtt.mqtt_password);
-                
-                if (!mqtt_client.connected()) {
-                    DBGprint; Serial.printf("mqtt_client reconnect...failed!\n");
-                    logger.notice("mqtt_client reconnect...failed!\r\n");
-                } else {
-                    DBGprint; Serial.printf("mqtt_client reconnect...success!\n");
-                    logger.notice("mqtt_client reconnect...success!\r\n");
-                    mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
-                    
-                    if(settings.config.mqtt_master_mode == false){
-                        mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data).c_str());
-                    }
-                }
-            }
-        }
+        }*/
 
         // 10 s tick (reserved)
+        /*
         if (millis() - g_timer_10000ms_backup > timer_10000ms) {
             g_timer_10000ms_backup = millis();
         }
+            */
 
         // 30 s tick (reserved)
+        /*
         if (millis() - g_timer_30000ms_backup > timer_30000ms) {
             g_timer_30000ms_backup = millis();
         }
+        */
+        
 
         // 60 s cadence: pull new LibreLinkUp data & refresh visuals (if not in OTA)
+        /*
         if (millis() - g_timer_60000ms_backup > timer_60000ms) {
             g_timer_60000ms_backup = millis();
             // FSM handles fetch/publish/wg checks.
         }
+        */
 
         // 120 s tick (reserved)
+        /*
         if (millis() - g_timer_120000ms_backup > timer_120000ms) {
             g_timer_120000ms_backup = millis();
-        }
+        }*/
 
         // 60 min inactivity: dim/backlight off and Wi-Fi health check
         if (millis() - config_sleep_timer_backup > config_sleep_timer) {
@@ -2984,15 +2984,6 @@ void loop()
                 delay(2000);
                 WiFi.reconnect();
             }
-
-            // Fade backlight down to 0
-            for (uint8_t i = settings.config.brightness; i > 0; i--) {
-                ledcWrite(0, i);
-                delay(30);
-            }
-            settings.config.brightness = 0;
-            logger.notice("TRGB sleep timer: %d , Brightness Setting: %d ",
-                        config_sleep_timer_backup, settings.config.brightness);
         }
     }
 }
