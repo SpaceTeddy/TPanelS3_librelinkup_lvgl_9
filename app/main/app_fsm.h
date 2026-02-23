@@ -38,19 +38,21 @@ enum class AppState : uint8_t
 
 struct AppFsmConfig
 {
-  uint32_t display_dim_timeout_ms = 30000; // 300000;   ///< 5 min
-  uint32_t display_dim_step_ms = 30;       ///< fade step interval
+  uint32_t display_dim_timeout_ms = 300000;   ///< 5 min
+  uint32_t display_dim_step_ms = 30;          ///< fade step interval
   uint32_t wifi_connect_timeout_ms = 20000;
   uint32_t mqtt_connect_timeout_ms = 8000;
-  uint32_t fetch_period_ms = 60000;    ///< Master mode cadence
-  uint32_t wg_check_period_ms = 60000; ///< Optional WireGuard/ping cadence
+  uint32_t fetch_period_ms = 60000;           ///< Master mode cadence
+  uint32_t wg_check_period_ms = 60000;        ///< Optional WireGuard/ping cadence
   uint32_t backoff_min_ms = 2000;
   uint32_t backoff_max_ms = 60000;
-  uint32_t internet_check_period_ms = 60000; ///< periodic internet health check
+  uint32_t internet_check_period_ms = 60000;  ///< periodic internet health check
 };
 
 struct AppFsm
 {
+    bool fetch_schedule_override = false; ///< If true, last_fetch_ms was adjusted for the next fetch
+
   AppState state = AppState::BOOT;
 
   uint32_t last_state_change_ms = 0;

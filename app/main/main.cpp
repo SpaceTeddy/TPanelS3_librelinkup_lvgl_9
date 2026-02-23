@@ -2065,60 +2065,213 @@ void synchronize_time_offset()
     }
 }
 
+// FactoryTimestamp-driven fetch scheduling: target fetch ~5s after the NEXT expected measurement.
+// This mirrors the Home Assistant addon behaviour: expected_next = last_meas + 60s + desired_lag,
+// and if the cloud still returns the old measurement, poll in a short window.
+static int64_t  g_last_meas_epoch = -1;          // last measurement time (UTC epoch seconds)
+static uint32_t g_last_meas_changed_ms = 0;      // millis() when g_last_meas_epoch changed
+
+static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
+{
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+// Parse LibreLinkUp "FactoryTimestamp" robustly.
+// Accepts either:
+//  - numeric seconds or milliseconds since epoch
+//  - ISO-8601 strings (with 'Z' or +/-hh:mm or without TZ)
+// Convert calendar date (UTC) to Unix epoch (seconds)
+// Algorithm from Howard Hinnant (civil_from_days)
+static int64_t utc_to_epoch(int Y, int M, int D, int h, int m, int s)
+{
+    if (M <= 2) {
+        Y -= 1;
+        M += 12;
+    }
+
+    const int64_t era = (Y >= 0 ? Y : Y - 399) / 400;
+    const unsigned yoe = (unsigned)(Y - era * 400);                // [0, 399]
+    const unsigned doy = (153 * (M - 3) + 2) / 5 + D - 1;          // [0, 365]
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;    // [0, 146096]
+
+    const int64_t days = era * 146097 + (int64_t)doe - 719468;     // days since 1970-01-01
+    return days * 86400 + h * 3600 + m * 60 + s;
+}
+
+// Parse LibreLinkUp FactoryTimestamp strictly as UTC
+static bool parse_factory_timestamp_utc(const String &s_in, int64_t &out_epoch_s)
+{
+    String s = s_in;
+    s.trim();
+    if (s.length() == 0) return false;
+
+    // -------- Numeric epoch (ms or s) ----------
+    bool is_num = true;
+    for (size_t i = 0; i < s.length(); ++i) {
+        char c = s[i];
+        if (!(c >= '0' && c <= '9')) { is_num = false; break; }
+    }
+
+    if (is_num) {
+        int64_t v = atoll(s.c_str());
+        if (v > 1000000000000LL) v /= 1000LL; // ms -> s
+        if (v > 1700000000LL) {
+            out_epoch_s = v;
+            return true;
+        }
+        return false;
+    }
+
+    // -------- ISO8601 parsing ----------
+    int Y=0,M=0,D=0,h=0,m=0,sec=0;
+    if (sscanf(s.c_str(), "%d-%d-%dT%d:%d:%d", &Y,&M,&D,&h,&m,&sec) != 6) {
+        return false;
+    }
+
+    // Convert as pure UTC
+    int64_t epoch = utc_to_epoch(Y,M,D,h,m,sec);
+
+    // Check for explicit timezone offset (+/-HH:MM)
+    int tz_pos_plus  = s.indexOf('+');
+    int tz_pos_minus = s.indexOf('-', 19); // skip date part
+    bool hasZ = s.endsWith("Z") || s.indexOf('Z') >= 0;
+
+    if (tz_pos_plus > 0 || tz_pos_minus > 0) {
+        int sign = (tz_pos_minus > 0) ? -1 : +1;
+        int tz_pos = (tz_pos_minus > 0) ? tz_pos_minus : tz_pos_plus;
+
+        int off_h=0, off_m=0;
+        if (sscanf(s.c_str()+tz_pos+1, "%d:%d", &off_h, &off_m) >= 1) {
+            int off_s = sign * (off_h*3600 + off_m*60);
+            epoch -= off_s; // convert to UTC
+        }
+    }
+    // If 'Z' or no TZ -> treat as already UTC (DO NOT apply tz_locked!)
+
+    if (epoch > 1700000000LL) {
+        out_epoch_s = epoch;
+        return true;
+    }
+
+    return false;
+}
+
+static bool parse_factory_timestamp_berlin(const String &s_in, int64_t &out_epoch_s)
+{
+    String s = s_in;
+    s.trim();
+    if (s.length() == 0) return false;
+
+    int mon=0, day=0, year=0, hh=0, mm=0, ss=0;
+    char ampm[3] = {0};
+
+    // Format: M/D/YYYY h:mm:ss AM
+    // akzeptiert auch 02/23/2026 01:28:38 PM
+    if (sscanf(s.c_str(), "%d/%d/%d %d:%d:%d %2s", &mon, &day, &year, &hh, &mm, &ss, ampm) != 7)
+        return false;
+
+    // 12h -> 24h
+    bool isPM = (ampm[0] == 'P' || ampm[0] == 'p');
+    bool isAM = (ampm[0] == 'A' || ampm[0] == 'a');
+
+    if (!isAM && !isPM) return false;
+
+    if (hh == 12) hh = 0;        // 12AM -> 0, 12PM handled below
+    if (isPM) hh += 12;
+
+    struct tm t {};
+    t.tm_year = year - 1900;
+    t.tm_mon  = mon - 1;
+    t.tm_mday = day;
+    t.tm_hour = hh;
+    t.tm_min  = mm;
+    t.tm_sec  = ss;
+    t.tm_isdst = -1; // wichtig: DST automatisch nach TZ-Regel bestimmen lassen
+
+    time_t epoch = mktime(&t);   // interpretiert t als *lokale Zeit* gemäß TZ-Regel!
+    if (epoch <= 0) return false;
+
+    out_epoch_s = (int64_t)epoch;
+    return (out_epoch_s > 1700000000LL);
+}
+
 void synchronize_time_offset_epoch()
 {
-    // 1) Epochs holen
-    time_t now_epoch = time(nullptr);
-    time_t cloud_epoch = helper.convertStrToUnixTime(librelinkup.llu_glucose_data.str_measurement_timestamp);
+    // Desired behaviour: next fetch ~5s after NEXT expected measurement, based on FactoryTimestamp (UTC).
+    constexpr int32_t kIntervalS  = 60;
+    constexpr int32_t kDesiredLagS = 5;
+    constexpr uint32_t kPollS     = 10;
+    constexpr uint32_t kPollMaxS  = 120;
 
-    if (now_epoch < 1700000000 || cloud_epoch < 1700000000)
-    {
-        logger.debug("Time sync: epoch not valid (now=%ld cloud=%ld) -> keep default 60s cadence",
-                     (long)now_epoch, (long)cloud_epoch);
+    const uint32_t period_ms = g_fsm.cfg.fetch_period_ms;
+    const uint32_t now_ms = millis();
+    const int64_t now_epoch = (int64_t)time(nullptr);
+
+    // If system time not valid, keep default cadence
+    if (now_epoch < 1700000000LL) {
+        logger.debug("TimeSync(factory): system time not valid -> keep default cadence");
         return;
     }
 
-    // 2) "Phase" des Cloud-Timestamps innerhalb der Minute
-    int phase_s = (int)(cloud_epoch % 60); // 0..59
-    int now_s = (int)(now_epoch % 60);     // 0..59
+    // Read FactoryTimestamp string (must exist in your LU struct)
+    // NOTE: if your field name differs, adjust it here.
+    const String &fts = librelinkup.llu_glucose_data.str_measurement_factorytimestamp;
 
-    // 3) Guard (damit sicher nach Update gefetcht wird)
-    int fetch_s = (int)(librelinkup.https_llu_api_fetch_time / 1000);
-    int guard_s = fetch_s + 1;
-    if (guard_s < 2)
-        guard_s = 2;
-    if (guard_s > 10)
-        guard_s = 10; // nicht eskalieren
+    int64_t meas_epoch = 0;
+    if (!parse_factory_timestamp_berlin(fts, meas_epoch)) {
+        logger.debug("TimeSync(factory): invalid FactoryTimestamp '%s' -> keep default cadence", fts.c_str());
+        return;
+    }
 
-    int target_s = phase_s + guard_s;
-    if (target_s >= 60)
-        target_s -= 60;
+    // Sanity: if this is way off (~>15min), your parse is likely applying TZ wrongly.
+    // In that case, DO NOT try to schedule off it; fall back to default cadence and log loudly.
+    const int64_t lag_s = now_epoch - meas_epoch;
+    if (llabs(lag_s) > 900) {
+        logger.debug("TimeSync(factory): WARNING huge lag=%llds (now=%lld meas=%lld) -> do not schedule (check FactoryTimestamp parsing / TZ). Keep default 60s cadence.",
+                     (long long)lag_s, (long long)now_epoch, (long long)meas_epoch);
+        return;
+    }
 
-    // 4) Sekunden bis zum nächsten target innerhalb des 60s-Rasters
-    int delta_s = target_s - now_s;
-    if (delta_s <= 0)
-        delta_s += 60;
+    // Track measurement changes for poll-window logic
+    if (g_last_meas_epoch < 0 || meas_epoch != g_last_meas_epoch) {
+        g_last_meas_epoch = meas_epoch;
+        g_last_meas_changed_ms = now_ms;
+    }
 
-    // 5) Um deinen bestehenden 60s-Trigger weiter zu benutzen:
-    // Wir setzen g_timer_60000ms_backup so, dass der nächste "60s abgelaufen" genau nach delta_s Sekunden passiert.
-    //
-    // Trigger: (millis() - backup > 60000)  =>  backup = millis() - (60000 - delta_ms)
-    uint32_t delta_ms = (uint32_t)delta_s * 1000UL;
-    g_timer_60000ms_backup = millis() - (timer_60000ms - delta_ms);
+    const int64_t expected_next = g_last_meas_epoch + kIntervalS + kDesiredLagS;
 
-    // logger.debug("Time sync(epoch): cloud_phase=%d now_s=%d target_s=%d delta=%ds fetch=%ds guard=%ds -> next in %lums",
-    //              phase_s, now_s, target_s, delta_s, fetch_s, guard_s, (unsigned long)delta_ms);
-    logger.debug("TimeSync: now=%ld (s=%02d) cloud=%ld (s=%02d) phase=%02d fetch=%dms guard=%ds -> target=%02d delta=%ds | backup=%lu now_ms=%lu",
-                 (long)now_epoch, (int)(now_epoch % 60),
-                 (long)cloud_epoch, (int)(cloud_epoch % 60),
-                 phase_s,
-                 (int)librelinkup.https_llu_api_fetch_time,
-                 guard_s,
-                 target_s,
-                 delta_s,
-                 (unsigned long)g_timer_60000ms_backup,
-                 (unsigned long)millis());
+    uint32_t next_in_ms = 0;
+    if (now_epoch < expected_next) {
+        next_in_ms = (uint32_t)((expected_next - now_epoch) * 1000LL);
+    } else {
+        // Poll window if cloud still cached; poll_age is since last change
+        const uint32_t poll_age_s = (now_ms - g_last_meas_changed_ms) / 1000U;
+        if (poll_age_s <= kPollMaxS) {
+            next_in_ms = kPollS * 1000U;
+        } else {
+            next_in_ms = period_ms; // give up polling
+        }
+    }
+
+    // Clamp to the FSM period window
+    next_in_ms = clamp_u32(next_in_ms, 0, period_ms);
+
+    // Apply override so should_fetch_master() triggers in next_in_ms
+    g_fsm.last_fetch_ms = now_ms - (period_ms - next_in_ms);
+    g_fsm.fetch_schedule_override = true;
+
+    logger.debug("TimeSync(factory): now=%lld meas=%lld lag=%llds desired=%ds expected_next=%lld next_in=%lums poll_age=%lus",
+                 (long long)now_epoch,
+                 (long long)g_last_meas_epoch,
+                 (long long)lag_s,
+                 (int)kDesiredLagS,
+                 (long long)expected_next,
+                 (unsigned long)next_in_ms,
+                 (unsigned long)((now_ms - g_last_meas_changed_ms) / 1000U));
 }
+
 
 /**
  * @brief Updates trend message based on sensor state
@@ -2664,7 +2817,7 @@ void setup_wifi()
         DBGprint;
         Serial.println("Adjusting system time from ntp server..");
         configTime(0, 0, "pool.ntp.org", "ntp.nict.jp", "time.google.com");
-        setenv("TZ", tz, 1);
+        setenv("TZ", "CET-1CEST,M3.5.0/2,M10.5.0/3", 1);
         tzset();
         helper.printLocalTime(0);
 

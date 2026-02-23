@@ -417,7 +417,12 @@ void app_fsm_poll(AppFsm &fsm)
     {
         update_glucose_data();
         update_five_minute_counter();
-        fsm.last_fetch_ms = millis();
+        if (!fsm.fetch_schedule_override) {
+            fsm.last_fetch_ms = millis();
+        } else {
+            // time-sync already adjusted last_fetch_ms to hit the target
+            fsm.fetch_schedule_override = false;
+        }
         enter_state(fsm, AppState::RUN_PUBLISH);
         break;
     }
