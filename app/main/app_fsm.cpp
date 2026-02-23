@@ -8,13 +8,13 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <ESP32Ping.h>
 
 #include "settings.h"
 #include "mqtt.h"
 
-#if __has_include(<ESPPing.h>)
-#include <ESPPing.h>
-#endif
+
+
 
 //------------------------[uuid logger]-----------------------------------
 /** @brief Module logger instance. */
@@ -29,7 +29,7 @@ extern PubSubClient mqtt_client;
 
 extern bool ota_in_progress;
 
-extern const IPAddress ping_ip;
+const IPAddress ping_ip(1, 1, 1, 1); // Cloudflare DNS for connectivity checks
 
 // Existing setup/actions you already have:
 extern void setup_wifi();
@@ -76,7 +76,8 @@ static void enter_state(AppFsm &fsm, AppState s)
 {
     fsm.state = s;
     fsm.last_state_change_ms = millis();
-    }
+    logger.notice("State change: %u", (unsigned)s);
+}
 
 // Helper functions for state actions and conditions
 static bool wifi_ok()
@@ -149,18 +150,11 @@ static bool ensure_wireguard_ok()
     if (settings.config.wg_mode != 1)
         return true;
 
-#if __has_include(<ESPPing.h>)
     if (Ping.ping(ping_ip))
         return true;
     setup_wg(true);
     delay(50);
-    return Ping.ping(ping_ip);
-#else
-    // If ESPPing isn't available, just try to (re)enable WireGuard.
-    setup_wg(true);
-    delay(50);
     return true;
-#endif
 }
 
 /**

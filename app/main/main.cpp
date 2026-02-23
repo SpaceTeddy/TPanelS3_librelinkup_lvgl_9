@@ -890,6 +890,7 @@ static void highlight_last_point()
 static void brightness_on_off_cb(lv_event_t *event)
 {
     logger.notice("Button Longpress for Brightness ON/OFF triggered!");
+    app_fsm_notify_user_activity(g_fsm); // Notify FSM of user activity for potential state changes
 
     if (settings.config.brightness == 0)
     {
