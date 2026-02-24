@@ -444,6 +444,11 @@ PubSubClient mqtt_client(mqttClient); ///< MQTT client instance
 
 DynamicJsonDocument json_mqtt(1024); ///< JSON document for MQTT messages
 
+// RAW dedup / retained handling
+static bool    g_allow_retained_once = true;    // nach (Re)Connect einmal erlauben
+static bool    g_allow_raw_first = true;    // nach (Re)connect einmal raw erlauben (retained)
+static int64_t g_last_raw_meas_epoch = -1;  // letzte akzeptierte Messzeit (epoch seconds)
+
 ///////////////////// HELPER FUNCTIONS ////////////////////
 
 /**
@@ -621,13 +626,50 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
 
     if (t == topic_raw && settings.config.mqtt_master_mode == false)
     {
-
         logger.notice("MQTT raw data received");
 
         bool ok = librelinkup.ingest_graph_json(payload, length);
-        // logger.debug("MQTT ingest ok=%d len=%u", ok, (unsigned)length);
+        if (!ok) {
+            logger.notice("MQTT raw ingest failed");
+            return;
+        }
 
-        // do the glucose data update in client mode
+        // --- dedup via measurement timestamp ---------------------------------
+        // Use the measurement timestamp parsed from the incoming JSON.
+        // (This is what you already convert later in update_glucose_data())
+        const String &ts = librelinkup.llu_glucose_data.str_measurement_timestamp;
+
+        int64_t meas_epoch = (int64_t)helper.convertStrToUnixTime(ts);
+
+        // If parsing fails, be conservative: ignore (prevents random double triggers)
+        if (meas_epoch <= 0) {
+            logger.notice("MQTT raw ignored: invalid meas timestamp '%s'", ts.c_str());
+            return;
+        }
+
+        // 1) allow exactly one RAW message after (re)connect (retained)
+        if (g_allow_raw_first) {
+            g_allow_raw_first = false;
+            g_last_raw_meas_epoch = meas_epoch;
+
+            logger.notice("MQTT raw accepted (first/retained) meas_epoch=%lld", (long long)meas_epoch);
+
+            flag_mqtt_master_rx = true;
+            app_fsm_notify_mqtt_master_rx(g_fsm);
+            return;
+        }
+
+        // 2) afterwards accept only *strictly newer* measurement times
+        if (g_last_raw_meas_epoch >= 0 && meas_epoch <= g_last_raw_meas_epoch) {
+            logger.notice("MQTT raw ignored (duplicate/old) meas_epoch=%lld last=%lld",
+                        (long long)meas_epoch, (long long)g_last_raw_meas_epoch);
+            return;
+        }
+
+        g_last_raw_meas_epoch = meas_epoch;
+
+        logger.notice("MQTT raw accepted (new) meas_epoch=%lld", (long long)meas_epoch);
+
         flag_mqtt_master_rx = true; // kept for backward compatibility
         app_fsm_notify_mqtt_master_rx(g_fsm);
         return; // <<< GANZ WICHTIG
@@ -1989,88 +2031,13 @@ void handle_invalid_timestamp()
     }
 }
 
-/**
- * @brief Synchronizes ESP32 time with LibreLinkUp server
- *
- * Calculates time difference between local and server time,
- * then adjusts next update timer to maintain synchronization.
- *
- * @note Uses helper.TIME_DIFF_THRESHOLD for acceptable drift
- * @note Adds API fetch time to compensation if drift is significant
- * @note Updates g_timer_60000ms_backup for next scheduled update
- *
- * @see helper.synchronizeWithServer()
- */
-/*
- void synchronize_time_offset() {
-    helper.timedifference = helper.synchronizeWithServer(
-        librelinkup.librelinkuptimecode.hour,
-        librelinkup.librelinkuptimecode.minute,
-        librelinkup.librelinkuptimecode.second,
-        librelinkup.localtime.hour,
-        librelinkup.localtime.minute,
-        librelinkup.localtime.second);
-    logger.debug("Time difference: %d seconds", helper.timedifference);
-
-    g_timer_60000ms_backup = (helper.timedifference < helper.TIME_DIFF_THRESHOLD) ?
-        millis() : millis() + (helper.timedifference + librelinkup.https_llu_api_fetch_time);
-}*/
-
-void synchronize_time_offset()
-{
-    // 1) local epoch (ESP time)
-    time_t local_epoch = time(nullptr);
-    if (local_epoch == 0 || local_epoch < 1700000000)
-    {
-        logger.warning("Time sync: local epoch invalid: %ld", (long)local_epoch);
-        return;
-    }
-
-    // 2) server epoch (LibreLinkUp Timestamp)
-    const String &ts = librelinkup.llu_glucose_data.str_measurement_timestamp;
-    time_t server_epoch = librelinkup.parseTimestamp(ts.c_str());
-    if (server_epoch == 0 || server_epoch < 1700000000)
-    {
-        logger.warning("Time sync: server epoch invalid (ts=%s)", ts.c_str());
-        return;
-    }
-
-    // 3) signed diff seconds: local - server
-    int32_t diff_s = helper.syncWithServerEpoch(server_epoch, local_epoch);
-
-    // 4) Plausibilität (verhindert kaputte Trigger bei falscher Zeit/TZ)
-    // Erwartung: diff_s ist typischerweise klein (ein paar Sekunden bis evtl. < 1-2 Minuten)
-    if (abs(diff_s) > 6 * 3600)
-    { // >6h ist sehr wahrscheinlich Zeit/TZ kaputt
-        logger.warning("Time sync: diff implausible: %ld s (local=%ld server=%ld)",
-                       (long)diff_s, (long)local_epoch, (long)server_epoch);
-        return;
-    }
-
-    helper.timedifference = diff_s; // ACHTUNG: jetzt Sekunden!
-    logger.debug("Time sync: diff=%ld s (local-server)", (long)helper.timedifference);
-
-    // 5) Scheduling: Wenn diff klein -> normal.
-    // Wenn diff groß -> verschiebe den nächsten Timer, damit du nicht "dauernd daneben" bist.
-    //
-    // WICHTIG: millis() arbeitet in ms, diff_s ist in s -> *1000
-    if (abs(diff_s) <= helper.TIME_DIFF_THRESHOLD)
-    {
-        g_timer_60000ms_backup = millis();
-    }
-    else
-    {
-        uint32_t shift_ms = (uint32_t)(abs(diff_s) * 1000L) + librelinkup.https_llu_api_fetch_time;
-        g_timer_60000ms_backup = millis() + shift_ms;
-    }
-}
-
 // FactoryTimestamp-driven fetch scheduling: target fetch ~5s after the NEXT expected measurement.
 // This mirrors the Home Assistant addon behaviour: expected_next = last_meas + 60s + desired_lag,
 // and if the cloud still returns the old measurement, poll in a short window.
 static int64_t  g_last_meas_epoch = -1;          // last measurement time (UTC epoch seconds)
 static uint32_t g_last_meas_changed_ms = 0;      // millis() when g_last_meas_epoch changed
 
+// Clamp a value to a specified range
 static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
 {
     if (v < lo) return lo;
@@ -2102,63 +2069,6 @@ static int64_t utc_to_epoch(int Y, int M, int D, int h, int m, int s)
 
 // Parse LibreLinkUp FactoryTimestamp strictly as UTC
 static bool parse_factory_timestamp_utc(const String &s_in, int64_t &out_epoch_s)
-{
-    String s = s_in;
-    s.trim();
-    if (s.length() == 0) return false;
-
-    // -------- Numeric epoch (ms or s) ----------
-    bool is_num = true;
-    for (size_t i = 0; i < s.length(); ++i) {
-        char c = s[i];
-        if (!(c >= '0' && c <= '9')) { is_num = false; break; }
-    }
-
-    if (is_num) {
-        int64_t v = atoll(s.c_str());
-        if (v > 1000000000000LL) v /= 1000LL; // ms -> s
-        if (v > 1700000000LL) {
-            out_epoch_s = v;
-            return true;
-        }
-        return false;
-    }
-
-    // -------- ISO8601 parsing ----------
-    int Y=0,M=0,D=0,h=0,m=0,sec=0;
-    if (sscanf(s.c_str(), "%d-%d-%dT%d:%d:%d", &Y,&M,&D,&h,&m,&sec) != 6) {
-        return false;
-    }
-
-    // Convert as pure UTC
-    int64_t epoch = utc_to_epoch(Y,M,D,h,m,sec);
-
-    // Check for explicit timezone offset (+/-HH:MM)
-    int tz_pos_plus  = s.indexOf('+');
-    int tz_pos_minus = s.indexOf('-', 19); // skip date part
-    bool hasZ = s.endsWith("Z") || s.indexOf('Z') >= 0;
-
-    if (tz_pos_plus > 0 || tz_pos_minus > 0) {
-        int sign = (tz_pos_minus > 0) ? -1 : +1;
-        int tz_pos = (tz_pos_minus > 0) ? tz_pos_minus : tz_pos_plus;
-
-        int off_h=0, off_m=0;
-        if (sscanf(s.c_str()+tz_pos+1, "%d:%d", &off_h, &off_m) >= 1) {
-            int off_s = sign * (off_h*3600 + off_m*60);
-            epoch -= off_s; // convert to UTC
-        }
-    }
-    // If 'Z' or no TZ -> treat as already UTC (DO NOT apply tz_locked!)
-
-    if (epoch > 1700000000LL) {
-        out_epoch_s = epoch;
-        return true;
-    }
-
-    return false;
-}
-
-static bool parse_factory_timestamp_berlin(const String &s_in, int64_t &out_epoch_s)
 {
     String s = s_in;
     s.trim();
@@ -2197,44 +2107,78 @@ static bool parse_factory_timestamp_berlin(const String &s_in, int64_t &out_epoc
     return (out_epoch_s > 1700000000LL);
 }
 
+/**
+ * @brief Synchronizes ESP32 time with LibreLinkUp server
+ *
+ * Calculates time difference between local and server time,
+ * then adjusts next update timer to maintain synchronization.
+ *
+ * @note Uses helper.TIME_DIFF_THRESHOLD for acceptable drift
+ * @note Adds API fetch time to compensation if drift is significant
+ * @note Updates g_timer_60000ms_backup for next scheduled update
+ *
+ * @see helper.synchronizeWithServer()
+ */
 void synchronize_time_offset_epoch()
 {
-    // Desired behaviour: next fetch ~5s after NEXT expected measurement, based on FactoryTimestamp (UTC).
-    constexpr int32_t kIntervalS  = 60;
-    constexpr int32_t kDesiredLagS = 5;
-    constexpr uint32_t kPollS     = 10;
-    constexpr uint32_t kPollMaxS  = 120;
+    // Goal: Fetch ~5s after the NEXT expected measurement based on FactoryTimestamp + local offset (DST aware)
+    constexpr int32_t  kIntervalS     = 60;
+    constexpr int32_t  kDesiredLagS   = 5;
+    constexpr uint32_t kPollS         = 10;
+    constexpr uint32_t kPollMaxS      = 120;
 
     const uint32_t period_ms = g_fsm.cfg.fetch_period_ms;
-    const uint32_t now_ms = millis();
-    const int64_t now_epoch = (int64_t)time(nullptr);
+    const uint32_t now_ms    = millis();
+    const int64_t  now_epoch = (int64_t)time(nullptr);
 
-    // If system time not valid, keep default cadence
     if (now_epoch < 1700000000LL) {
         logger.debug("TimeSync(factory): system time not valid -> keep default cadence");
         return;
     }
 
-    // Read FactoryTimestamp string (must exist in your LU struct)
-    // NOTE: if your field name differs, adjust it here.
+    // This is your FactoryTimestamp string (MM/DD/YYYY hh:mm:ss AM/PM)
     const String &fts = librelinkup.llu_glucose_data.str_measurement_factorytimestamp;
 
-    int64_t meas_epoch = 0;
-    if (!parse_factory_timestamp_berlin(fts, meas_epoch)) {
+    // Parse FactoryTimestamp to epoch (raw). In your project, parseTimestamp() seems to work for this.
+    // If you don't have direct access to parseTimestamp() here, keep your existing parse function.
+    int64_t meas_epoch_raw = 0;
+    if (!parse_factory_timestamp_utc(fts, meas_epoch_raw)) {
         logger.debug("TimeSync(factory): invalid FactoryTimestamp '%s' -> keep default cadence", fts.c_str());
         return;
     }
 
-    // Sanity: if this is way off (~>15min), your parse is likely applying TZ wrongly.
-    // In that case, DO NOT try to schedule off it; fall back to default cadence and log loudly.
-    const int64_t lag_s = now_epoch - meas_epoch;
-    if (llabs(lag_s) > 900) {
-        logger.debug("TimeSync(factory): WARNING huge lag=%llds (now=%lld meas=%lld) -> do not schedule (check FactoryTimestamp parsing / TZ). Keep default 60s cadence.",
-                     (long long)lag_s, (long long)now_epoch, (long long)meas_epoch);
+    // Convert to UTC anchor using the locked offset (winter: 3600, summer: 7200)
+    const bool   tz_locked = (librelinkup.tz_locked != 0);
+    const int32_t off_s    = (int32_t)librelinkup.tz_offset_s_locked;
+
+    int64_t meas_epoch = meas_epoch_raw;
+
+    if (tz_locked) {
+        // IMPORTANT: raw factory epoch is "local wall clock interpreted as UTC"
+        // Correct it by adding the local UTC offset.
+        meas_epoch = meas_epoch_raw + (int64_t)off_s;
+    } else {
+        // If not locked, don't guess. Better keep default cadence.
+        logger.debug("TimeSync(factory): tz not locked yet -> keep default cadence (raw=%lld)", (long long)meas_epoch_raw);
         return;
     }
 
-    // Track measurement changes for poll-window logic
+    const int64_t lag_s = now_epoch - meas_epoch;
+
+    // After correction, lag should be small (seconds). If it's still huge, something is wrong.
+    if (llabs(lag_s) > 900) {
+        logger.debug(
+            "TimeSync(factory): WARNING huge lag=%llds (now=%lld raw=%lld meas=%lld off=%lds) -> keep default cadence",
+            (long long)lag_s,
+            (long long)now_epoch,
+            (long long)meas_epoch_raw,
+            (long long)meas_epoch,
+            (long)off_s
+        );
+        return;
+    }
+
+    // Track measurement changes for poll-window logic (use corrected meas_epoch!)
     if (g_last_meas_epoch < 0 || meas_epoch != g_last_meas_epoch) {
         g_last_meas_epoch = meas_epoch;
         g_last_meas_changed_ms = now_ms;
@@ -2246,32 +2190,34 @@ void synchronize_time_offset_epoch()
     if (now_epoch < expected_next) {
         next_in_ms = (uint32_t)((expected_next - now_epoch) * 1000LL);
     } else {
-        // Poll window if cloud still cached; poll_age is since last change
         const uint32_t poll_age_s = (now_ms - g_last_meas_changed_ms) / 1000U;
         if (poll_age_s <= kPollMaxS) {
             next_in_ms = kPollS * 1000U;
         } else {
-            next_in_ms = period_ms; // give up polling
+            next_in_ms = period_ms; // give up polling and fall back
         }
     }
 
-    // Clamp to the FSM period window
-    next_in_ms = clamp_u32(next_in_ms, 0, period_ms);
-
-    // Apply override so should_fetch_master() triggers in next_in_ms
+    // Never allow next_in_ms == period_ms, otherwise last_fetch_ms becomes "now_ms" and we drift to pure 60s cadence.
+    next_in_ms = clamp_u32(next_in_ms, 0, (period_ms > 0 ? period_ms - 1 : 0));
+    
+    // Force the FSM to fire the next fetch in next_in_ms
     g_fsm.last_fetch_ms = now_ms - (period_ms - next_in_ms);
     g_fsm.fetch_schedule_override = true;
 
-    logger.debug("TimeSync(factory): now=%lld meas=%lld lag=%llds desired=%ds expected_next=%lld next_in=%lums poll_age=%lus",
-                 (long long)now_epoch,
-                 (long long)g_last_meas_epoch,
-                 (long long)lag_s,
-                 (int)kDesiredLagS,
-                 (long long)expected_next,
-                 (unsigned long)next_in_ms,
-                 (unsigned long)((now_ms - g_last_meas_changed_ms) / 1000U));
+    logger.debug(
+        "TimeSync(factory): now=%lld raw=%lld meas=%lld lag=%llds off=%lds desired=%ds expected_next=%lld next_in=%lums poll_age=%lus",
+        (long long)now_epoch,
+        (long long)meas_epoch_raw,
+        (long long)g_last_meas_epoch,
+        (long long)lag_s,
+        (long)off_s,
+        (int)kDesiredLagS,
+        (long long)expected_next,
+        (unsigned long)next_in_ms,
+        (unsigned long)((now_ms - g_last_meas_changed_ms) / 1000U)
+    );
 }
-
 
 /**
  * @brief Updates trend message based on sensor state
@@ -2446,7 +2392,6 @@ void update_glucose_data()
     if (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_VALID)
     {
 
-        // synchronize_time_offset();
         if (settings.config.mqtt_master_mode)
         {
             synchronize_time_offset_epoch();
@@ -3039,6 +2984,7 @@ bool setup_mqtt()
     }
 
     logger.notice("MQTT: connected");
+    g_allow_retained_once = true;
 
     String subCmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
     String subRaw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
@@ -3088,7 +3034,7 @@ void setup_OTA(bool mode)
     if (mode == 1)
     {
 
-        if (g_ap_mode = false)
+        if (g_ap_mode == false)
         {
             // Create WiFi scan background task
             xTaskCreatePinnedToCore(

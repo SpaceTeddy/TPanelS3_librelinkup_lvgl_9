@@ -170,27 +170,19 @@ static bool ensure_wireguard_ok()
  */
 static bool ensure_mqtt_connected(uint32_t timeout_ms)
 {
+    (void)timeout_ms;
+
     if (!mqtt_enabled())
         return true;
+
     if (mqtt_ok())
         return true;
 
-    const uint32_t start = millis();
-    while (!mqtt_ok() && (millis() - start) < timeout_ms)
-    {
-        mqtt_client.connect(
-            (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name).c_str(),
-            mqtt.mqtt_user,
-            mqtt.mqtt_password);
-        mqtt_client.loop();
-        delay(10);
-    }
-
-    if (mqtt_ok())
-    {
-        mqtt_subscribe_topics();
+    // Nutze DEINEN existierenden Code (main.cpp), damit ClientID identisch ist
+    // und BufferSize/Callback/Subscribe konsistent bleiben.
+    if (setup_mqtt())
         return true;
-    }
+
     return false;
 }
 

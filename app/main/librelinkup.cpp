@@ -370,11 +370,9 @@ int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
 
 uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     const String& factory_ts,
-    const String& cloud_ts,     // <-- normaler Timestamp-String (optional, fürs Logging)
+    const String& cloud_ts,
     uint8_t print_mode)
 {
-
-    struct tm timeinfo;
     time_t now = time(nullptr);
     if (now < 1700000000) {
         logger.notice("Failed to obtain valid time (NTP?)");
@@ -388,25 +386,32 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
         return SENSOR_TIMECODE_ERROR;
     }
 
-    // Local = Factory + offset
-    time_t tLocalMeas = tFactory;
-    //tLocalMeas = tFactory + (time_t)tz_offset_s_locked;
-    tLocalMeas = now;
-    int32_t diff_ms = 0;
-    int16_t tm_is_dst_offset = 0;
-    if(timeinfo.tm_isdst == 1){
-        tm_is_dst_offset = 7200;
-    }else{
-        tm_is_dst_offset = 3600;
-    }
+    // Determine local UTC offset robustly from current system TZ/DST state
+    // NOTE: Ensure TZ is set to Europe/Berlin rules once at boot:
+    // setenv("TZ","CET-1CEST,M3.5.0/2,M10.5.0/3",1); tzset();
+    struct tm lt {};
+    localtime_r(&now, &lt);
 
-    diff_ms = (int32_t)(tLocalMeas - (tFactory + tm_is_dst_offset)) * 1000;
+    int32_t offset_s = (lt.tm_isdst > 0) ? 7200 : 3600;
+
+    // Optional: keep your "locked" offset variables consistent
+    tz_locked = 1;
+    tz_offset_s_locked = offset_s;
+
+    // Local time of measurement would be Factory + offset
+    time_t tLocalMeas = tFactory + (time_t)offset_s;
+
+    // diff between "now" (UTC epoch) and "meas expressed in UTC epoch"
+    // We want to know how long ago the measurement happened in local terms:
+    // now - (factory + offset)
+    int32_t diff_ms = (int32_t)(now - (tFactory + (time_t)offset_s)) * 1000;
 
     if (print_mode == 1) {
         logger.debug("tz_locked=%d offset_s=%ld", (int)tz_locked, (long)tz_offset_s_locked);
         logger.debug("ESP32 now epoch                   : %ld", (long)now);
         logger.debug("Factory epoch                     : %ld", (long)tFactory);
         logger.debug("Cloud TS epoch                    : %ld", (long)tCloud);
+        logger.debug("Local meas epoch (factory+off)    : %ld", (long)tLocalMeas);
         logger.debug("diff_ms                           : %ld (timeout=%ld)",
                       (long)diff_ms, (long)LIBRELINKUPSENSORTIMEOUT);
     }
