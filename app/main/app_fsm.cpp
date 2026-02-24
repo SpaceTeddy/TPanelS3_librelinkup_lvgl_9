@@ -61,14 +61,16 @@ static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
     return v;
 }
 
-// Exponential backoff with jitter: base * 2^exp + random(0, 1000)
+// Exponential backoff with jitter: base * 2^exp + random(0..1000)
 static uint32_t compute_backoff_ms(const AppFsm &fsm)
 {
     const uint32_t base = fsm.cfg.backoff_min_ms;
     const uint8_t exp = (fsm.consecutive_failures > 10) ? 10 : fsm.consecutive_failures;
     const uint32_t mul = (1u << exp);
     const uint64_t val = static_cast<uint64_t>(base) * static_cast<uint64_t>(mul);
-    return clamp_u32(static_cast<uint32_t>(val), fsm.cfg.backoff_min_ms, fsm.cfg.backoff_max_ms);
+    const uint32_t jitter = static_cast<uint32_t>(random(0, 1001));
+    const uint32_t with_jitter = static_cast<uint32_t>(val) + jitter;
+    return clamp_u32(with_jitter, fsm.cfg.backoff_min_ms, fsm.cfg.backoff_max_ms);
 }
 
 // State transition helper
@@ -150,11 +152,15 @@ static bool ensure_wireguard_ok()
     if (settings.config.wg_mode != 1)
         return true;
 
-    if (Ping.ping(ping_ip))
+    // Quick connectivity probe via ICMP. Keep it short to avoid UI stalls.
+    if (Ping.ping(ping_ip, 1))
         return true;
+
     setup_wg(true);
     delay(50);
-    return true;
+
+    // Re-check once after re-configuring WG
+    return Ping.ping(ping_ip, 1);
 }
 
 /**
@@ -178,15 +184,13 @@ static bool ensure_mqtt_connected(uint32_t timeout_ms)
     if (mqtt_ok())
         return true;
 
-    // Nutze DEINEN existierenden Code (main.cpp), damit ClientID identisch ist
-    // und BufferSize/Callback/Subscribe konsistent bleiben.
     if (setup_mqtt())
         return true;
 
     return false;
 }
 
-// Exponential backoff with jitter: base * 2^exp + random(0, 1000)
+// Exponential backoff with jitter: base * 2^exp + random(0..1000)
 static bool should_fetch_master(const AppFsm &fsm)
 {
     if (!settings.config.mqtt_master_mode)
@@ -421,23 +425,20 @@ void app_fsm_poll(AppFsm &fsm)
 
     case AppState::DISPLAY_DIM:
     {
+        // Non-blocking fade to zero brightness. Stay in DISPLAY_DIM until we reach 0.
         if (!fsm.display_dim_active)
         {
             fsm.display_dim_active = true;
             fsm.brightness_before_dim = settings.config.brightness;
+            fsm.last_dim_step_ms = 0;
+            logger.notice("DIM start: from=%u", (unsigned)fsm.brightness_before_dim);
+        }
 
-            // Blocking fade (user-requested; will pause UI briefly).
-            uint8_t start = settings.config.brightness;
-            for (uint8_t i = start; i > 0; i--)
-            {
-                ledcWrite(0, i);
-                delay(fsm.cfg.display_dim_step_ms ? fsm.cfg.display_dim_step_ms : 30);
-            }
-            ledcWrite(0, 0);
-            settings.config.brightness = 0;
+        display_dim_step(fsm);
 
-            logger.notice("DIM done: bright=0 (start=%u)", (unsigned)start);
-
+        if (settings.config.brightness == 0)
+        {
+            logger.notice("DIM done: bright=0");
             // Return to RUN_IDLE while staying dimmed until activity wakes it.
             enter_state(fsm, AppState::RUN_IDLE);
         }

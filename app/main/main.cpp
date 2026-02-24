@@ -3256,11 +3256,10 @@ void loop()
 
             if (lv_scr_act() == ui_Debug_screen)
             {
-                // Data refresh countdown (cloud aligned 60s cadence)
-                uint32_t elapsed_ms = (uint32_t)(millis() - (uint32_t)g_timer_60000ms_backup);
-                uint32_t remaining_s = 0;
-                if (elapsed_ms < 60000)
-                    remaining_s = (60000 - elapsed_ms) / 1000;
+                // Data refresh countdown (FSM cadence)
+                const uint32_t period_ms = g_fsm.cfg.fetch_period_ms ? g_fsm.cfg.fetch_period_ms : 60000U;
+                const uint32_t elapsed_ms = (uint32_t)(millis() - (uint32_t)g_fsm.last_fetch_ms);
+                uint32_t remaining_s = (elapsed_ms < period_ms) ? ((period_ms - elapsed_ms) / 1000U) : 0;
 
                 char buf[96];
 

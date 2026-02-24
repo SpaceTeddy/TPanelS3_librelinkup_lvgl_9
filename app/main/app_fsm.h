@@ -13,13 +13,6 @@
 
 #include <Arduino.h>
 
-#include <memory>         ///< Smart pointers
-#include <string>         ///< String operations
-#include <vector>         ///< Vector container
-#include <uuid/common.h>  ///< UUID common utilities
-#include <uuid/console.h> ///< Console interaction
-#include <uuid/telnet.h>  ///< Telnet server
-#include <uuid/log.h>     ///< Logging system
 
 enum class AppState : uint8_t
 {
@@ -51,7 +44,7 @@ struct AppFsmConfig
 
 struct AppFsm
 {
-    bool fetch_schedule_override = false; ///< If true, last_fetch_ms was adjusted for the next fetch
+  bool fetch_schedule_override = false; ///< If true, last_fetch_ms was adjusted for the next fetch
 
   AppState state = AppState::BOOT;
 
