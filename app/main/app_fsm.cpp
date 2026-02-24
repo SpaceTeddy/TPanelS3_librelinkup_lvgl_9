@@ -14,8 +14,6 @@
 #include "mqtt.h"
 
 
-
-
 //------------------------[uuid logger]-----------------------------------
 /** @brief Module logger instance. */
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -78,7 +76,7 @@ static void enter_state(AppFsm &fsm, AppState s)
 {
     fsm.state = s;
     fsm.last_state_change_ms = millis();
-    logger.notice("State change: %u", (unsigned)s);
+    logger.debug("State change: %u", (unsigned)s);
 }
 
 // Helper functions for state actions and conditions
@@ -394,7 +392,7 @@ void app_fsm_poll(AppFsm &fsm)
 
     // 6) Display inactivity dim
     if (should_dim_display(fsm)) {
-        logger.notice(
+        logger.debug(
             "DIM trigger: now=%lu last_act=%lu delta=%lu timeout=%lu bright=%u state=%u",
             (unsigned long)millis(),
             (unsigned long)fsm.last_user_activity_ms,
@@ -431,14 +429,14 @@ void app_fsm_poll(AppFsm &fsm)
             fsm.display_dim_active = true;
             fsm.brightness_before_dim = settings.config.brightness;
             fsm.last_dim_step_ms = 0;
-            logger.notice("DIM start: from=%u", (unsigned)fsm.brightness_before_dim);
+            logger.debug("DIM start: from=%u", (unsigned)fsm.brightness_before_dim);
         }
 
         display_dim_step(fsm);
 
         if (settings.config.brightness == 0)
         {
-            logger.notice("DIM done: bright=0");
+            logger.debug("DIM done: bright=0");
             // Return to RUN_IDLE while staying dimmed until activity wakes it.
             enter_state(fsm, AppState::RUN_IDLE);
         }
