@@ -28,7 +28,9 @@ extern PubSubClient mqtt_client;
 extern bool ota_in_progress;
 
 const IPAddress ping_ip(1, 1, 1, 1); // Cloudflare DNS for connectivity checks
-const IPAddress wg_self_ip(192, 168, 0, 103); // Must match wgIpAddress in settings and WireGuard config
+//const IPAddress wg_self_ip(192, 168, 0, 103); // Must match wgIpAddress in settings and WireGuard config
+
+extern IPAddress local_ip; // Local IP address (can be used for display/UI purposes, should match wg_self_ip if WireGuard is enabled)
 
 // Existing setup/actions you already have:
 extern void setup_wifi();
@@ -212,7 +214,7 @@ static bool ensure_wireguard_ok()
         return true;
 
     // Test: ping own WG IP
-    if (Ping.ping(wg_self_ip, 1))
+    if (Ping.ping(local_ip, 1))
     {
         logger.notice("[ensure_wireguard_ok] WG self IP reachable");
         return true;
