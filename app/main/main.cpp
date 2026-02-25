@@ -2889,7 +2889,6 @@ bool setup_wg(bool enable, bool force_reinit)
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG init FAILED");
         lv_timer_handler();
         wg.end(); // ensure clean
-        settings.config.wg_mode = 0;
         g_wg_busy = false;
         return false;
     }
@@ -2919,7 +2918,6 @@ bool setup_wg(bool enable, bool force_reinit)
         lv_timer_handler();
         // leave interface stopped to avoid partial/ghost routes
         wg.end();
-        settings.config.wg_mode = 0;
         result = false;
     }
 

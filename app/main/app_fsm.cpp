@@ -28,6 +28,7 @@ extern PubSubClient mqtt_client;
 extern bool ota_in_progress;
 
 const IPAddress ping_ip(1, 1, 1, 1); // Cloudflare DNS for connectivity checks
+const IPAddress wg_self_ip(192, 168, 0, 103); // Must match wgIpAddress in settings and WireGuard config
 
 // Existing setup/actions you already have:
 extern void setup_wifi();
@@ -71,12 +72,72 @@ static uint32_t compute_backoff_ms(const AppFsm &fsm)
     return clamp_u32(with_jitter, fsm.cfg.backoff_min_ms, fsm.cfg.backoff_max_ms);
 }
 
-// State transition helper
-static void enter_state(AppFsm &fsm, AppState s)
+// Helper to convert state enum to string for logging
+static const char* app_state_to_string(AppState s)
 {
-    fsm.state = s;
+    switch (s)
+    {
+    case AppState::BOOT:            return "BOOT";
+    case AppState::WIFI_CONNECT:    return "WIFI_CONNECT";
+    case AppState::VPN_CHECK:       return "VPN_CHECK";
+    case AppState::MQTT_CONNECT:    return "MQTT_CONNECT";
+    case AppState::RUN_IDLE:        return "RUN_IDLE";
+    case AppState::RUN_FETCH:       return "RUN_FETCH";
+    case AppState::RUN_PUBLISH:     return "RUN_PUBLISH";
+    case AppState::DISPLAY_DIM:     return "DISPLAY_DIM";
+    case AppState::INTERNET_CHECK:  return "INTERNET_CHECK";
+    case AppState::BACKOFF:         return "BACKOFF";
+    case AppState::OTA_MODE:        return "OTA_MODE";
+    default:                        return "UNKNOWN";
+    }
+}
+
+// Returns remaining BACKOFF seconds (0 if not in BACKOFF or already expired)
+static uint32_t backoff_remaining_s(const AppFsm &fsm)
+{
+    if (fsm.state != AppState::BACKOFF)
+        return 0;
+    const uint32_t now = millis();
+    if (now >= fsm.backoff_until_ms)
+        return 0;
+    return (fsm.backoff_until_ms - now) / 1000U;
+}
+
+static const char* safe_reason(const char* r)
+{
+    return (r && r[0]) ? r : "-";
+}
+
+
+// State transition helper
+static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nullptr)
+{
+    if (fsm.state == new_state)
+        return; // avoid duplicate log spam
+
+    const AppState old_state = fsm.state;
+
+    // runtime in the old state (for debugging)
+    const uint32_t old_runtime_ms = millis() - fsm.last_state_change_ms;
+
+    // apply transition
+    fsm.state = new_state;
     fsm.last_state_change_ms = millis();
-    logger.debug("State change: %u", (unsigned)s);
+    fsm.state_change_counter++;
+    fsm.last_transition_reason = reason;
+
+    const uint32_t bo_left_s = backoff_remaining_s(fsm);
+
+    logger.notice(
+        "[FSM] %u (%s)\t -> %u (%s) | reason=%s | run=%lums | failures=%u",
+        (unsigned)old_state,
+        app_state_to_string(old_state),
+        (unsigned)new_state,
+        app_state_to_string(new_state),
+        safe_reason(reason),
+        (unsigned long)old_runtime_ms,
+        (unsigned)fsm.consecutive_failures
+    );
 }
 
 // Helper functions for state actions and conditions
@@ -147,26 +208,19 @@ static bool ensure_wifi_connected(uint32_t timeout_ms)
  */
 static bool ensure_wireguard_ok()
 {
-    // if WG not enabled in config, we are OK
     if (settings.config.wg_mode != 1)
         return true;
 
-    // fast quick-ping first (non-blocking-ish, single attempt)
-    if (Ping.ping(ping_ip, 1))
-        return true;
-
-    // else try a forced re-init (will do limited waits)
-    logger.debug("[ensure_wireguard_ok] ping failed, forcing WG re-init...");
-    bool reinit_ok = setup_wg(true, true); // force_reinit = true
-
-    if (reinit_ok) {
-        // final quick ping already performed inside setup_wg
-        logger.debug("[ensure_wireguard_ok] wg reinit succeeded");
+    // Test: ping own WG IP
+    if (Ping.ping(wg_self_ip, 1))
+    {
+        logger.notice("[ensure_wireguard_ok] WG self IP reachable");
         return true;
     }
 
-    logger.debug("[ensure_wireguard_ok] wg reinit failed -> report as not ok");
-    return false;
+    logger.notice("[ensure_wireguard_ok] WG self IP NOT reachable -> force reinit");
+
+    return setup_wg(true, true);
 }
 
 /**
@@ -245,7 +299,7 @@ void app_fsm_init(AppFsm &fsm)
     fsm.last_dim_step_ms = 0;
     fsm.brightness_before_dim = settings.config.brightness;
     fsm.display_dim_active = false;
-    enter_state(fsm, AppState::BOOT);
+    enter_state(fsm, AppState::BOOT, "init");
 }
 
 // External triggers
@@ -268,7 +322,7 @@ void app_fsm_notify_user_activity(AppFsm &fsm)
             restore = 50;
         ledcWrite(0, restore);
         settings.config.brightness = restore;
-        enter_state(fsm, AppState::RUN_IDLE);
+        enter_state(fsm, AppState::RUN_IDLE, "USER ACTIVITY");
     }
 }
 
@@ -277,7 +331,7 @@ void app_fsm_poll(AppFsm &fsm)
 {
     if (ota_in_progress)
     {
-        enter_state(fsm, AppState::OTA_MODE);
+        enter_state(fsm, AppState::OTA_MODE, "OTA ON");
         return;
     }
     if (fsm.state == AppState::OTA_MODE && !ota_in_progress)
@@ -286,7 +340,7 @@ void app_fsm_poll(AppFsm &fsm)
         fsm.last_dim_step_ms = 0;
         fsm.brightness_before_dim = settings.config.brightness;
         fsm.display_dim_active = false;
-        enter_state(fsm, AppState::BOOT);
+        enter_state(fsm, AppState::BOOT, "init");
     }
 
     // Keep MQTT alive in the SAME context as publish/fetch to avoid multicore races.
@@ -305,14 +359,14 @@ void app_fsm_poll(AppFsm &fsm)
     {
         if (millis() < fsm.backoff_until_ms)
             return;
-        enter_state(fsm, AppState::WIFI_CONNECT);
+        enter_state(fsm, AppState::WIFI_CONNECT, "BACKOFF EXPIRED");
     }
 
     switch (fsm.state)
     {
     case AppState::BOOT:
     {
-        enter_state(fsm, AppState::WIFI_CONNECT);
+        enter_state(fsm, AppState::WIFI_CONNECT, "BOOT");
         break;
     }
 
@@ -321,11 +375,12 @@ void app_fsm_poll(AppFsm &fsm)
         if (!ensure_wifi_connected(fsm.cfg.wifi_connect_timeout_ms))
         {
             fsm.consecutive_failures++;
-            fsm.backoff_until_ms = millis() + compute_backoff_ms(fsm);
-            enter_state(fsm, AppState::BACKOFF);
+            fsm.last_backoff_ms = compute_backoff_ms(fsm);
+            fsm.backoff_until_ms = millis() + fsm.last_backoff_ms;
+            enter_state(fsm, AppState::BACKOFF, "WIFI FAIL");
             break;
         }
-        enter_state(fsm, AppState::VPN_CHECK);
+        enter_state(fsm, AppState::VPN_CHECK, "WIFI OK");
         break;
     }
 
@@ -337,12 +392,13 @@ void app_fsm_poll(AppFsm &fsm)
             if (!ensure_wireguard_ok())
             {
                 fsm.consecutive_failures++;
-                fsm.backoff_until_ms = millis() + compute_backoff_ms(fsm);
-                enter_state(fsm, AppState::BACKOFF);
+                fsm.last_backoff_ms = compute_backoff_ms(fsm);
+                fsm.backoff_until_ms = millis() + fsm.last_backoff_ms;
+                enter_state(fsm, AppState::BACKOFF, "WG FAIL");
                 break;
             }
         }
-        enter_state(fsm, AppState::MQTT_CONNECT);
+        enter_state(fsm, AppState::MQTT_CONNECT, "WG OK");
         break;
     }
 
@@ -351,50 +407,51 @@ void app_fsm_poll(AppFsm &fsm)
         if (!ensure_mqtt_connected(fsm.cfg.mqtt_connect_timeout_ms))
         {
             fsm.consecutive_failures++;
-            fsm.backoff_until_ms = millis() + compute_backoff_ms(fsm);
-            enter_state(fsm, AppState::BACKOFF);
+            fsm.last_backoff_ms = compute_backoff_ms(fsm);
+            fsm.backoff_until_ms = millis() + fsm.last_backoff_ms;
+            enter_state(fsm, AppState::BACKOFF, "MQTT FAIL");
             break;
         }
         fsm.consecutive_failures = 0;
-        enter_state(fsm, AppState::RUN_IDLE);
+        enter_state(fsm, AppState::RUN_IDLE, "MQTT OK");
         break;
     }
 
     case AppState::RUN_IDLE: {
     // 1) Connectivity sanity
     if (!wifi_ok()) {
-        enter_state(fsm, AppState::WIFI_CONNECT);
+        enter_state(fsm, AppState::WIFI_CONNECT, "WIFI LOST");
         break;
     }
 
     if (mqtt_enabled() && !mqtt_ok()) {
-        enter_state(fsm, AppState::MQTT_CONNECT);
+        enter_state(fsm, AppState::MQTT_CONNECT, "MQTT LOST");
         break;
     }
 
     // 2) Client mode trigger
     if (!settings.config.mqtt_master_mode && fsm.mqtt_master_rx_pending) {
         fsm.mqtt_master_rx_pending = false;
-        enter_state(fsm, AppState::RUN_FETCH);
+        enter_state(fsm, AppState::RUN_FETCH, "CLIENT RX");
         break;
     }
 
     // 3) Master fetch trigger
     if (should_fetch_master(fsm)) {
-        enter_state(fsm, AppState::RUN_FETCH);
+        enter_state(fsm, AppState::RUN_FETCH, "MASTER TICK");
         break;
     }
 
     // 4) Periodic WG check
     if (should_wg_check(fsm)) {
-        enter_state(fsm, AppState::VPN_CHECK);
+        enter_state(fsm, AppState::VPN_CHECK, "WG PERIODIC");
         break;
     }
 
     // 5) Periodic internet health check
     if ((millis() - fsm.last_internet_check_ms) >= fsm.cfg.internet_check_period_ms) {
         fsm.last_internet_check_ms = millis();
-        enter_state(fsm, AppState::INTERNET_CHECK);
+        enter_state(fsm, AppState::INTERNET_CHECK, "INET PERIODIC");
         break;
     }
 
@@ -408,7 +465,7 @@ void app_fsm_poll(AppFsm &fsm)
             (unsigned long)fsm.cfg.display_dim_timeout_ms,
             (unsigned)settings.config.brightness,
             (unsigned)fsm.state);
-        enter_state(fsm, AppState::DISPLAY_DIM);
+        enter_state(fsm, AppState::DISPLAY_DIM, "INACTIVITY");
         break;
     }
 
@@ -425,7 +482,7 @@ void app_fsm_poll(AppFsm &fsm)
             // time-sync already adjusted last_fetch_ms to hit the target
             fsm.fetch_schedule_override = false;
         }
-        enter_state(fsm, AppState::RUN_PUBLISH);
+        enter_state(fsm, AppState::RUN_PUBLISH, "FETCH DONE");
         break;
     }
 
@@ -446,7 +503,7 @@ void app_fsm_poll(AppFsm &fsm)
         {
             logger.debug("DIM done: bright=0");
             // Return to RUN_IDLE while staying dimmed until activity wakes it.
-            enter_state(fsm, AppState::RUN_IDLE);
+            enter_state(fsm, AppState::RUN_IDLE, "DIM DONE");
         }
         break;
     }
@@ -455,24 +512,24 @@ void app_fsm_poll(AppFsm &fsm)
     {
         if (!wifi_ok())
         {
-            enter_state(fsm, AppState::WIFI_CONNECT);
+            enter_state(fsm, AppState::WIFI_CONNECT, "WIFI LOST");
             break;
         }
         const int internet_status = app_check_internet_status();
         if (internet_status != 1)
         {
             app_recover_offline();
-            enter_state(fsm, AppState::WIFI_CONNECT);
+            enter_state(fsm, AppState::WIFI_CONNECT, "INET FAIL");
             break;
         }
-        enter_state(fsm, AppState::RUN_IDLE);
+        enter_state(fsm, AppState::RUN_IDLE, "INET OK");
         break;
     }
 
     case AppState::RUN_PUBLISH:
     {
         update_mqtt_publish();
-        enter_state(fsm, AppState::RUN_IDLE);
+        enter_state(fsm, AppState::RUN_IDLE, "PUBLISH DONE");
         break;
     }
 

@@ -66,6 +66,13 @@ struct AppFsm
 
   volatile bool mqtt_master_rx_pending = false;
 
+
+// Transition / debug telemetry
+uint32_t state_change_counter = 0;
+const char* last_transition_reason = nullptr;
+uint32_t last_backoff_ms = 0;  ///< last computed backoff duration (for logs/UI)
+
+
   AppFsmConfig cfg;
 };
 
