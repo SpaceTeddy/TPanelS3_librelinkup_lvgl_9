@@ -2818,72 +2818,113 @@ void setup_wifi()
  * @see wg.begin()
  * @see Ping.ping()
  */
-void setup_wg(bool enable)
+static volatile bool g_wg_busy = false; // global / file-scope guard to avoid reentry
+
+bool setup_wg(bool enable, bool force_reinit)
 {
-
-    if (enable == 1)
-    {
-        IPAddress local_ip = helper.parseIPAddress(settings.config.wgIpAddress);
-        logger.notice("local_ip: %d %s", local_ip, local_ip);
-
-        if (!wg.is_initialized())
-        {
-            DBGprint;
-            Serial.println("Initializing WG interface...");
-            lv_label_set_text(ui_Label_WelcomeWifiInfo, "Initializing WG interface...");
-            lv_timer_handler();
-            if (!wg.begin(
-                    local_ip,
-                    settings.config.wgPrivateKey.c_str(),
-                    settings.config.wgEndpoint.c_str(),
-                    settings.config.wgPublicKey.c_str(),
-                    (uint16_t)settings.config.wgEndpointPort,
-                    settings.config.wgPresharedKey.c_str()))
-            {
-                DBGprint;
-                Serial.println("Failed to initialize WG interface.");
-                lv_label_set_text(ui_Label_WelcomeWifiInfo, "Failed to initialize WG interface.");
-                lv_timer_handler();
-                wg.end();
-            }
-        }
-        else
-        {
-            DBGprint;
-            Serial.println("Shutting down WG interface...");
-            lv_label_set_text(ui_Label_WelcomeWifiInfo, "Shutting down WG interface...");
-            lv_timer_handler();
-            wg.end();
-        }
-
-        delay(500);
-
-        // Check internet connection
-        if (Ping.ping(ping_ip))
-        {
-            DBGprint;
-            Serial.print("WG connected!");
-            Serial.print(F(" IP:"));
-            Serial.println(local_ip);
-            logger.notice("WG connected! IP: %s, Gateway: %s, SubNet: %s, dnsIP: %s",
-                          local_ip.toString(), WiFi.gatewayIP().toString(),
-                          WiFi.subnetMask().toString(), WiFi.dnsIP().toString());
-            lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG connected!");
-            lv_timer_handler();
-            settings.config.wg_mode = 1;
-        }
-        else
-        {
-            DBGprint;
-            Serial.println("FAILED to ping! WG not connected!");
-            logger.notice("Ping %s: NOK", ping_ip.toString());
-            settings.config.wg_mode = 0;
-        }
+    // simple reentrancy guard
+    if (g_wg_busy) {
+        logger.notice("[setup_wg] skipped: wg busy");
+        return false;
     }
-    else if (enable == 0)
-    {
+    g_wg_busy = true;
+
+    bool result = false;
+
+    if (!enable) {
+        // disable WG
+        logger.notice("[setup_wg] disabling WG interface...");
         wg.end();
+        settings.config.wg_mode = 0;
+        result = true;
+        g_wg_busy = false;
+        return result;
     }
+
+    // parse configured local IP (keep existing helper usage)
+    IPAddress local_ip = helper.parseIPAddress(settings.config.wgIpAddress);
+    logger.notice("[setup_wg] requested: enable=1, force_reinit=%d, local_ip=%s",
+                  (int)force_reinit, local_ip.toString().c_str());
+
+    // If already initialized and not forcing, try light-check first (fast ping)
+    if (wg.is_initialized() && !force_reinit) {
+        logger.notice("[setup_wg] WG already initialized, quick ping check...");
+        // single attempt quick ping
+        if (Ping.ping(ping_ip, 1)) {
+            logger.notice("[setup_wg] WG already up (ping ok).");
+            settings.config.wg_mode = 1;
+            g_wg_busy = false;
+            return true;
+        }
+        // otherwise fall through to reinit
+        logger.notice("[setup_wg] quick ping failed, will reinitialize WG");
+    }
+
+    // Tear down first (safe to call even if not initialized)
+    if (wg.is_initialized() || force_reinit) {
+        logger.notice("[setup_wg] Shutting down WG interface...");
+        lv_label_set_text(ui_Label_WelcomeWifiInfo, "Shutting down WG interface...");
+        lv_timer_handler();
+        wg.end();
+        // short settle; keep short to reduce blocking
+        delay(50);
+    }
+
+    // Start/init WG
+    logger.notice("[setup_wg] Initializing WG interface...");
+    lv_label_set_text(ui_Label_WelcomeWifiInfo, "Initializing WG interface...");
+    lv_timer_handler();
+
+    bool begin_ok = wg.begin(
+        local_ip,
+        settings.config.wgPrivateKey.c_str(),
+        settings.config.wgEndpoint.c_str(),
+        settings.config.wgPublicKey.c_str(),
+        (uint16_t)settings.config.wgEndpointPort,
+        settings.config.wgPresharedKey.c_str()
+    );
+
+    if (!begin_ok) {
+        logger.notice("[setup_wg] wg.begin() failed!");
+        lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG init FAILED");
+        lv_timer_handler();
+        wg.end(); // ensure clean
+        settings.config.wg_mode = 0;
+        g_wg_busy = false;
+        return false;
+    }
+
+    // Bounded ping checks (avoid long blocking). Try short polling for up to 1500 ms.
+    const uint32_t pong_deadline = millis() + 1500;
+    bool ok = false;
+    while (millis() < pong_deadline) {
+        // single attempt only (avoid library internal retries)
+        if (Ping.ping(ping_ip, 1)) {
+            ok = true;
+            break;
+        }
+        // small backoff between attempts
+        delay(100);
+    }
+
+    if (ok) {
+        logger.notice("[setup_wg] WG connected! IP:%s", local_ip.toString().c_str());
+        lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG connected!");
+        lv_timer_handler();
+        settings.config.wg_mode = 1;
+        result = true;
+    } else {
+        logger.notice("[setup_wg] Ping %s: NOK (after init)", ping_ip.toString().c_str());
+        lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG ping FAILED");
+        lv_timer_handler();
+        // leave interface stopped to avoid partial/ghost routes
+        wg.end();
+        settings.config.wg_mode = 0;
+        result = false;
+    }
+
+    g_wg_busy = false;
+    return result;
 }
 
 /**

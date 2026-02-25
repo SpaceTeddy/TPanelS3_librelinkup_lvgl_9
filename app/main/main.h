@@ -48,11 +48,13 @@ void setup_mdns(void);
 void esp_status();
 
 /**
- * @brief Configures WireGuard VPN.
+ * @brief Configures the WiFi connection.
  * 
- * @param enable Set to `true` to enable WireGuard, `false` to disable.
+ * @param enable Set to `true` to enable WiFi, `false` to disable.
+ * @param force_reinit Set to `true` to force reinitialization of WiFi settings.
+ * @return `true` if WiFi setup was successful, `false` otherwise.
  */
-void setup_wg(bool enable);
+bool setup_wg(bool enable, bool force_reinit = false);
 
 /**
  * @brief Initializes the WiFi connection.

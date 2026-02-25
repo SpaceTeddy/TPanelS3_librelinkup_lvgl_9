@@ -147,18 +147,26 @@ static bool ensure_wifi_connected(uint32_t timeout_ms)
  */
 static bool ensure_wireguard_ok()
 {
+    // if WG not enabled in config, we are OK
     if (settings.config.wg_mode != 1)
         return true;
 
-    // Quick connectivity probe via ICMP. Keep it short to avoid UI stalls.
+    // fast quick-ping first (non-blocking-ish, single attempt)
     if (Ping.ping(ping_ip, 1))
         return true;
 
-    setup_wg(true);
-    delay(50);
+    // else try a forced re-init (will do limited waits)
+    logger.debug("[ensure_wireguard_ok] ping failed, forcing WG re-init...");
+    bool reinit_ok = setup_wg(true, true); // force_reinit = true
 
-    // Re-check once after re-configuring WG
-    return Ping.ping(ping_ip, 1);
+    if (reinit_ok) {
+        // final quick ping already performed inside setup_wg
+        logger.debug("[ensure_wireguard_ok] wg reinit succeeded");
+        return true;
+    }
+
+    logger.debug("[ensure_wireguard_ok] wg reinit failed -> report as not ok");
+    return false;
 }
 
 /**
