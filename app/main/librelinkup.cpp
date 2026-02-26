@@ -1160,7 +1160,7 @@ time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
     // Parse nur Datum + Uhrzeit
     char* ret = strptime(clean_timeStr, "%m/%d/%Y %I:%M:%S", &tm_time);
     if (!ret) {
-        printf("⚠️ strptime() konnte den String nicht parsen.\n");
+        DBGprint_LLU; Serial.println("strptime() konnte den String nicht parsen.");
         return -1;
     }
 
