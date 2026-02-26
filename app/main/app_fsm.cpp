@@ -130,6 +130,17 @@ static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nu
 
     const uint32_t bo_left_s = backoff_remaining_s(fsm);
 
+    DBGprint_LLU; Serial.printf(
+        "[FSM] %u (%s)\t -> %u (%s) | reason=%s | run=%lums | failures=%u \n\r",
+        (unsigned)old_state,
+        app_state_to_string(old_state),
+        (unsigned)new_state,
+        app_state_to_string(new_state),
+        safe_reason(reason),
+        (unsigned long)old_runtime_ms,
+        (unsigned)fsm.consecutive_failures
+    );
+
     logger.notice(
         "[FSM] %u (%s)\t -> %u (%s) | reason=%s | run=%lums | failures=%u",
         (unsigned)old_state,
