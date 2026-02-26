@@ -129,21 +129,18 @@ void HELPER::format_time(char *buffer, size_t buffer_size, time_t timestamp) {
     strftime(buffer, buffer_size, "%H:%M", tm_info);
 }
 //-----------------------[check internet connection with Ping]-------------------
-bool HELPER::check_internet_status(){
-    
-    bool result = 0;
+bool HELPER::check_internet_status()
+{
     const IPAddress ping_ip(1,1,1,1);
-    
-    //Ping Host to check internet connection
-    if(Ping.ping(ping_ip)){
-        //DBGprint;Serial.printf("Ping %s: OK\n\r", ping_ip.toString());
-        //logger.notice("Ping %s: OK", ping_ip.toString());
-        result = 1;
-    }else{
-        Serial.printf("Ping %s: NOK\n\r", ping_ip.toString());
-        logger.notice("Ping %s: NOK", ping_ip.toString());
-        result = 0;
+
+    // single ping attempt (non 4-second blocking)
+    bool result = Ping.ping(ping_ip, 1);
+
+    if (!result) {
+        DBGprint_LLU Serial.printf("Ping %s: NOK\n\r", ping_ip.toString().c_str());
+        logger.debug("Ping %s: NOK", ping_ip.toString().c_str());
     }
+
     return result;
 }
 
