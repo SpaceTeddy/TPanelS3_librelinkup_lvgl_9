@@ -2995,6 +2995,7 @@ bool setup_mqtt()
     mqtt_client.setServer(mqtt.mqtt_server, mqtt.mqtt_port);
     mqtt_client.setCallback(mqtt_callback);
     mqtt_client.setBufferSize(16384);                    // 16KB buffer size
+    mqtt_client.setSocketTimeout(3);
     mqtt.mqtt_client_name = helper.get_flashmemory_id(); // z.B. "4B431EEB"
     const String clientId = mqtt.mqtt_client_name;
 
