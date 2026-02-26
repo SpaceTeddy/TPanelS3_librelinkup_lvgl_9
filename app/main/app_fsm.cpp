@@ -227,11 +227,11 @@ static bool ensure_wireguard_ok()
     // Test: ping own WG IP
     if (Ping.ping(local_ip, 1))
     {
-        logger.notice("[ensure_wireguard_ok] WG self IP reachable");
+        logger.debug("[ensure_wireguard_ok] WG self IP reachable");
         return true;
     }
 
-    logger.notice("[ensure_wireguard_ok] WG self IP NOT reachable -> force reinit");
+    logger.debug("[ensure_wireguard_ok] WG self IP NOT reachable -> force reinit");
 
     return setup_wg(true, true);
 }
