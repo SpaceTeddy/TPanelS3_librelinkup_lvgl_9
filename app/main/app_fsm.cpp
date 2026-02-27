@@ -14,6 +14,8 @@
 #include "mqtt.h"
 
 
+
+
 //------------------------[uuid logger]-----------------------------------
 /** @brief Module logger instance. */
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -27,14 +29,12 @@ extern PubSubClient mqtt_client;
 
 extern bool ota_in_progress;
 
-const IPAddress ping_ip(1, 1, 1, 1); // Cloudflare DNS for connectivity checks
-//const IPAddress wg_self_ip(192, 168, 0, 103); // Must match wgIpAddress in settings and WireGuard config
-
-extern IPAddress local_ip; // Local IP address (can be used for display/UI purposes, should match wg_self_ip if WireGuard is enabled)
+const IPAddress wg_self_ip(1, 1, 1, 1); // Cloudflare DNS for connectivity checks
 
 // Existing setup/actions you already have:
 extern void setup_wifi();
-extern void setup_wg(bool enable);
+extern bool setup_wg(bool enable, bool force_reinit);
+extern bool wg_is_busy();
 extern bool setup_mqtt();
 
 // Existing processing pipeline you already have:
@@ -74,7 +74,8 @@ static uint32_t compute_backoff_ms(const AppFsm &fsm)
     return clamp_u32(with_jitter, fsm.cfg.backoff_min_ms, fsm.cfg.backoff_max_ms);
 }
 
-// Helper to convert state enum to string for logging
+// State transition helper
+// Helper to convert state enum to string for logging/debug UI
 static const char* app_state_to_string(AppState s)
 {
     switch (s)
@@ -94,62 +95,47 @@ static const char* app_state_to_string(AppState s)
     }
 }
 
-// Returns remaining BACKOFF seconds (0 if not in BACKOFF or already expired)
-static uint32_t backoff_remaining_s(const AppFsm &fsm)
-{
-    if (fsm.state != AppState::BACKOFF)
-        return 0;
-    const uint32_t now = millis();
-    if (now >= fsm.backoff_until_ms)
-        return 0;
-    return (fsm.backoff_until_ms - now) / 1000U;
-}
-
+// Helper to convert state enum to string for logging/debug UI
 static const char* safe_reason(const char* r)
 {
     return (r && r[0]) ? r : "-";
 }
 
+// Helper to compute remaining backoff time in seconds for logging/debug UI
+static uint32_t backoff_remaining_s(const AppFsm &fsm)
+{
+    if (fsm.state != AppState::BACKOFF)
+        return 0;
 
-// State transition helper
+    const uint32_t now = millis();
+    if (now >= fsm.backoff_until_ms)
+        return 0;
+
+    return (fsm.backoff_until_ms - now) / 1000U;
+}
+
+// State transition helper (logs old->new + reason + runtime + failures + backoff)
 static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nullptr)
 {
     if (fsm.state == new_state)
         return; // avoid duplicate log spam
 
     const AppState old_state = fsm.state;
-
-    // runtime in the old state (for debugging)
     const uint32_t old_runtime_ms = millis() - fsm.last_state_change_ms;
 
-    // apply transition
     fsm.state = new_state;
     fsm.last_state_change_ms = millis();
     fsm.state_change_counter++;
     fsm.last_transition_reason = reason;
 
-    const uint32_t bo_left_s = backoff_remaining_s(fsm);
-
-    DBGprint_LLU; Serial.printf(
-        "[FSM] %u (%s)\t -> %u (%s) | reason=%s | run=%lums | failures=%u \n\r",
-        (unsigned)old_state,
-        app_state_to_string(old_state),
-        (unsigned)new_state,
-        app_state_to_string(new_state),
-        safe_reason(reason),
-        (unsigned long)old_runtime_ms,
-        (unsigned)fsm.consecutive_failures
-    );
-
     logger.notice(
-        "[FSM] %u (%s)\t -> %u (%s) | reason=%s | run=%lums | failures=%u",
+        "[FSM] %u (%s)\t -> %u (%s) | reason=%s | run=%lums",
         (unsigned)old_state,
         app_state_to_string(old_state),
         (unsigned)new_state,
         app_state_to_string(new_state),
         safe_reason(reason),
-        (unsigned long)old_runtime_ms,
-        (unsigned)fsm.consecutive_failures
+        (unsigned long)old_runtime_ms
     );
 }
 
@@ -221,18 +207,20 @@ static bool ensure_wifi_connected(uint32_t timeout_ms)
  */
 static bool ensure_wireguard_ok()
 {
+    // settings.config.wg_mode is the *desired* state (user config).
     if (settings.config.wg_mode != 1)
         return true;
 
-    // Test: ping own WG IP
-    if (Ping.ping(local_ip, 1))
-    {
-        logger.debug("[ensure_wireguard_ok] WG self IP reachable");
+    // Test (as requested): ping our configured WG interface IP.
+    // NOTE: this proves interface presence, not peer handshake.
+    if (Ping.ping(wg_self_ip, 1))
         return true;
-    }
 
-    logger.debug("[ensure_wireguard_ok] WG self IP NOT reachable -> force reinit");
+    // If setup is already running, treat as "in progress" instead of failing the FSM.
+    if (wg_is_busy())
+        return true;
 
+    // Force reinit. This function is responsible for being bounded in time.
     return setup_wg(true, true);
 }
 
@@ -247,20 +235,34 @@ static bool ensure_wireguard_ok()
  * @param timeout_ms The maximum time to wait for an MQTT connection, in milliseconds.
  * @return `true` if the MQTT connection is established successfully or MQTT is not enabled, `false` otherwise.
  */
-static bool ensure_mqtt_connected(uint32_t timeout_ms)
+static bool mqtt_connect_step(AppFsm &fsm, uint32_t timeout_ms)
 {
-    (void)timeout_ms;
-
     if (!mqtt_enabled())
         return true;
 
     if (mqtt_ok())
         return true;
 
-    if (setup_mqtt())
-        return true;
+    const uint32_t now = millis();
 
-    return false;
+    if (fsm.mqtt_connect_started_ms == 0)
+    {
+        fsm.mqtt_connect_started_ms = now;
+        fsm.last_mqtt_attempt_ms = 0;
+    }
+
+    // Give other tasks time; attempt at most once per second
+    if (fsm.last_mqtt_attempt_ms != 0 && (now - fsm.last_mqtt_attempt_ms) < 1000)
+        return false;
+
+    // Timeout reached?
+    if ((now - fsm.mqtt_connect_started_ms) >= timeout_ms)
+        return false;
+
+    fsm.last_mqtt_attempt_ms = now;
+
+    // One connect attempt (setup_mqtt() must return quickly)
+    return setup_mqtt();
 }
 
 // Exponential backoff with jitter: base * 2^exp + random(0..1000)
@@ -312,7 +314,7 @@ void app_fsm_init(AppFsm &fsm)
     fsm.last_dim_step_ms = 0;
     fsm.brightness_before_dim = settings.config.brightness;
     fsm.display_dim_active = false;
-    enter_state(fsm, AppState::BOOT, "init");
+    enter_state(fsm, AppState::BOOT, "OTA OFF");
 }
 
 // External triggers
@@ -353,7 +355,7 @@ void app_fsm_poll(AppFsm &fsm)
         fsm.last_dim_step_ms = 0;
         fsm.brightness_before_dim = settings.config.brightness;
         fsm.display_dim_active = false;
-        enter_state(fsm, AppState::BOOT, "init");
+        enter_state(fsm, AppState::BOOT, "OTA OFF");
     }
 
     // Keep MQTT alive in the SAME context as publish/fetch to avoid multicore races.
@@ -382,7 +384,6 @@ void app_fsm_poll(AppFsm &fsm)
         enter_state(fsm, AppState::WIFI_CONNECT, "BOOT");
         break;
     }
-
     case AppState::WIFI_CONNECT:
     {
         if (!ensure_wifi_connected(fsm.cfg.wifi_connect_timeout_ms))
@@ -396,14 +397,23 @@ void app_fsm_poll(AppFsm &fsm)
         enter_state(fsm, AppState::VPN_CHECK, "WIFI OK");
         break;
     }
-
     case AppState::VPN_CHECK:
     {
+        // WG check cadence (optional). If WG is disabled, just continue.
         if (should_wg_check(fsm))
         {
             fsm.last_wg_check_ms = millis();
+    
             if (!ensure_wireguard_ok())
             {
+                // If WG setup is currently in progress, don't treat as failure.
+                if (wg_is_busy())
+                {
+                    // Stay in VPN_CHECK and try again on next poll.
+                    enter_state(fsm, AppState::VPN_CHECK, "WG BUSY");
+                    break;
+                }
+    
                 fsm.consecutive_failures++;
                 fsm.last_backoff_ms = compute_backoff_ms(fsm);
                 fsm.backoff_until_ms = millis() + fsm.last_backoff_ms;
@@ -411,94 +421,140 @@ void app_fsm_poll(AppFsm &fsm)
                 break;
             }
         }
-        enter_state(fsm, AppState::MQTT_CONNECT, "WG OK");
+        enter_state(fsm, AppState::MQTT_CONNECT, (settings.config.wg_mode == 1) ? "WG OK" : "WG OFF");
         break;
     }
-
     case AppState::MQTT_CONNECT:
     {
-        if (!ensure_mqtt_connected(fsm.cfg.mqtt_connect_timeout_ms))
+        if (!mqtt_enabled())
         {
-            fsm.consecutive_failures++;
-            fsm.last_backoff_ms = compute_backoff_ms(fsm);
-            fsm.backoff_until_ms = millis() + fsm.last_backoff_ms;
-            enter_state(fsm, AppState::BACKOFF, "MQTT FAIL");
+            // MQTT disabled -> proceed
+            enter_state(fsm, AppState::RUN_IDLE, "MQTT OFF");
             break;
         }
-        fsm.consecutive_failures = 0;
-        enter_state(fsm, AppState::RUN_IDLE, "MQTT OK");
+    
+        if (mqtt_ok())
+        {
+            fsm.consecutive_failures = 0;
+            fsm.mqtt_connect_started_ms = 0;
+            fsm.last_mqtt_attempt_ms = 0;
+            enter_state(fsm, AppState::RUN_IDLE, "MQTT OK");
+            break;
+        }
+    
+        // Step-wise connect attempts (bounded time, avoids long blocking loops)
+        if (mqtt_connect_step(fsm, fsm.cfg.mqtt_connect_timeout_ms))
+        {
+            fsm.consecutive_failures = 0;
+            fsm.mqtt_connect_started_ms = 0;
+            fsm.last_mqtt_attempt_ms = 0;
+            enter_state(fsm, AppState::RUN_IDLE, "MQTT OK");
+            break;
+        }
+    
+        // Still trying within timeout -> stay here without backoff.
+        if (fsm.mqtt_connect_started_ms != 0 &&
+            (millis() - fsm.mqtt_connect_started_ms) < fsm.cfg.mqtt_connect_timeout_ms)
+        {
+            break;
+        }
+    
+        // Timed out -> backoff
+        fsm.mqtt_connect_started_ms = 0;
+        fsm.last_mqtt_attempt_ms = 0;
+        fsm.consecutive_failures++;
+        fsm.last_backoff_ms = compute_backoff_ms(fsm);
+        fsm.backoff_until_ms = millis() + fsm.last_backoff_ms;
+        enter_state(fsm, AppState::BACKOFF, "MQTT FAIL");
         break;
     }
-
-    case AppState::RUN_IDLE: {
-    // 1) Connectivity sanity
-    if (!wifi_ok()) {
-        enter_state(fsm, AppState::WIFI_CONNECT, "WIFI LOST");
+    case AppState::RUN_IDLE:
+    {
+        // 1) Connectivity sanity
+        if (!wifi_ok())
+        {
+            enter_state(fsm, AppState::WIFI_CONNECT, "WIFI LOST");
+            break;
+        }
+    
+        // 2) MQTT: immediate check (if disconnected) + periodic health check
+        if (mqtt_enabled())
+        {
+            const uint32_t now = millis();
+    
+            if (!mqtt_ok())
+            {
+                enter_state(fsm, AppState::MQTT_CONNECT, "MQTT LOST");
+                break;
+            }
+    
+            if ((now - fsm.last_mqtt_check_ms) >= fsm.cfg.mqtt_check_period_ms)
+            {
+                fsm.last_mqtt_check_ms = now;
+    
+                // Lightweight periodic check: if loop() got stuck, connected() might still be true,
+                // but this keeps the "MQTT check" visible and future-proof for added probes.
+                //logger.debug("[mqtt] periodic check ok=1");
+            }
+        }
+    
+        // 3) Client mode trigger (incoming MASTER/raw message)
+        if (!settings.config.mqtt_master_mode && fsm.mqtt_master_rx_pending)
+        {
+            fsm.mqtt_master_rx_pending = false;
+            enter_state(fsm, AppState::RUN_FETCH, "CLIENT RX");
+            break;
+        }
+    
+        // 4) Master fetch trigger
+        if (should_fetch_master(fsm))
+        {
+            enter_state(fsm, AppState::RUN_FETCH, "MASTER TICK");
+            break;
+        }
+    
+        // 5) Periodic WG check
+        if (should_wg_check(fsm))
+        {
+            enter_state(fsm, AppState::VPN_CHECK, "WG PERIODIC");
+            break;
+        }
+    
+        // 6) Periodic internet health check
+        if ((millis() - fsm.last_internet_check_ms) >= fsm.cfg.internet_check_period_ms)
+        {
+            fsm.last_internet_check_ms = millis();
+            enter_state(fsm, AppState::INTERNET_CHECK, "INET PERIODIC");
+            break;
+        }
+    
+        // 7) Display inactivity dim
+        if (should_dim_display(fsm))
+        {
+            enter_state(fsm, AppState::DISPLAY_DIM, "INACTIVITY");
+            break;
+        }
+    
         break;
     }
-
-    if (mqtt_enabled() && !mqtt_ok()) {
-        enter_state(fsm, AppState::MQTT_CONNECT, "MQTT LOST");
-        break;
-    }
-
-    // 2) Client mode trigger
-    if (!settings.config.mqtt_master_mode && fsm.mqtt_master_rx_pending) {
-        fsm.mqtt_master_rx_pending = false;
-        enter_state(fsm, AppState::RUN_FETCH, "CLIENT RX");
-        break;
-    }
-
-    // 3) Master fetch trigger
-    if (should_fetch_master(fsm)) {
-        enter_state(fsm, AppState::RUN_FETCH, "MASTER TICK");
-        break;
-    }
-
-    // 4) Periodic WG check
-    if (should_wg_check(fsm)) {
-        enter_state(fsm, AppState::VPN_CHECK, "WG PERIODIC");
-        break;
-    }
-
-    // 5) Periodic internet health check
-    if ((millis() - fsm.last_internet_check_ms) >= fsm.cfg.internet_check_period_ms) {
-        fsm.last_internet_check_ms = millis();
-        enter_state(fsm, AppState::INTERNET_CHECK, "INET PERIODIC");
-        break;
-    }
-
-    // 6) Display inactivity dim
-    if (should_dim_display(fsm)) {
-        logger.debug(
-            "DIM trigger: now=%lu last_act=%lu delta=%lu timeout=%lu bright=%u state=%u",
-            (unsigned long)millis(),
-            (unsigned long)fsm.last_user_activity_ms,
-            (unsigned long)(millis() - fsm.last_user_activity_ms),
-            (unsigned long)fsm.cfg.display_dim_timeout_ms,
-            (unsigned)settings.config.brightness,
-            (unsigned)fsm.state);
-        enter_state(fsm, AppState::DISPLAY_DIM, "INACTIVITY");
-        break;
-    }
-
-    break;
-    }
-
     case AppState::RUN_FETCH:
     {
         update_glucose_data();
         update_five_minute_counter();
-        if (!fsm.fetch_schedule_override) {
+    
+        if (!fsm.fetch_schedule_override)
+        {
             fsm.last_fetch_ms = millis();
-        } else {
+        }
+        else
+        {
             // time-sync already adjusted last_fetch_ms to hit the target
             fsm.fetch_schedule_override = false;
         }
+    
         enter_state(fsm, AppState::RUN_PUBLISH, "FETCH DONE");
         break;
     }
-
     case AppState::DISPLAY_DIM:
     {
         // Non-blocking fade to zero brightness. Stay in DISPLAY_DIM until we reach 0.
@@ -507,20 +563,19 @@ void app_fsm_poll(AppFsm &fsm)
             fsm.display_dim_active = true;
             fsm.brightness_before_dim = settings.config.brightness;
             fsm.last_dim_step_ms = 0;
-            logger.debug("DIM start: from=%u", (unsigned)fsm.brightness_before_dim);
+            //logger.debug("DIM start: from=%u", (unsigned)fsm.brightness_before_dim);
         }
-
+    
         display_dim_step(fsm);
-
+    
         if (settings.config.brightness == 0)
         {
-            logger.debug("DIM done: bright=0");
+            //logger.debug("DIM done: bright=0");
             // Return to RUN_IDLE while staying dimmed until activity wakes it.
             enter_state(fsm, AppState::RUN_IDLE, "DIM DONE");
         }
         break;
     }
-
     case AppState::INTERNET_CHECK:
     {
         if (!wifi_ok())
@@ -528,6 +583,7 @@ void app_fsm_poll(AppFsm &fsm)
             enter_state(fsm, AppState::WIFI_CONNECT, "WIFI LOST");
             break;
         }
+    
         const int internet_status = app_check_internet_status();
         if (internet_status != 1)
         {
@@ -535,18 +591,21 @@ void app_fsm_poll(AppFsm &fsm)
             enter_state(fsm, AppState::WIFI_CONNECT, "INET FAIL");
             break;
         }
+    
         enter_state(fsm, AppState::RUN_IDLE, "INET OK");
         break;
     }
-
     case AppState::RUN_PUBLISH:
     {
         update_mqtt_publish();
         enter_state(fsm, AppState::RUN_IDLE, "PUBLISH DONE");
         break;
     }
-
     case AppState::OTA_MODE:
+    {
+        // Keep OTA running; exit handled at top of poll()
+        break;
+    }
     case AppState::BACKOFF:
         break;
     }

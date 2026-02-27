@@ -2818,12 +2818,26 @@ void setup_wifi()
  * @see wg.begin()
  * @see Ping.ping()
  */
-static volatile bool g_wg_busy = false; // global / file-scope guard to avoid reentry
+// Simple reentrancy guard for WireGuard setup/teardown.
+// (WG calls can block; we must avoid nested calls from CLI/FSM timers.)
+static volatile bool g_wg_busy = false;
 
+bool wg_is_busy()
+{
+    return g_wg_busy;
+}
+
+/**
+ * @brief Setup or teardown WireGuard.
+ * @param enable        true to enable/ensure WG; false to disable.
+ * @param force_reinit  if true, always tear down and re-init (even if initialized).
+ * @return true if WG is up (or disabled successfully), false on failure or if skipped due to busy.
+ */
 bool setup_wg(bool enable, bool force_reinit)
 {
-    // simple reentrancy guard
-    if (g_wg_busy) {
+    // Reentrancy guard
+    if (g_wg_busy)
+    {
         logger.notice("[setup_wg] skipped: wg busy");
         return false;
     }
@@ -2831,43 +2845,48 @@ bool setup_wg(bool enable, bool force_reinit)
 
     bool result = false;
 
-    if (!enable) {
-        // disable WG
+    if (!enable)
+    {
         logger.notice("[setup_wg] disabling WG interface...");
         wg.end();
+
+        // IMPORTANT: settings.config.wg_mode represents the *desired* state.
+        // If the user disables WG, then and only then we set it to 0.
         settings.config.wg_mode = 0;
+
         result = true;
         g_wg_busy = false;
         return result;
     }
 
-    // parse configured local IP (keep existing helper usage)
-    IPAddress local_ip = helper.parseIPAddress(settings.config.wgIpAddress);
+    // desired state is ON
+    settings.config.wg_mode = 1;
+
+    // parse configured local IP
+    const IPAddress local_ip = helper.parseIPAddress(settings.config.wgIpAddress);
     logger.notice("[setup_wg] requested: enable=1, force_reinit=%d, local_ip=%s",
                   (int)force_reinit, local_ip.toString().c_str());
 
-    // If already initialized and not forcing, try light-check first (fast ping)
-    if (wg.is_initialized() && !force_reinit) {
-        logger.notice("[setup_wg] WG already initialized, quick ping check...");
-        // single attempt quick ping
-        if (Ping.ping(ping_ip, 1)) {
-            logger.notice("[setup_wg] WG already up (ping ok).");
-            settings.config.wg_mode = 1;
+    // If already initialized and not forcing, do a quick self-IP ping (interface presence)
+    if (wg.is_initialized() && !force_reinit)
+    {
+        if (Ping.ping(local_ip, 1))
+        {
+            logger.notice("[setup_wg] WG already initialized (self IP ping ok).");
             g_wg_busy = false;
             return true;
         }
-        // otherwise fall through to reinit
-        logger.notice("[setup_wg] quick ping failed, will reinitialize WG");
+        logger.notice("[setup_wg] self IP ping failed, will reinitialize WG");
     }
 
     // Tear down first (safe to call even if not initialized)
-    if (wg.is_initialized() || force_reinit) {
+    if (wg.is_initialized() || force_reinit)
+    {
         logger.notice("[setup_wg] Shutting down WG interface...");
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "Shutting down WG interface...");
         lv_timer_handler();
         wg.end();
-        // short settle; keep short to reduce blocking
-        delay(50);
+        delay(50); // short settle
     }
 
     // Start/init WG
@@ -2875,7 +2894,7 @@ bool setup_wg(bool enable, bool force_reinit)
     lv_label_set_text(ui_Label_WelcomeWifiInfo, "Initializing WG interface...");
     lv_timer_handler();
 
-    bool begin_ok = wg.begin(
+    const bool begin_ok = wg.begin(
         local_ip,
         settings.config.wgPrivateKey.c_str(),
         settings.config.wgEndpoint.c_str(),
@@ -2884,40 +2903,49 @@ bool setup_wg(bool enable, bool force_reinit)
         settings.config.wgPresharedKey.c_str()
     );
 
-    if (!begin_ok) {
+    if (!begin_ok)
+    {
         logger.notice("[setup_wg] wg.begin() failed!");
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG init FAILED");
         lv_timer_handler();
         wg.end(); // ensure clean
+
+        // Do NOT flip wg_mode to 0 here. Let FSM retry.
+        result = false;
         g_wg_busy = false;
-        return false;
+        return result;
     }
 
     // Bounded ping checks (avoid long blocking). Try short polling for up to 1500 ms.
-    const uint32_t pong_deadline = millis() + 1500;
+    const uint32_t deadline = millis() + 1500;
     bool ok = false;
-    while (millis() < pong_deadline) {
-        // single attempt only (avoid library internal retries)
-        if (Ping.ping(ping_ip, 1)) {
+    while (millis() < deadline)
+    {
+        if (Ping.ping(local_ip, 1))
+        {
             ok = true;
             break;
         }
-        // small backoff between attempts
         delay(100);
     }
 
-    if (ok) {
+    if (ok)
+    {
         logger.notice("[setup_wg] WG connected! IP:%s", local_ip.toString().c_str());
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG connected!");
         lv_timer_handler();
-        settings.config.wg_mode = 1;
         result = true;
-    } else {
-        logger.notice("[setup_wg] Ping %s: NOK (after init)", ping_ip.toString().c_str());
+    }
+    else
+    {
+        logger.notice("[setup_wg] WG self IP ping: NOK (after init)");
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG ping FAILED");
         lv_timer_handler();
+
         // leave interface stopped to avoid partial/ghost routes
         wg.end();
+
+        // Do NOT flip wg_mode to 0 here. Let FSM retry.
         result = false;
     }
 
@@ -2991,58 +3019,49 @@ void setup_librelinkup()
  */
 bool setup_mqtt()
 {
-
     mqtt_client.setServer(mqtt.mqtt_server, mqtt.mqtt_port);
     mqtt_client.setCallback(mqtt_callback);
     mqtt_client.setBufferSize(16384);                    // 16KB buffer size
-    mqtt_client.setSocketTimeout(3);
-    mqtt.mqtt_client_name = helper.get_flashmemory_id(); // z.B. "4B431EEB"
+    mqtt_client.setSocketTimeout(3);                     // seconds (prevents long blocking connect)
+    mqtt_client.setKeepAlive(30);                        // seconds
+
+    mqtt.mqtt_client_name = helper.get_flashmemory_id(); // e.g. "4B431EEB"
     const String clientId = mqtt.mqtt_client_name;
 
-    logger.notice("MQTT: connecting... clientId=%s", clientId.c_str());
+    if (mqtt_client.connected())
+        return true;
 
-    // Versuche z.B. 30x (3 Sekunden)
-    for (int i = 0; i < 30; i++)
+    logger.notice("MQTT: connecting... clientId=%s target=%s:%u",
+                  clientId.c_str(), mqtt.mqtt_server, (unsigned)mqtt.mqtt_port);
+
+    const bool ok = mqtt_client.connect(clientId.c_str(), mqtt.mqtt_user, mqtt.mqtt_password);
+    logger.debug("MQTT connect ok=%d state=%d", (int)ok, mqtt_client.state());
+
+    if (!ok || !mqtt_client.connected())
     {
-
-        if (mqtt_client.connected())
-            break;
-
-        bool ok = mqtt_client.connect(clientId.c_str(), mqtt.mqtt_user, mqtt.mqtt_password);
-        logger.debug("MQTT connect try=%d ok=%d state=%d", i, ok, mqtt_client.state());
-
-        if (ok)
-            break;
-
-        delay(100);
-    }
-
-    if (!mqtt_client.connected())
-    {
-        logger.debug("MQTT: connect failed permanently, state=%d", mqtt_client.state());
+        logger.debug("MQTT: connect failed, state=%d", mqtt_client.state());
         return false;
     }
 
     logger.notice("MQTT: connected");
     g_allow_retained_once = true;
 
-    String subCmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
-    String subRaw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
+    const String subCmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
+    const String subRaw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
 
     mqtt_client.unsubscribe(subCmd.c_str());
     mqtt_client.unsubscribe(subRaw.c_str());
 
-    bool s1 = mqtt_client.subscribe(subCmd.c_str());
-    bool s2 = false;
+    const bool s1 = mqtt_client.subscribe(subCmd.c_str());
+    bool s2 = true;
 
     if (settings.config.mqtt_master_mode == false)
     {
         s2 = mqtt_client.subscribe(subRaw.c_str());
-        logger.notice("MQTT unsubscribe raw: %s ok=%d", subRaw.c_str(), s2);
+        logger.notice("MQTT subscribe raw: %s ok=%d", subRaw.c_str(), (int)s2);
     }
 
-    logger.notice("MQTT subscribe cmd: %s ok=%d", subCmd.c_str(), s1);
-    logger.notice("MQTT subscribe raw: %s ok=%d", subRaw.c_str(), s2);
+    logger.notice("MQTT subscribe cmd: %s ok=%d", subCmd.c_str(), (int)s1);
 
     return (s1 && s2);
 }

@@ -35,6 +35,7 @@ struct AppFsmConfig
   uint32_t display_dim_step_ms = 30;          ///< fade step interval
   uint32_t wifi_connect_timeout_ms = 20000;
   uint32_t mqtt_connect_timeout_ms = 8000;
+  uint32_t mqtt_check_period_ms = 30000;        ///< periodic MQTT health check
   uint32_t fetch_period_ms = 60000;           ///< Master mode cadence
   uint32_t wg_check_period_ms = 60000;        ///< Optional WireGuard/ping cadence
   uint32_t backoff_min_ms = 2000;
@@ -53,6 +54,12 @@ struct AppFsm
   uint32_t last_fetch_ms = 0;
   uint32_t last_wg_check_ms = 0;
   uint32_t backoff_until_ms = 0;
+  uint32_t last_mqtt_check_ms = 0;
+  uint32_t mqtt_connect_started_ms = 0;
+  uint32_t last_mqtt_attempt_ms = 0;
+  uint32_t state_change_counter = 0;
+  const char* last_transition_reason = nullptr;
+  uint32_t last_backoff_ms = 0;
 
   uint32_t last_internet_check_ms = 0;
 
@@ -65,13 +72,6 @@ struct AppFsm
   uint8_t consecutive_failures = 0;
 
   volatile bool mqtt_master_rx_pending = false;
-
-
-// Transition / debug telemetry
-uint32_t state_change_counter = 0;
-const char* last_transition_reason = nullptr;
-uint32_t last_backoff_ms = 0;  ///< last computed backoff duration (for logs/UI)
-
 
   AppFsmConfig cfg;
 };
