@@ -129,19 +129,25 @@ void HELPER::format_time(char *buffer, size_t buffer_size, time_t timestamp) {
     strftime(buffer, buffer_size, "%H:%M", tm_info);
 }
 //-----------------------[check internet connection with Ping]-------------------
-bool HELPER::check_internet_status()
+bool HELPER::check_internet_status(IPAddress ip, uint16_t port)
 {
-    const IPAddress ping_ip(1,1,1,1);
 
-    // single ping attempt (non 4-second blocking)
-    bool result = Ping.ping(ping_ip, 1);
+   WiFiClient testClient;
+   
+   bool result;
 
-    if (!result) {
-        DBGprint_LLU Serial.printf("Ping %s: NOK\n\r", ping_ip.toString().c_str());
-        logger.debug("Ping %s: NOK", ping_ip.toString().c_str());
+    if (!testClient.connect(IPAddress(ip), port)) {
+        logger.debug("TCP connect to broker failed!");
+        testClient.stop();
+        result = false;
+        
+    } else {
+        logger.debug("TCP connect to broker OK!");
+        testClient.stop();
+        result = true;
     }
-
     return result;
+    
 }
 
 //---------------------------[get local time]-----------------------------------

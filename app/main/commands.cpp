@@ -19,7 +19,6 @@
 #include "mqtt.h"
 #include "hba1c.h"
 #include "ui.h"
-#include <ESP32Ping.h>
 #include <LittleFS.h>
 #include <lvgl.h>
 #include "tpanels3.h"
@@ -36,6 +35,8 @@ extern MQTT mqtt;
 extern HBA1C hba1c;
 extern HELPER helper;
 extern uint16_t telnet_port;
+
+extern int app_check_internet_status(IPAddress ip, uint16_t port);
 
 //------------------------[uuid logger]-----------------------------------
 /** @brief Module logger instance. */
@@ -622,9 +623,9 @@ void lluSensorTypeCommand(uuid::console::Shell &shell, const std::vector<std::st
  * Performs an ICMP ping to 1.1.1.1 using ESP32Ping.
  */
 void PingCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
-    shell.print(F("Ping IP..."));
-    const IPAddress ping_ip(1, 1, 1, 1);
-    if (Ping.ping(ping_ip)) {
+    shell.print(F("TCP connection check..."));
+    
+    if (app_check_internet_status(IPAddress(192, 168, 0, 202), 1883) == true) {
         shell.println(F("OK"));
     } else {
         shell.println(F("NOK"));

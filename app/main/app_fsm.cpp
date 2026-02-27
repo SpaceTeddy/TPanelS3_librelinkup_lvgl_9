@@ -8,7 +8,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
-#include <ESP32Ping.h>
 
 #include "settings.h"
 #include "mqtt.h"
@@ -46,7 +45,7 @@ extern void update_mqtt_publish();
 extern void handle_internet_disconnection();
 
 // Internet health check (implemented in main.cpp)
-extern int app_check_internet_status();
+extern int app_check_internet_status(IPAddress ip, uint16_t port);
 extern void app_recover_offline();
 
 // Backlight PWM
@@ -129,7 +128,7 @@ static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nu
     fsm.last_transition_reason = reason;
 
     logger.notice(
-        "[FSM] %u (%s)\t -> %u (%s) | reason=%s | run=%lums",
+        "[FSM] %2u (%-14s) -> %2u (%-14s) | reason=%-15s | run=%6lums",
         (unsigned)old_state,
         app_state_to_string(old_state),
         (unsigned)new_state,
@@ -213,7 +212,7 @@ static bool ensure_wireguard_ok()
 
     // Test (as requested): ping our configured WG interface IP.
     // NOTE: this proves interface presence, not peer handshake.
-    if (Ping.ping(wg_self_ip, 1))
+    if (app_check_internet_status(IPAddress(192, 168, 0, 202), 1883) == true)
         return true;
 
     // If setup is already running, treat as "in progress" instead of failing the FSM.
@@ -584,7 +583,7 @@ void app_fsm_poll(AppFsm &fsm)
             break;
         }
     
-        const int internet_status = app_check_internet_status();
+        const int internet_status = app_check_internet_status(IPAddress(192, 168, 0, 202), 1883);
         if (internet_status != 1)
         {
             app_recover_offline();

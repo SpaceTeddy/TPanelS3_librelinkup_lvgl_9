@@ -391,7 +391,6 @@ const uint32_t connectTimeoutMs = 5000;
 
 ///////////////////// INTERNET CONNECTIVITY ////////////////////
 
-#include <ESP32Ping.h>
 
 /**
  * @enum InternetStatus
@@ -403,7 +402,6 @@ enum InternetStatus
     INTERNET_CONNECTED = 1,    ///< Internet connection active
 };
 
-const IPAddress ping_ip(1, 1, 1, 1);          ///< Cloudflare DNS for connectivity check
 bool internet_status = INTERNET_DISCONNECTED; ///< Current internet status
 
 /**
@@ -411,9 +409,9 @@ bool internet_status = INTERNET_DISCONNECTED; ///< Current internet status
  *
  * @return 1 if internet is connected, 0 if disconnected
  */
-int app_check_internet_status()
+int app_check_internet_status(IPAddress ip, uint16_t port)
 {
-    return helper.check_internet_status();
+    return helper.check_internet_status(ip, port);
 }
 
 /**
@@ -2870,7 +2868,7 @@ bool setup_wg(bool enable, bool force_reinit)
     // If already initialized and not forcing, do a quick self-IP ping (interface presence)
     if (wg.is_initialized() && !force_reinit)
     {
-        if (Ping.ping(local_ip, 1))
+        if (app_check_internet_status(IPAddress(192, 168, 0, 202), 1883) == true)
         {
             logger.notice("[setup_wg] WG already initialized (self IP ping ok).");
             g_wg_busy = false;
@@ -2921,7 +2919,7 @@ bool setup_wg(bool enable, bool force_reinit)
     bool ok = false;
     while (millis() < deadline)
     {
-        if (Ping.ping(local_ip, 1))
+        if (app_check_internet_status(IPAddress(192, 168, 0, 202), 1883) == true)
         {
             ok = true;
             break;

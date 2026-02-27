@@ -9,7 +9,6 @@
 #include <Arduino.h>
 #include <IPAddress.h>
 #include <LittleFS.h>
-#include <ESP32Ping.h>
 #include <ArduinoJson.h>
 
 #include <memory>
@@ -92,7 +91,7 @@ class HELPER {
          * @brief Checks if the ESP32 has an active internet connection.
          * @return True if connected to the internet, otherwise false.
          */
-        bool check_internet_status();
+        bool check_internet_status(IPAddress ip, uint16_t port);
 
         /**
          * @brief Retrieves the current ESP32 time and date as a string.
