@@ -350,27 +350,27 @@ void onOTAEnd(bool success)
 
 /// @name Timer Intervals (milliseconds)
 /// @{
-const uint64_t timer_250ms = 250;           ///< 250ms timer interval
+//const uint64_t timer_250ms = 250;           ///< 250ms timer interval
 const uint64_t timer_1000ms = 1000;         ///< 1 second timer interval
-const uint64_t timer_5000ms = 5000;         ///< 5 second timer interval
-const uint64_t timer_30000ms = 30000;       ///< 30 second timer interval
-const uint64_t timer_10000ms = 10000;       ///< 10 second timer interval
-const uint64_t timer_60000ms = 60000;       ///< 60 second (1 minute) timer interval
-const uint64_t timer_120000ms = 120000;     ///< 2 minute timer interval
-const uint64_t timer_300100ms = 300100;     ///< 5 minute timer interval
+//const uint64_t timer_5000ms = 5000;         ///< 5 second timer interval
+//const uint64_t timer_30000ms = 30000;       ///< 30 second timer interval
+//const uint64_t timer_10000ms = 10000;       ///< 10 second timer interval
+//const uint64_t timer_60000ms = 60000;       ///< 60 second (1 minute) timer interval
+//const uint64_t timer_120000ms = 120000;     ///< 2 minute timer interval
+//const uint64_t timer_300100ms = 300100;     ///< 5 minute timer interval
 const uint64_t config_sleep_timer = 120000; ///< 60 minute (1 hour) sleep timer
 /// @}
 
 /// @name Timer Backup Variables (last trigger time)
 /// @{
-uint64_t g_timer_250ms_backup = 0;
+//uint64_t g_timer_250ms_backup = 0;
 uint64_t g_timer_1000ms_backup = 0;
-uint64_t g_timer_5000ms_backup = 0;
-uint64_t g_timer_30000ms_backup = 0;
-uint64_t g_timer_10000ms_backup = 0;
-uint64_t g_timer_60000ms_backup = 0;
-uint64_t g_timer_120000ms_backup = 0;
-uint64_t g_timer_300100ms_backup = 0;
+//uint64_t g_timer_5000ms_backup = 0;
+//uint64_t g_timer_30000ms_backup = 0;
+//uint64_t g_timer_10000ms_backup = 0;
+//uint64_t g_timer_60000ms_backup = 0;
+//uint64_t g_timer_120000ms_backup = 0;
+//uint64_t g_timer_300100ms_backup = 0;
 uint64_t config_sleep_timer_backup = 0;
 /// @}
 
@@ -3236,16 +3236,28 @@ void setup()
     lv_obj_add_event_cb(btn_login, btn_login_event_cb, LV_EVENT_CLICKED, NULL);
 
     // Focus handlers to bind the keyboard to the active text area
-    lv_obj_add_event_cb(ui_ta_email, [](lv_event_t *event)
-                        {
-        lv_keyboard_set_textarea(ui_kb, ui_ta_email);
-        lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN); }, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(
+        ui_ta_email,
+        [](lv_event_t *event)
+        {
+            lv_keyboard_set_textarea(ui_kb, ui_ta_email);
+            lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
+        },
+        LV_EVENT_FOCUSED,
+        NULL
+    );
 
-    lv_obj_add_event_cb(ui_ta_password, [](lv_event_t *event)
-                        {
-        lv_keyboard_set_textarea(ui_kb, ui_ta_password);
-        lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN); }, LV_EVENT_FOCUSED, NULL);
-    // ------------------------------------------------------------------------
+    lv_obj_add_event_cb(
+        ui_ta_password,
+        [](lv_event_t *event)
+        {
+            lv_keyboard_set_textarea(ui_kb, ui_ta_password);
+            lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
+        },
+        LV_EVENT_FOCUSED,
+        NULL
+    );
+// ------------------------------------------------------------------------
 
     // ------------------------ Application FSM -------------------------------
     app_fsm_init(g_fsm);
@@ -3278,18 +3290,16 @@ void loop()
     // Only run main loop if no OTA update in progress
     if (ota_in_progress == false)
     {
-
         // NOTE: All other continuous loops run inside LoopTask().
         // Keep this loop short to maintain UI responsiveness.
 
         // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
-        /*
         if (SerialPort.available() > 0)
         {
             UART_IPC_DATA1 = SerialPort.read();
             DBGprint; Serial.print(UART_IPC_DATA1);
             logger.notice("UART_IPC: %c", UART_IPC_DATA1);
-        }*/
+        }
 
         // --- LVGL: let the GUI process pending work ------------------------------
         lv_timer_handler();
@@ -3299,13 +3309,7 @@ void loop()
         app_fsm_poll(g_fsm);
 
         // ----------------------------- Software timers ---------------------------
-        // 250 ms tick:
-        /*
-        if (millis() - g_timer_250ms_backup > timer_250ms) {
-            g_timer_250ms_backup = millis();
-        }
-        */
-
+        
         // 1 s tick: update debug view labels if visible (and not during OTA)
         if (millis() - g_timer_1000ms_backup > timer_1000ms)
         {
@@ -3368,44 +3372,6 @@ void loop()
             }
         }
 
-        // 5 s tick:
-        /*
-        if (millis() - g_timer_5000ms_backup > timer_5000ms) {
-            g_timer_5000ms_backup = millis();
-        }*/
-
-        // 10 s tick (reserved)
-        /*
-        if (millis() - g_timer_10000ms_backup > timer_10000ms) {
-            g_timer_10000ms_backup = millis();
-        }
-            */
-
-        // 30 s tick (reserved)
-        /*
-        if (millis() - g_timer_30000ms_backup > timer_30000ms) {
-            g_timer_30000ms_backup = millis();
-        }
-        */
-
-        // 60 s cadence:
-        /*
-        if (millis() - g_timer_60000ms_backup > timer_60000ms) {
-            g_timer_60000ms_backup = millis();
-            // FSM handles fetch/publish/wg checks.
-        }
-        */
-
-        // 120 s tick (reserved)
-        /*
-        if (millis() - g_timer_120000ms_backup > timer_120000ms) {
-            g_timer_120000ms_backup = millis();
-        }*/
-
-        // 60 min inactivity: dim/backlight off and Wi-Fi health check
-        /*
-        if (millis() - config_sleep_timer_backup > config_sleep_timer) {
-            config_sleep_timer_backup = millis();
-        }*/
+ 
     }
 }
