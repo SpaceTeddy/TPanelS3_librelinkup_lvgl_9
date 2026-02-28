@@ -8,11 +8,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
-
 #include "settings.h"
 #include "mqtt.h"
-
-
 
 
 //------------------------[uuid logger]-----------------------------------
@@ -22,13 +19,11 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
 // --- externs from your existing codebase (main.cpp) ---
 extern SETTINGS settings;
-
 extern MQTT mqtt;
 extern PubSubClient mqtt_client;
 
 extern bool ota_in_progress;
 
-const IPAddress wg_self_ip(1, 1, 1, 1); // Cloudflare DNS for connectivity checks
 
 // Existing setup/actions you already have:
 extern void setup_wifi();
@@ -128,7 +123,7 @@ static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nu
     fsm.last_transition_reason = reason;
 
     logger.notice(
-        "[FSM] %2u (%-14s) -> %2u (%-14s) | reason=%-15s | run=%6lums",
+        "[FSM] %2u %-14s -> %2u %-14s | reason=%-15s | run=%6lums",
         (unsigned)old_state,
         app_state_to_string(old_state),
         (unsigned)new_state,
