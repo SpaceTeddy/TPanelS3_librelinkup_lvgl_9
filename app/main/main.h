@@ -16,6 +16,7 @@
 extern int16_t glucose_delta;               ///< Change from last reading
 extern uint16_t glucoseMeasurement_backup;  ///< Previous measurement
 
+
 /**
  * @enum GlucoseLabelColor
  * @brief Color of Glucose Label

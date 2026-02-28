@@ -41,6 +41,7 @@ struct AppFsmConfig
   uint32_t backoff_min_ms = 2000;
   uint32_t backoff_max_ms = 60000;
   uint32_t internet_check_period_ms = 60000;  ///< periodic internet health check
+  uint32_t debug_screen_period_ms = 1000; // 1s
 };
 
 struct AppFsm
@@ -50,7 +51,6 @@ struct AppFsm
   AppState state = AppState::BOOT;
 
   uint32_t last_state_change_ms = 0;
-  uint32_t last_1s_tick_ms = 0;
   uint32_t last_fetch_ms = 0;
   uint32_t last_wg_check_ms = 0;
   uint32_t backoff_until_ms = 0;
@@ -62,6 +62,10 @@ struct AppFsm
   uint32_t last_backoff_ms = 0;
 
   uint32_t last_internet_check_ms = 0;
+
+  // Debug screen 1s polling
+  uint32_t last_1s_tick_ms = 0;
+  uint32_t last_debug_screen_ms = 0;
 
   // Display dimming
   uint32_t last_user_activity_ms = 0;

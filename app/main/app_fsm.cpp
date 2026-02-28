@@ -10,6 +10,7 @@
 #include <PubSubClient.h>
 #include "settings.h"
 #include "mqtt.h"
+#include "main.h"
 
 
 //------------------------[uuid logger]-----------------------------------
@@ -23,7 +24,7 @@ extern MQTT mqtt;
 extern PubSubClient mqtt_client;
 
 extern bool ota_in_progress;
-
+extern bool flag_debug_screen;
 
 // Existing setup/actions you already have:
 extern void setup_wifi();
@@ -308,6 +309,7 @@ void app_fsm_init(AppFsm &fsm)
     fsm.last_dim_step_ms = 0;
     fsm.brightness_before_dim = settings.config.brightness;
     fsm.display_dim_active = false;
+    fsm.last_debug_screen_ms = millis();
     enter_state(fsm, AppState::BOOT, "OTA OFF");
 }
 
@@ -513,8 +515,17 @@ void app_fsm_poll(AppFsm &fsm)
             enter_state(fsm, AppState::VPN_CHECK, "WG PERIODIC");
             break;
         }
+
+        // 6) Debug screen tick (jede Sekunde)
+        // Debug screen update (every 1s) — no FSM transition (avoids log spam)
+        if (!fsm.display_dim_active &&
+            (millis() - fsm.last_debug_screen_ms) >= fsm.cfg.debug_screen_period_ms)
+        {
+            fsm.last_debug_screen_ms = millis();
+            flag_debug_screen = true; // Set flag, damit der Hauptloop weiß, dass er den Debug-Bildschirm aktualisieren soll
+        }
     
-        // 6) Periodic internet health check
+        // 7) Periodic internet health check
         if ((millis() - fsm.last_internet_check_ms) >= fsm.cfg.internet_check_period_ms)
         {
             fsm.last_internet_check_ms = millis();
@@ -522,7 +533,7 @@ void app_fsm_poll(AppFsm &fsm)
             break;
         }
     
-        // 7) Display inactivity dim
+        // 8) Display inactivity dim
         if (should_dim_display(fsm))
         {
             enter_state(fsm, AppState::DISPLAY_DIM, "INACTIVITY");

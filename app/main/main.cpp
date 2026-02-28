@@ -54,6 +54,7 @@ char UART_IPC_DATA1 = 0; ///< Buffer for received UART data
 SETTINGS settings; ///< Settings manager instance
 
 bool flag_mqtt_master_rx = true; // for first run
+bool flag_debug_screen = true;   // Debug flag to trigger debug screen on first loop iteration
 
 static AppFsm g_fsm; ///< Application state machine (polled from loop())
 
@@ -350,27 +351,11 @@ void onOTAEnd(bool success)
 
 /// @name Timer Intervals (milliseconds)
 /// @{
-//const uint64_t timer_250ms = 250;           ///< 250ms timer interval
-const uint64_t timer_1000ms = 1000;         ///< 1 second timer interval
-//const uint64_t timer_5000ms = 5000;         ///< 5 second timer interval
-//const uint64_t timer_30000ms = 30000;       ///< 30 second timer interval
-//const uint64_t timer_10000ms = 10000;       ///< 10 second timer interval
-//const uint64_t timer_60000ms = 60000;       ///< 60 second (1 minute) timer interval
-//const uint64_t timer_120000ms = 120000;     ///< 2 minute timer interval
-//const uint64_t timer_300100ms = 300100;     ///< 5 minute timer interval
 const uint64_t config_sleep_timer = 120000; ///< 60 minute (1 hour) sleep timer
 /// @}
 
 /// @name Timer Backup Variables (last trigger time)
 /// @{
-//uint64_t g_timer_250ms_backup = 0;
-uint64_t g_timer_1000ms_backup = 0;
-//uint64_t g_timer_5000ms_backup = 0;
-//uint64_t g_timer_30000ms_backup = 0;
-//uint64_t g_timer_10000ms_backup = 0;
-//uint64_t g_timer_60000ms_backup = 0;
-//uint64_t g_timer_120000ms_backup = 0;
-//uint64_t g_timer_300100ms_backup = 0;
 uint64_t config_sleep_timer_backup = 0;
 /// @}
 
@@ -2517,6 +2502,78 @@ void glucose_statistics()
     logger.debug("===========================================");
 }
 
+/**
+ * @brief Updates debug screen with current system and sensor information
+ *
+ * Displays real-time data for debugging purposes:
+ * - Data refresh countdown
+ * - ESP32 system time
+ * - Local IP address
+ * - Sensor ID and status
+ * - Current glucose value and trend
+ *
+ * @note Only updates if debug screen is active
+ * @note Uses LibreLinkUp data for sensor information
+ * @note Formats output for readability
+ */
+void update_debug_screen()
+{
+    if (lv_scr_act() == ui_Debug_screen)
+        {
+            // Data refresh countdown (FSM cadence)
+            const uint32_t period_ms = g_fsm.cfg.fetch_period_ms ? g_fsm.cfg.fetch_period_ms : 60000U;
+            const uint32_t elapsed_ms = (uint32_t)(millis() - (uint32_t)g_fsm.last_fetch_ms);
+            uint32_t remaining_s = (elapsed_ms < period_ms) ? ((period_ms - elapsed_ms) / 1000U) : 0;
+
+            char buf[96];
+
+            snprintf(buf, sizeof(buf), "Data Refresh in: %lu sec.", (unsigned long)remaining_s);
+            lv_label_set_text(ui_Label_DebugDataRefresh, buf);
+
+            snprintf(buf, sizeof(buf), "ESP32 Time: %s", helper.get_esp_time_date().c_str());
+            lv_label_set_text(ui_Label_DebugTime, buf);
+
+            IPAddress ip = WiFi.localIP();
+            snprintf(buf, sizeof(buf), "IP: %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+            lv_label_set_text(ui_Label_DebugIP, buf);
+
+            snprintf(buf, sizeof(buf), "Sensor: %s", librelinkup.llu_sensor_data.sensor_id.c_str());
+            lv_label_set_text(ui_Label_DebugSensor, buf);
+
+            snprintf(buf, sizeof(buf), "Valid: %dDays %dHours %dMinutes",
+                        librelinkup.sensor_livetime.sensor_valid_days,
+                        librelinkup.sensor_livetime.sensor_valid_hours,
+                        librelinkup.sensor_livetime.sensor_valid_minutes);
+            lv_label_set_text(ui_Label_DebugSensorTimestamp, buf);
+
+            const int st = librelinkup.llu_sensor_data.sensor_state;
+            const char *st_txt =
+                (st == 0) ? "unknown" : (st == 1) ? "not started yet"
+                                    : (st == 2)   ? "starting phase"
+                                    : (st == 3)   ? "ready"
+                                    : (st == 4)   ? "expired"
+                                    : (st == 5)   ? "shut down"
+                                    : (st == 6)   ? "has failure"
+                                                    : "other";
+
+            snprintf(buf, sizeof(buf), "Sensor State: %d => %s", st, st_txt);
+            lv_label_set_text(ui_Label_DebugSensorState, buf);
+
+            char delta_buf[16];
+            if (glucose_delta == 0)
+                snprintf(delta_buf, sizeof(delta_buf), "±%d", glucose_delta);
+            else if (glucose_delta > 0)
+                snprintf(delta_buf, sizeof(delta_buf), "+%d", glucose_delta);
+            else
+                snprintf(delta_buf, sizeof(delta_buf), "%d", glucose_delta);
+
+            snprintf(buf, sizeof(buf), "Sensor Value: %d%s %s mg/dL",
+                        librelinkup.llu_glucose_data.glucoseMeasurement,
+                        librelinkup.llu_glucose_data.str_trendArrow.c_str(),
+                        delta_buf);
+            lv_label_set_text(ui_Label_DebugSensorValue, buf);
+        }
+}
 ///////////////////// FREERTOS BACKGROUND TASKS ////////////////////
 
 /**
@@ -3308,70 +3365,13 @@ void loop()
         // --- Application state machine (connectivity/fetch/publish) -----------------
         app_fsm_poll(g_fsm);
 
-        // ----------------------------- Software timers ---------------------------
         
         // 1 s tick: update debug view labels if visible (and not during OTA)
-        if (millis() - g_timer_1000ms_backup > timer_1000ms)
+        if (flag_debug_screen == true)
         {
-            g_timer_1000ms_backup = millis();
-
-            if (lv_scr_act() == ui_Debug_screen)
-            {
-                // Data refresh countdown (FSM cadence)
-                const uint32_t period_ms = g_fsm.cfg.fetch_period_ms ? g_fsm.cfg.fetch_period_ms : 60000U;
-                const uint32_t elapsed_ms = (uint32_t)(millis() - (uint32_t)g_fsm.last_fetch_ms);
-                uint32_t remaining_s = (elapsed_ms < period_ms) ? ((period_ms - elapsed_ms) / 1000U) : 0;
-
-                char buf[96];
-
-                snprintf(buf, sizeof(buf), "Data Refresh in: %lu sec.", (unsigned long)remaining_s);
-                lv_label_set_text(ui_Label_DebugDataRefresh, buf);
-
-                snprintf(buf, sizeof(buf), "ESP32 Time: %s", helper.get_esp_time_date().c_str());
-                lv_label_set_text(ui_Label_DebugTime, buf);
-
-                IPAddress ip = WiFi.localIP();
-                snprintf(buf, sizeof(buf), "IP: %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-                lv_label_set_text(ui_Label_DebugIP, buf);
-
-                snprintf(buf, sizeof(buf), "Sensor: %s", librelinkup.llu_sensor_data.sensor_id.c_str());
-                lv_label_set_text(ui_Label_DebugSensor, buf);
-
-                snprintf(buf, sizeof(buf), "Valid: %dDays %dHours %dMinutes",
-                         librelinkup.sensor_livetime.sensor_valid_days,
-                         librelinkup.sensor_livetime.sensor_valid_hours,
-                         librelinkup.sensor_livetime.sensor_valid_minutes);
-                lv_label_set_text(ui_Label_DebugSensorTimestamp, buf);
-
-                const int st = librelinkup.llu_sensor_data.sensor_state;
-                const char *st_txt =
-                    (st == 0) ? "unknown" : (st == 1) ? "not started yet"
-                                        : (st == 2)   ? "starting phase"
-                                        : (st == 3)   ? "ready"
-                                        : (st == 4)   ? "expired"
-                                        : (st == 5)   ? "shut down"
-                                        : (st == 6)   ? "has failure"
-                                                      : "other";
-
-                snprintf(buf, sizeof(buf), "Sensor State: %d => %s", st, st_txt);
-                lv_label_set_text(ui_Label_DebugSensorState, buf);
-
-                char delta_buf[16];
-                if (glucose_delta == 0)
-                    snprintf(delta_buf, sizeof(delta_buf), "±%d", glucose_delta);
-                else if (glucose_delta > 0)
-                    snprintf(delta_buf, sizeof(delta_buf), "+%d", glucose_delta);
-                else
-                    snprintf(delta_buf, sizeof(delta_buf), "%d", glucose_delta);
-
-                snprintf(buf, sizeof(buf), "Sensor Value: %d%s %s mg/dL",
-                         librelinkup.llu_glucose_data.glucoseMeasurement,
-                         librelinkup.llu_glucose_data.str_trendArrow.c_str(),
-                         delta_buf);
-                lv_label_set_text(ui_Label_DebugSensorValue, buf);
-            }
+            flag_debug_screen = false; // reset flag, will be set again by timer
+            //logger.debug("1s timer tick: updating debug screen labels...");
+            update_debug_screen();
         }
-
- 
     }
 }
