@@ -129,6 +129,7 @@ void HELPER::format_time(char *buffer, size_t buffer_size, time_t timestamp) {
     strftime(buffer, buffer_size, "%H:%M", tm_info);
 }
 //-----------------------[check internet connection with Ping]-------------------
+// Returns true if the ESP32 can connect to the specified IP and port, otherwise false
 bool HELPER::check_internet_status(IPAddress ip, uint16_t port)
 {
 
