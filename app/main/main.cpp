@@ -2374,7 +2374,7 @@ void update_glucose_data()
     librelinkup.llu_status.sensor_state = librelinkup.check_sensor_lifetime(
         librelinkup.llu_sensor_data.sensor_non_activ_unixtime,
         librelinkup.llu_sensor_data.sensor_runtime);
-    logger.debug("Sensor State: %d", librelinkup.llu_status.sensor_state);
+    //logger.debug("Sensor State: %d", librelinkup.llu_status.sensor_state);
 
     // Validate timestamp
     librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp_factory(
