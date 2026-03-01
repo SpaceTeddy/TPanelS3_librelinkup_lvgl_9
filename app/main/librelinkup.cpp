@@ -375,14 +375,14 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
 {
     time_t now = time(nullptr);
     if (now < 1700000000) {
-        logger.notice("Failed to obtain valid time (NTP?)");
+        logger.debug("Failed to obtain valid time (NTP?)");
         return LOCAL_TIME_ERROR;
     }
 
     time_t tCloud = parseTimestamp(cloud_ts.c_str());
     time_t tFactory = parseTimestamp(factory_ts.c_str());
     if (tFactory == 0) {
-        logger.notice("Error parsing FactoryTimestamp: %s", factory_ts.c_str());
+        logger.debug("Error parsing FactoryTimestamp: %s", factory_ts.c_str());
         return SENSOR_TIMECODE_ERROR;
     }
 
@@ -415,9 +415,14 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
         logger.debug("diff_ms                           : %ld (timeout=%ld)",
                       (long)diff_ms, (long)LIBRELINKUPSENSORTIMEOUT);
     }
-
-    if (diff_ms < 0) return SENSOR_TIMECODE_OUT_OF_RANGE;
-    if (diff_ms > LIBRELINKUPSENSORTIMEOUT) return SENSOR_TIMECODE_OUT_OF_RANGE;
+    if (diff_ms < 0 || (diff_ms > LIBRELINKUPSENSORTIMEOUT && diff_ms < LIBRELINKUPSENSORLOSTTIMEOUT)){
+        logger.debug("Sensor Factory TimeStamp out of range");
+        return SENSOR_TIMECODE_OUT_OF_RANGE;
+    }
+    if(diff_ms > LIBRELINKUPSENSORLOSTTIMEOUT){
+        logger.debug("Sensor active but probably lost by user");
+        return SENSOR_LOST;
+    }
     return SENSOR_TIMECODE_VALID;
 }
 
