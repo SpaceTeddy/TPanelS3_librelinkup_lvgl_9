@@ -643,11 +643,12 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         }
 
         // 2) afterwards accept only *strictly newer* measurement times
+        /*
         if (g_last_raw_meas_epoch >= 0 && meas_epoch <= g_last_raw_meas_epoch) {
             logger.notice("MQTT raw ignored (duplicate/old) meas_epoch=%lld last=%lld",
                         (long long)meas_epoch, (long long)g_last_raw_meas_epoch);
             return;
-        }
+        }*/
 
         g_last_raw_meas_epoch = meas_epoch;
 
@@ -1986,6 +1987,11 @@ void handle_invalid_timestamp()
         logger.notice("glucoseMeasurement: no valid sensor data");
         librelinkup.sensor_reconnect = 1;
     }
+    
+    /*
+    if(librelinkup.llu_status.timestamp_status == SENSOR_LOST){
+        logger.notice("glucoseMeasurement: sensor lost?!");
+    }*/
 
     static uint8_t invalid_timestamp_counter = 0;
 
@@ -2012,6 +2018,7 @@ void handle_invalid_timestamp()
             logger.notice("invalid_timestamp_counter out of range! -> call restart");
         }
     }
+
 }
 
 // FactoryTimestamp-driven fetch scheduling: target fetch ~5s after the NEXT expected measurement.
@@ -2233,6 +2240,11 @@ void update_trend_message()
         logger.notice("no active sensor");
         break;
 
+    case SENSOR_LOST:
+        librelinkup.llu_glucose_data.str_TrendMessage = "sensor probably lost!";
+        logger.notice("sensor probably lost!");
+        break;
+    
     case SENSOR_STARTING:
         remaining_time = librelinkup.get_remaining_warmup_time(
             librelinkup.llu_sensor_data.sensor_non_activ_unixtime);
@@ -2243,6 +2255,10 @@ void update_trend_message()
 
     case SENSOR_READY:
         librelinkup.llu_glucose_data.str_TrendMessage = "";
+        if(librelinkup.llu_status.timestamp_status == SENSOR_LOST){
+            librelinkup.llu_glucose_data.str_TrendMessage = "sensor probably lost!";
+            //logger.notice("sensor probably lost!");
+        }
         break;
     }
 }
@@ -2358,6 +2374,7 @@ void update_glucose_data()
     librelinkup.llu_status.sensor_state = librelinkup.check_sensor_lifetime(
         librelinkup.llu_sensor_data.sensor_non_activ_unixtime,
         librelinkup.llu_sensor_data.sensor_runtime);
+    logger.debug("Sensor State: %d", librelinkup.llu_status.sensor_state);
 
     // Validate timestamp
     librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp_factory(
