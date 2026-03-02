@@ -59,8 +59,20 @@ enum TimeCodeState : uint8_t {
     SENSOR_TIMECODE_OUT_OF_RANGE = 2, ///< Timestamp exceeds valid range
     SENSOR_NOT_ACTIVE            = 3, ///< Sensor not initialized
     LOCAL_TIME_ERROR             = 4, ///< System clock mismatch
-    SENSOR_LOST                  = 5, ///< Sensor still active but manual error (user removed from body)
 };
+
+/**
+ * @enum SensorDataState
+ * @brief Data freshness/availability derived from timestamps
+ */
+enum SensorDataState : uint8_t {
+    DATA_UNKNOWN = 0,   ///< No assessment yet
+    DATA_OK      = 1,   ///< Fresh data
+    DATA_DELAYED = 2,   ///< Data is late but still within stale window
+    DATA_LOST    = 3,   ///< No new data within stale window
+    DATA_ERROR   = 4,   ///< Timestamp parsing/local time error
+};
+
 
 /**
  * @enum SensorState
@@ -166,15 +178,14 @@ public:
      * @brief Time-related configuration parameters
      * @{
      */
-    static const int LIBRELINKUPSENSORTIMEOUT = (60000)*(2);        ///< 2 minute sensor timeout (ms)
-    static const int LIBRELINKUPSENSORLOSTTIMEOUT = (60000)*(15);   ///< 15 minute sensor timeout (ms)
-    static const int GRAPHDATAARRAYSIZE_PLUS_ONE = 1;               ///< Graph array size buffer
-    static const int GRAPHDATAARRAYSIZE = 141;                      ///< Primary data points count
-    static const int UNIXTIME1HOUR = 3600;                          ///< Seconds per hour
-    static const int UNIXTIME1DAY = 86400;                          ///< Seconds in 1 day
-    static const int UNIXTIME14DAYS = 14 * UNIXTIME1DAY;            ///< Seconds in 14 days
-    static const int UNIXTIME15DAYS = 15 * UNIXTIME1DAY;            ///< Seconds in 15 days
-    static const int TIMEFULLGRAPHDATA = 1160100;                   ///< Full dataset duration (13d 12h 15m)
+    static const int LIBRELINKUPSENSORTIMEOUT = 120000;  ///< 2 minute sensor timeout (ms)
+    static const int GRAPHDATAARRAYSIZE_PLUS_ONE = 1;    ///< Graph array size buffer
+    static const int GRAPHDATAARRAYSIZE = 141;           ///< Primary data points count
+    static const int UNIXTIME1HOUR = 3600;               ///< Seconds per hour
+    static const int UNIXTIME1DAY = 86400;               ///< Seconds in 1 day
+    static const int UNIXTIME14DAYS = 14 * UNIXTIME1DAY; ///< Seconds in 14 days
+    static const int UNIXTIME15DAYS = 15 * UNIXTIME1DAY; ///< Seconds in 15 days
+    static const int TIMEFULLGRAPHDATA = 1160100;        ///< Full dataset duration (13d 12h 15m)
     /** @} */
 
     /**
@@ -287,6 +298,9 @@ public:
         uint8_t timestamp_status;           ///< Timestamp validation result
         uint8_t sensor_state;               ///< Sensor lifecycle state
         uint32_t last_timestamp_unixtime;   ///< Last valid Unix timestamp
+    
+        int32_t data_age_ms = 0;         ///< Age of last measurement vs now (ms); negative means future
+        uint8_t data_state = DATA_UNKNOWN; ///< Derived data freshness state (SensorDataState)
     } llu_status;
 
     /**
@@ -496,7 +510,9 @@ public:
             const String& cloud_ts,
             uint8_t print_mode);
 
-    /**
+    
+    void update_data_state(uint32_t warn_ms = 30000, uint32_t stale_ms = LIBRELINKUPSENSORTIMEOUT);
+/**
      * @brief Map sensor state code to enum
      * @param state Raw state code
      * @return SensorState enum value

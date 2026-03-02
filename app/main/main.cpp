@@ -643,12 +643,11 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         }
 
         // 2) afterwards accept only *strictly newer* measurement times
-        /*
         if (g_last_raw_meas_epoch >= 0 && meas_epoch <= g_last_raw_meas_epoch) {
             logger.notice("MQTT raw ignored (duplicate/old) meas_epoch=%lld last=%lld",
                         (long long)meas_epoch, (long long)g_last_raw_meas_epoch);
             return;
-        }*/
+        }
 
         g_last_raw_meas_epoch = meas_epoch;
 
@@ -1987,11 +1986,6 @@ void handle_invalid_timestamp()
         logger.notice("glucoseMeasurement: no valid sensor data");
         librelinkup.sensor_reconnect = 1;
     }
-    
-    /*
-    if(librelinkup.llu_status.timestamp_status == SENSOR_LOST){
-        logger.notice("glucoseMeasurement: sensor lost?!");
-    }*/
 
     static uint8_t invalid_timestamp_counter = 0;
 
@@ -2018,7 +2012,6 @@ void handle_invalid_timestamp()
             logger.notice("invalid_timestamp_counter out of range! -> call restart");
         }
     }
-
 }
 
 // FactoryTimestamp-driven fetch scheduling: target fetch ~5s after the NEXT expected measurement.
@@ -2223,11 +2216,50 @@ void synchronize_time_offset_epoch()
  *
  * @warning Buffer size limited to 30 characters
  */
+
 void update_trend_message()
 {
     char buffer[30];
     int remaining_time = 0;
 
+    // If sensor is READY but data is delayed/lost, show a clear message.
+    if (librelinkup.llu_status.sensor_state == SENSOR_READY)
+    {
+        if (librelinkup.llu_status.data_state == DATA_LOST)
+        {
+            // Keep short for UI; include minutes if possible
+            int32_t age_ms = librelinkup.llu_status.data_age_ms;
+            if (age_ms < 0) age_ms = 0;
+            const int age_min = (int)(age_ms / 60000);
+
+            if (age_min > 0) {
+                snprintf(buffer, sizeof(buffer), "KEINE DATEN (%d min)", age_min);
+                librelinkup.llu_glucose_data.str_TrendMessage = buffer;
+            } else {
+                librelinkup.llu_glucose_data.str_TrendMessage = "KEINE DATEN";
+            }
+            return;
+        }
+        if (librelinkup.llu_status.data_state == DATA_DELAYED)
+        {
+            int32_t age_ms = librelinkup.llu_status.data_age_ms;
+            if (age_ms < 0) age_ms = 0;
+            const int age_min = (int)(age_ms / 60000);
+            if (age_min > 0) {
+                snprintf(buffer, sizeof(buffer), "VERZOEGERUNG (%d min)", age_min);
+                librelinkup.llu_glucose_data.str_TrendMessage = buffer;
+            } else {
+                librelinkup.llu_glucose_data.str_TrendMessage = "VERZOEGERUNG";
+            }
+            return;
+        }
+
+        // DATA_OK or unknown -> no extra trend message
+        librelinkup.llu_glucose_data.str_TrendMessage = "";
+        return;
+    }
+
+    // Non-ready sensor lifecycle states
     switch (librelinkup.llu_status.sensor_state)
     {
     case SENSOR_EXPIRED:
@@ -2240,28 +2272,20 @@ void update_trend_message()
         logger.notice("no active sensor");
         break;
 
-    case SENSOR_LOST:
-        librelinkup.llu_glucose_data.str_TrendMessage = "sensor lost!";
-        logger.notice("sensor lost!");
-        break;
-    
     case SENSOR_STARTING:
         remaining_time = librelinkup.get_remaining_warmup_time(
             librelinkup.llu_sensor_data.sensor_non_activ_unixtime);
-        sprintf(buffer, "sensor ready in %d min", remaining_time);
+        snprintf(buffer, sizeof(buffer), "sensor ready in %d min", remaining_time);
         librelinkup.llu_glucose_data.str_TrendMessage = buffer;
         logger.notice("Sensor in starting phase!");
         break;
 
-    case SENSOR_READY:
+    default:
         librelinkup.llu_glucose_data.str_TrendMessage = "";
-        if(librelinkup.llu_status.timestamp_status == SENSOR_LOST){
-            librelinkup.llu_glucose_data.str_TrendMessage = "sensor lost!";
-            //logger.notice("sensor lost!");
-        }
         break;
     }
 }
+
 
 /**
  * @brief Updates 5-minute chart refresh counter
@@ -2374,7 +2398,6 @@ void update_glucose_data()
     librelinkup.llu_status.sensor_state = librelinkup.check_sensor_lifetime(
         librelinkup.llu_sensor_data.sensor_non_activ_unixtime,
         librelinkup.llu_sensor_data.sensor_runtime);
-    //logger.debug("Sensor State: %d", librelinkup.llu_status.sensor_state);
 
     // Validate timestamp
     librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp_factory(
@@ -2384,6 +2407,10 @@ void update_glucose_data()
     // Convert timestamp to Unix time
     librelinkup.llu_status.last_timestamp_unixtime = helper.convertStrToUnixTime(
         librelinkup.llu_glucose_data.str_measurement_timestamp);
+
+    // Derive data freshness state from timestamp_status + data_age_ms
+    librelinkup.update_data_state(30000, 900000); // warn after 30s, stale after 15min
+
 
     // Set trend message based on sensor status
     update_trend_message();
