@@ -2241,8 +2241,8 @@ void update_trend_message()
         break;
 
     case SENSOR_LOST:
-        librelinkup.llu_glucose_data.str_TrendMessage = "sensor probably lost!";
-        logger.notice("sensor probably lost!");
+        librelinkup.llu_glucose_data.str_TrendMessage = "sensor lost!";
+        logger.notice("sensor lost!");
         break;
     
     case SENSOR_STARTING:
@@ -2256,8 +2256,8 @@ void update_trend_message()
     case SENSOR_READY:
         librelinkup.llu_glucose_data.str_TrendMessage = "";
         if(librelinkup.llu_status.timestamp_status == SENSOR_LOST){
-            librelinkup.llu_glucose_data.str_TrendMessage = "sensor probably lost!";
-            //logger.notice("sensor probably lost!");
+            librelinkup.llu_glucose_data.str_TrendMessage = "sensor lost!";
+            //logger.notice("sensor lost!");
         }
         break;
     }
