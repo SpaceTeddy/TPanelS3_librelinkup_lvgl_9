@@ -420,11 +420,11 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
         logger.debug("Cloud TS epoch                    : %ld", (long)tCloud);
         logger.debug("Local meas epoch (factory+off)    : %ld", (long)tLocalMeas);
         logger.debug("diff_ms                           : %ld (timeout=%ld)",
-                      (long)diff_ms, (long)LIBRELINKUPSENSORTIMEOUT);
+                      (long)diff_ms, (long)LIBRELINKUPDATAWARNMS);
     }
 
     if (diff_ms < 0) return SENSOR_TIMECODE_OUT_OF_RANGE;
-    if (diff_ms > LIBRELINKUPSENSORTIMEOUT) return SENSOR_TIMECODE_OUT_OF_RANGE;
+    if (diff_ms > LIBRELINKUPDATAWARNMS) return SENSOR_TIMECODE_OUT_OF_RANGE;
     return SENSOR_TIMECODE_VALID;
 }
 

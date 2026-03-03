@@ -2420,12 +2420,12 @@ void update_glucose_data()
         {
             if (librelinkup.llu_status.data_state == DataState::STALE_LOST)
             {
-                draw_labels(false, COLOR_RED, 0, "-", "SENSOR AB / KEINE DATEN", 0);
+                draw_labels(false, COLOR_RED, 0, "-", "---", 0);
                 return;
             }
             if (librelinkup.llu_status.data_state == DataState::STALE_WARN)
             {
-                draw_labels(false, COLOR_YELLOW, 0, "-", "--- (VERZOEGERUNG)", 0);
+                draw_labels(false, COLOR_YELLOW, 0, "-", "---", 0);
                 return;
             }
         }
