@@ -143,7 +143,7 @@ bool HELPER::check_internet_status(IPAddress ip, uint16_t port)
         result = false;
         
     } else {
-        logger.debug("TCP connect to broker OK!");
+        //logger.debug("TCP connect to broker OK!");
         testClient.stop();
         result = true;
     }
