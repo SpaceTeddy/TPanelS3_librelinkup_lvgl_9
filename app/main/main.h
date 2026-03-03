@@ -151,7 +151,7 @@ void glucose_statistics();
  * @param _trendmessage Message describing the glucose trend.
  * @param delta Change in glucose value since the last measurement.
  */
-void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color, uint16_t _glucose_value, String _trendarrow, String _trendmessage, int16_t delta);
+void draw_labels(uint8_t mode, uint32_t _glucose_measurement_color, uint16_t _glucose_value, String _trendarrow, String _trendmessage, int16_t delta);
 
 /**
  * @brief Checks the internet connection status.

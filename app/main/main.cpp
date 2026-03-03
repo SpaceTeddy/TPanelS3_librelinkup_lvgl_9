@@ -643,11 +643,13 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         }
 
         // 2) afterwards accept only *strictly newer* measurement times
+        /*
         if (g_last_raw_meas_epoch >= 0 && meas_epoch <= g_last_raw_meas_epoch) {
             logger.notice("MQTT raw ignored (duplicate/old) meas_epoch=%lld last=%lld",
                         (long long)meas_epoch, (long long)g_last_raw_meas_epoch);
             return;
         }
+        */
 
         g_last_raw_meas_epoch = meas_epoch;
 
@@ -655,7 +657,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
 
         flag_mqtt_master_rx = true; // kept for backward compatibility
         app_fsm_notify_mqtt_master_rx(g_fsm);
-        return; // <<< GANZ WICHTIG
+        return;
     }
 
     // =========================================================
@@ -1785,7 +1787,7 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
  *
  * @see lcd_status_indication()
  */
-void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
+void draw_labels(uint8_t mode, uint32_t _glucose_measurement_color,
                  uint16_t _glucose_value, String _trendarrow,
                  String _trendmessage, int16_t delta)
 {
@@ -2216,76 +2218,41 @@ void synchronize_time_offset_epoch()
  *
  * @warning Buffer size limited to 30 characters
  */
-
 void update_trend_message()
 {
     char buffer[30];
     int remaining_time = 0;
 
-    // If sensor is READY but data is delayed/lost, show a clear message.
-    if (librelinkup.llu_status.sensor_state == SENSOR_READY)
-    {
-        if (librelinkup.llu_status.data_state == DATA_LOST)
-        {
-            // Keep short for UI; include minutes if possible
-            int32_t age_ms = librelinkup.llu_status.data_age_ms;
-            if (age_ms < 0) age_ms = 0;
-            const int age_min = (int)(age_ms / 60000);
-
-            if (age_min > 0) {
-                snprintf(buffer, sizeof(buffer), "KEINE DATEN (%d min)", age_min);
-                librelinkup.llu_glucose_data.str_TrendMessage = buffer;
-            } else {
-                librelinkup.llu_glucose_data.str_TrendMessage = "KEINE DATEN";
-            }
-            return;
-        }
-        if (librelinkup.llu_status.data_state == DATA_DELAYED)
-        {
-            int32_t age_ms = librelinkup.llu_status.data_age_ms;
-            if (age_ms < 0) age_ms = 0;
-            const int age_min = (int)(age_ms / 60000);
-            if (age_min > 0) {
-                snprintf(buffer, sizeof(buffer), "VERZOEGERUNG (%d min)", age_min);
-                librelinkup.llu_glucose_data.str_TrendMessage = buffer;
-            } else {
-                librelinkup.llu_glucose_data.str_TrendMessage = "VERZOEGERUNG";
-            }
-            return;
-        }
-
-        // DATA_OK or unknown -> no extra trend message
-        librelinkup.llu_glucose_data.str_TrendMessage = "";
-        return;
-    }
-
-    // Non-ready sensor lifecycle states
     switch (librelinkup.llu_status.sensor_state)
     {
     case SENSOR_EXPIRED:
         librelinkup.llu_glucose_data.str_TrendMessage = "sensor expired!";
-        logger.notice("sensor expired!");
+        //logger.notice("sensor expired!");
         break;
 
     case SENSOR_NOT_AVAILABLE:
-        librelinkup.llu_glucose_data.str_TrendMessage = "no active sensor";
-        logger.notice("no active sensor");
+        librelinkup.llu_glucose_data.str_TrendMessage = "no active sensor!";
+        //logger.notice("no active sensor");
         break;
 
     case SENSOR_STARTING:
         remaining_time = librelinkup.get_remaining_warmup_time(
             librelinkup.llu_sensor_data.sensor_non_activ_unixtime);
-        snprintf(buffer, sizeof(buffer), "sensor ready in %d min", remaining_time);
+        sprintf(buffer, "sensor ready in %d min", remaining_time);
         librelinkup.llu_glucose_data.str_TrendMessage = buffer;
         logger.notice("Sensor in starting phase!");
         break;
 
-    default:
+    case SENSOR_READY:
         librelinkup.llu_glucose_data.str_TrendMessage = "";
+        if (librelinkup.llu_status.data_state == DataState::STALE_LOST) {
+            librelinkup.llu_glucose_data.str_TrendMessage = "sensor manual error!";
+        } else if (librelinkup.llu_status.data_state == DataState::STALE_WARN) {
+            librelinkup.llu_glucose_data.str_TrendMessage = "sensor data delayed!";
+        }
         break;
     }
 }
-
 
 /**
  * @brief Updates 5-minute chart refresh counter
@@ -2408,10 +2375,6 @@ void update_glucose_data()
     librelinkup.llu_status.last_timestamp_unixtime = helper.convertStrToUnixTime(
         librelinkup.llu_glucose_data.str_measurement_timestamp);
 
-    // Derive data freshness state from timestamp_status + data_age_ms
-    librelinkup.update_data_state(30000, 900000); // warn after 30s, stale after 15min
-
-
     // Set trend message based on sensor status
     update_trend_message();
 
@@ -2451,6 +2414,21 @@ void update_glucose_data()
             counter = 5;
         }
         */
+
+        // Data freshness overlay: show placeholder when measurement is stale
+        if (librelinkup.llu_status.sensor_state == SENSOR_READY)
+        {
+            if (librelinkup.llu_status.data_state == DataState::STALE_LOST)
+            {
+                draw_labels(false, COLOR_RED, 0, "-", "SENSOR AB / KEINE DATEN", 0);
+                return;
+            }
+            if (librelinkup.llu_status.data_state == DataState::STALE_WARN)
+            {
+                draw_labels(false, COLOR_YELLOW, 0, "-", "--- (VERZOEGERUNG)", 0);
+                return;
+            }
+        }
 
         draw_chart_sensor_valid();
         draw_labels(true, librelinkup.llu_glucose_data.measurement_color,

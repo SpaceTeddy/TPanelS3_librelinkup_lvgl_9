@@ -376,6 +376,8 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     time_t now = time(nullptr);
     if (now < 1700000000) {
         logger.notice("Failed to obtain valid time (NTP?)");
+        llu_status.data_state = DataState::INVALID_TIME;
+        llu_status.data_age_ms = 0;
         return LOCAL_TIME_ERROR;
     }
 
@@ -383,6 +385,8 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     time_t tFactory = parseTimestamp(factory_ts.c_str());
     if (tFactory == 0) {
         logger.notice("Error parsing FactoryTimestamp: %s", factory_ts.c_str());
+        llu_status.data_state = DataState::INVALID_TIME;
+        llu_status.data_age_ms = 0;
         return SENSOR_TIMECODE_ERROR;
     }
 
@@ -406,8 +410,8 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     // now - (factory + offset)
     int32_t diff_ms = (int32_t)(now - (tFactory + (time_t)offset_s)) * 1000;
 
-    // Store for UI/logic (data freshness)
-    llu_status.data_age_ms = diff_ms;
+    // Update data freshness state (OK / warn / lost)
+    update_data_state_from_diff(diff_ms);
 
     if (print_mode == 1) {
         logger.debug("tz_locked=%d offset_s=%ld", (int)tz_locked, (long)tz_offset_s_locked);
@@ -424,6 +428,28 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     return SENSOR_TIMECODE_VALID;
 }
 
+
+void LIBRELINKUP::update_data_state_from_diff(int32_t diff_ms)
+{
+    // diff_ms is the age of the measurement in milliseconds
+    if (diff_ms < 0) {
+        llu_status.data_age_ms = 0;
+        llu_status.data_state = DataState::STALE_LOST;
+        return;
+    }
+
+    llu_status.data_age_ms = (uint32_t)diff_ms;
+
+    if (llu_status.data_age_ms > LIBRELINKUPSENSORTIMEOUT) {
+        llu_status.data_state = DataState::STALE_LOST;
+    } else if (llu_status.data_age_ms > LIBRELINKUPDATAWARNMS) {
+        llu_status.data_state = DataState::STALE_WARN;
+    } else {
+        llu_status.data_state = DataState::OK;
+    }
+}
+
+
 // check glucose api.libreview.io graphdata. returns count of non Zero value
 uint8_t LIBRELINKUP::check_graphdata(void){
     
@@ -438,11 +464,13 @@ uint8_t LIBRELINKUP::check_graphdata(void){
     return count_valid_graph_data;
 }
 
+
 // redirect case
 String LIBRELINKUP::regionToBaseUrl(const String& region) {
     if (region == "de" || region == "eu") return "https://api-de.libreview.io";
     return "https://api.libreview.io";
 }
+
 
 // user Accept Terms api.libreview.io
 uint16_t LIBRELINKUP::tou_user(void){
@@ -1212,47 +1240,4 @@ bool LIBRELINKUP::update_tz_offset_once(const String& ts_local, const String& ts
                  (long)tz_offset_s_locked, (int)tz_offset_h_locked);
 
     return true;
-}
-
-
-void LIBRELINKUP::update_data_state(uint32_t warn_ms, uint32_t stale_ms)
-{
-    // Default
-    llu_status.data_state = DATA_UNKNOWN;
-
-    // Local time issues or parse errors -> ERROR
-    if (llu_status.timestamp_status == LOCAL_TIME_ERROR ||
-        llu_status.timestamp_status == SENSOR_TIMECODE_ERROR)
-    {
-        llu_status.data_state = DATA_ERROR;
-        return;
-    }
-
-    // Out of range -> LOST
-    if (llu_status.timestamp_status == SENSOR_TIMECODE_OUT_OF_RANGE)
-    {
-        llu_status.data_state = DATA_LOST;
-        return;
-    }
-
-    // Valid timestamp -> classify by age
-    if (llu_status.timestamp_status == SENSOR_TIMECODE_VALID)
-    {
-        int32_t age_ms = llu_status.data_age_ms;
-
-        // If measurement appears to be in the future, don't mark as lost.
-        if (age_ms < 0) {
-            llu_status.data_state = DATA_OK;
-            return;
-        }
-
-        if ((uint32_t)age_ms > stale_ms) {
-            llu_status.data_state = DATA_LOST;
-        } else if ((uint32_t)age_ms > warn_ms) {
-            llu_status.data_state = DATA_DELAYED;
-        } else {
-            llu_status.data_state = DATA_OK;
-        }
-        return;
-    }
 }

@@ -62,19 +62,6 @@ enum TimeCodeState : uint8_t {
 };
 
 /**
- * @enum SensorDataState
- * @brief Data freshness/availability derived from timestamps
- */
-enum SensorDataState : uint8_t {
-    DATA_UNKNOWN = 0,   ///< No assessment yet
-    DATA_OK      = 1,   ///< Fresh data
-    DATA_DELAYED = 2,   ///< Data is late but still within stale window
-    DATA_LOST    = 3,   ///< No new data within stale window
-    DATA_ERROR   = 4,   ///< Timestamp parsing/local time error
-};
-
-
-/**
  * @enum SensorState
  * @brief Sensor lifecycle states
  */
@@ -87,6 +74,18 @@ enum SensorState : uint8_t {
     SENSOR_SHUT_DOWN = 5,           ///< Manual deactivation
     SENSOR_FAILURE = 6,             ///< Hardware malfunction
 };
+
+/**
+ * @enum DataState
+ * @brief Data freshness states derived from timestamp age
+ */
+enum class DataState : uint8_t {
+    OK = 0,        ///< Fresh data (<= warn threshold)
+    STALE_WARN,    ///< Data older than warn threshold (e.g. >2 min)
+    STALE_LOST,    ///< Data older than lost threshold (e.g. >15 min)
+    INVALID_TIME   ///< Local/system time invalid; cannot evaluate age
+};
+
 /** @} */
 
 /**
@@ -178,7 +177,8 @@ public:
      * @brief Time-related configuration parameters
      * @{
      */
-    static const int LIBRELINKUPSENSORTIMEOUT = 120000;  ///< 2 minute sensor timeout (ms)
+    static const uint32_t LIBRELINKUPDATAWARNMS    = 120000UL;  ///< 2 minute warn threshold (ms)
+    static const uint32_t LIBRELINKUPSENSORTIMEOUT = 900000UL;  ///< 15 minute lost timeout (ms)
     static const int GRAPHDATAARRAYSIZE_PLUS_ONE = 1;    ///< Graph array size buffer
     static const int GRAPHDATAARRAYSIZE = 141;           ///< Primary data points count
     static const int UNIXTIME1HOUR = 3600;               ///< Seconds per hour
@@ -252,7 +252,7 @@ public:
     struct {
         uint16_t glucoseMeasurement = 0;             ///< Current measurement (mg/dL)
         uint8_t trendArrow = 0;                      ///< Trend direction code
-        uint8_t measurement_color = 0;               ///< Display color code
+        uint32_t measurement_color = 0;              ///< Display color code
         String str_TrendMessage = "";                ///< Trend interpretation
         String str_measurement_timestamp = "";       ///< Formatted timestamp
         String str_trendArrow = "";                  ///< Trend direction text
@@ -295,12 +295,13 @@ public:
      * @brief Combined sensor status
      */
     struct LLU_Status {
-        uint8_t timestamp_status;           ///< Timestamp validation result
-        uint8_t sensor_state;               ///< Sensor lifecycle state
-        uint32_t last_timestamp_unixtime;   ///< Last valid Unix timestamp
-    
-        int32_t data_age_ms = 0;         ///< Age of last measurement vs now (ms); negative means future
-        uint8_t data_state = DATA_UNKNOWN; ///< Derived data freshness state (SensorDataState)
+        uint8_t timestamp_status;           ///< Timestamp validation result (TimeCodeState)
+        uint8_t sensor_state;               ///< Sensor lifecycle state (SensorState)
+        uint32_t last_timestamp_unixtime;   ///< Last valid Unix timestamp (cloud measurement time)
+
+        // Data freshness (derived from measurement age)
+        uint32_t data_age_ms = 0;           ///< Age of last measurement vs now (ms)
+        DataState data_state = DataState::INVALID_TIME;
     } llu_status;
 
     /**
@@ -511,7 +512,7 @@ public:
             uint8_t print_mode);
 
     
-    void update_data_state(uint32_t warn_ms = 30000, uint32_t stale_ms = LIBRELINKUPSENSORTIMEOUT);
+    void update_data_state_from_diff(int32_t diff_ms);
 /**
      * @brief Map sensor state code to enum
      * @param state Raw state code
