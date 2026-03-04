@@ -149,7 +149,30 @@ uint8_t LIBRELINKUP::begin(uint8_t use_cert) {
     return 1;
 }
 
-//sha256 account-id calculation as String
+/**
+ * @brief Generates a SHA-256 hash of the LibreLinkUp user ID.
+ *
+ * This function computes the SHA-256 digest of the provided
+ * LibreLinkUp @p user_id and returns the result as a lowercase
+ * hexadecimal string (64 characters).
+ *
+ * The resulting hash is typically used as the Account-ID header
+ * when communicating with the LibreLinkUp API.
+ *
+ * @param user_id
+ *        The LibreLinkUp user identifier (plain string).
+ *
+ * @return
+ *        A 64-character lowercase hexadecimal string representing
+ *        the SHA-256 hash of the input.
+ *
+ * @note
+ *        This function uses mbedtls_sha256() in SHA-256 mode (not SHA-224).
+ *
+ * @warning
+ *        The function does not validate whether @p user_id is empty.
+ *        An empty string will still produce a valid SHA-256 hash.
+ */
 String LIBRELINKUP::account_id_sha256(String user_id){
     // change input to byte array
     const char *data = user_id.c_str();
@@ -171,7 +194,24 @@ String LIBRELINKUP::account_id_sha256(String user_id){
     return hashString;
 }
 
-// check clients 0= not connected
+/**
+ * @brief Checks whether the underlying TLS client connection is still active.
+ *
+ * This function verifies if the internal @c WiFiClientSecure instance
+ * used for LibreLinkUp communication is currently connected.
+ *
+ * If the client is not connected, the function performs cleanup by:
+ *  - Stopping the TLS client
+ *  - Ending the associated HTTPClient session
+ *
+ * @return
+ *        true  if the TLS client is still connected,
+ *        false if the connection is closed and cleanup was performed.
+ *
+ * @note
+ *        This function ensures that stale or half-open TLS connections
+ *        do not remain active before issuing new HTTP requests.
+ */
 bool LIBRELINKUP::check_client(){
 
     if(llu_client->connected() == 0){
@@ -182,12 +222,34 @@ bool LIBRELINKUP::check_client(){
     return 1;
 }
 
-// Get_Epoch_Time() Function that gets current epoch time
+/**
+ * @brief Retrieves the current Unix epoch time.
+ *
+ * This function attempts to obtain the current local time using
+ * getLocalTime(). If successful, it converts the system time to
+ * epoch format using time().
+ *
+ * If getLocalTime() fails (e.g., NTP not yet synchronized),
+ * the function falls back to time(nullptr) to still provide
+ * a best-effort epoch value.
+ *
+ * @return
+ *        Current Unix epoch time (seconds since 1970-01-01 00:00:00 UTC).
+ *
+ * @note
+ *        If NTP synchronization has not yet occurred, the returned
+ *        value may be invalid or near zero depending on system state.
+ *
+ * @warning
+ *        Callers should verify that the returned value is plausible
+ *        (e.g., greater than a known minimum epoch threshold) before
+ *        relying on it for time-sensitive calculations.
+ */
 time_t LIBRELINKUP::get_epoch_time() {
     time_t now;
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
-        logger.err("⚠️ Fehler: Konnte lokale Zeit nicht abrufen! Fallback auf `time(nullptr)`.");
+        logger.debug("could not get local time. Fallback `time(nullptr)`.");
         now = time(nullptr);  // Falls getLocalTime() fehlschlägt, nutze time()
     } else {
         time(&now);
@@ -195,8 +257,31 @@ time_t LIBRELINKUP::get_epoch_time() {
     return now;
 }
 
-// compare two sensor serials
-// Rückgabewert: -1 wenn s1 < s2, 0 wenn gleich, 1 wenn s1 > s2
+/**
+ * @brief Compares two sensor serial number strings lexicographically.
+ *
+ * This function performs a standard C-string comparison using strcmp()
+ * and returns a normalized comparison result.
+ *
+ * @param s1
+ *        First sensor serial string.
+ *
+ * @param s2
+ *        Second sensor serial string.
+ *
+ * @return
+ *        -1 if s1 is lexicographically smaller than s2,
+ *         0 if both strings are equal,
+ *         1 if s1 is lexicographically greater than s2.
+ *
+ * @note
+ *        The comparison is purely lexicographical (byte-wise) and does
+ *        not interpret the serial numbers numerically.
+ *
+ * @warning
+ *        Both input pointers must be valid null-terminated strings.
+ *        Passing nullptr results in undefined behavior.
+ */
 int LIBRELINKUP::check_sensor_type(const char *s1, const char *s2) {
     int result = strcmp(s1, s2);
     
@@ -209,7 +294,18 @@ int LIBRELINKUP::check_sensor_type(const char *s1, const char *s2) {
     return 0;  // Beide sind identisch
 }
 
-// check libre3 sensor state
+/**
+ * @brief Gets the state of a LibreLinkUp sensor.
+ *
+ * This function takes a sensor state identifier and returns the corresponding
+ * human-readable string for logging purposes.
+ *
+ * @param state
+ *        The sensor state identifier.
+ *
+ * @return
+ *        The sensor state string.
+ */
 uint8_t LIBRELINKUP::get_sensor_state(uint8_t state){
 
     //DBGprint_LLU;Serial.print("Sensor state: ");
@@ -244,8 +340,45 @@ uint8_t LIBRELINKUP::get_sensor_state(uint8_t state){
     return state;
 }
 
-// check if freestyle libre3 sensor is expired
-// sensor_days: 14 -> 14 Tage, 15 -> 15 Tage (Libre 3 Plus)
+/**
+ * @brief Evaluates the lifecycle state of the active Libre sensor.
+ *
+ * This function determines the current sensor state based on:
+ *  - The activation timestamp (@p unix_activation_time)
+ *  - The configured sensor runtime (@p sensor_runtime)
+ *  - The current system time
+ *
+ * It distinguishes between:
+ *  - SENSOR_NOT_AVAILABLE (no active sensor detected or no valid time)
+ *  - SENSOR_STARTING      (within warm-up phase, typically first 60 minutes)
+ *  - SENSOR_READY         (active and within valid runtime window)
+ *  - SENSOR_EXPIRED       (runtime exceeded)
+ *
+ * When the sensor is in READY state, the remaining lifetime is calculated
+ * and stored in @c sensor_livetime (days, hours, minutes, seconds).
+ *
+ * @param unix_activation_time
+ *        Sensor activation time in Unix epoch seconds.
+ *
+ * @param sensor_runtime
+ *        Total allowed runtime of the sensor in seconds
+ *        (e.g., 14 or 15 days expressed in seconds).
+ *
+ * @return
+ *        One of the following sensor states:
+ *        - SENSOR_NOT_AVAILABLE
+ *        - SENSOR_STARTING
+ *        - SENSOR_READY
+ *        - SENSOR_EXPIRED
+ *
+ * @note
+ *        The function requires a valid system time (NTP synchronized).
+ *        If time retrieval fails, SENSOR_NOT_AVAILABLE is returned.
+ *
+ * @warning
+ *        This function evaluates lifecycle state only.
+ *        It does NOT determine data freshness or signal validity.
+ */
 int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t sensor_runtime){
     
     int result = -1;
@@ -317,7 +450,32 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
     return result;
 }
 
-// check sensor type and set remaining sensor time
+/**
+ * @brief Determines the Libre sensor type based on the serial number prefix.
+ *
+ * This function compares the currently active sensor serial number
+ * against a predefined reference prefix (e.g. LIBRE3PLUS_SERIAL_START)
+ * to distinguish between Libre 3 and Libre 3 Plus sensors.
+ *
+ * Based on the comparison result, the sensor runtime is configured:
+ *  - Libre 3       → 14 days
+ *  - Libre 3 Plus  → 15 days
+ *
+ * The check is intended to be performed only once per session.
+ *
+ * @return
+ *        1  if the sensor is identified as Libre 3 Plus,
+ *       -1  if identified as Libre 3,
+ *        0  if no sensor is available, already checked,
+ *           or the type is unknown.
+ *
+ * @note
+ *        The detection is based on lexicographical comparison of
+ *        serial number prefixes and assumes consistent formatting.
+ *
+ * @warning
+ *        The function depends on a valid non-empty sensor serial number.
+ */
 int LIBRELINKUP::check_sensor_type() {
     static bool already_checked = false;  ///< Flag to avoid multiple checks
 
@@ -354,7 +512,31 @@ int LIBRELINKUP::check_sensor_type() {
     return 0;
 }
 
-// Funktion zur Berechnung der verbleibenden Zeit in Minuten
+/**
+ * @brief Calculates the remaining sensor warm-up time in minutes.
+ *
+ * Libre sensors typically require a fixed warm-up period (60 minutes)
+ * after activation before they begin delivering valid measurements.
+ *
+ * This function determines how many minutes remain until the warm-up
+ * period has completed, based on the activation timestamp and the
+ * current system time.
+ *
+ * @param unix_activation_time
+ *        Sensor activation time in Unix epoch seconds.
+ *
+ * @return
+ *        Remaining warm-up time in minutes.
+ *        Returns 0 if the warm-up period has already completed.
+ *
+ * @note
+ *        This function assumes that the system time is valid and
+ *        synchronized (e.g. via NTP).
+ *
+ * @warning
+ *        If system time is not properly initialized, the returned
+ *        value may be incorrect.
+ */
 int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
     time_t current_time = time(NULL);  // Aktuelle Zeit holen (Unix-Zeit)
     int remaining_time = (unix_activation_time + (60 * 60)) - current_time;  // 60 Minuten Warmup
@@ -365,9 +547,50 @@ int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
     return remaining_time / 60;  // Sekunden in Minuten umrechnen
 }
 
-// check glucose api.libreview.io valid timestamp with ESP32 local time 
-// (0= error or not valid; 1=valid; 2=timecode "00:00:00 00.00.0000" 3= no activated sensor)        
-
+/**
+ * @brief Validates LibreView measurement timestamps and updates data freshness state.
+ *
+ * This function validates the provided factory and cloud timestamps against
+ * the current system time and determines whether the measurement is still valid.
+ *
+ * The function performs the following steps:
+ *  - Verifies that system time (NTP) is initialized.
+ *  - Parses both factory and cloud timestamp strings.
+ *  - Derives the local timezone offset (including DST).
+ *  - Computes the measurement age in milliseconds.
+ *  - Updates the internal data freshness state via update_data_state_from_diff().
+ *
+ * Based on the computed age, the function classifies the timestamp as:
+ *  - SENSOR_TIMECODE_VALID
+ *  - SENSOR_TIMECODE_OUT_OF_RANGE
+ *  - SENSOR_TIMECODE_ERROR
+ *  - LOCAL_TIME_ERROR
+ *
+ * @param factory_ts
+ *        Factory timestamp string received from LibreView.
+ *
+ * @param cloud_ts
+ *        Cloud timestamp string received from LibreView.
+ *
+ * @param print_mode
+ *        If set to 1, detailed debug information is logged.
+ *
+ * @return
+ *        SENSOR_TIMECODE_VALID         if the timestamp is valid and within range,
+ *        SENSOR_TIMECODE_OUT_OF_RANGE  if the measurement is too old or in the future,
+ *        SENSOR_TIMECODE_ERROR         if parsing fails,
+ *        LOCAL_TIME_ERROR              if system time is not properly initialized.
+ *
+ * @note
+ *        The function also updates:
+ *          - llu_status.data_age_ms
+ *          - llu_status.data_state
+ *          - tz_locked and tz_offset_s_locked
+ *
+ * @warning
+ *        Requires a valid and synchronized system time (e.g., via NTP).
+ *        If system time is invalid, all further time comparisons are unreliable.
+ */
 uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     const String& factory_ts,
     const String& cloud_ts,
@@ -418,7 +641,36 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     return SENSOR_TIMECODE_VALID;
 }
 
-
+/**
+ * @brief Updates the internal data freshness state based on measurement age.
+ *
+ * This function evaluates the age of the latest glucose measurement
+ * (in milliseconds) and updates the internal data status accordingly.
+ *
+ * The following states are assigned:
+ *  - DataState::OK           → Measurement is within the valid time window
+ *  - DataState::STALE_WARN   → Measurement exceeds warning threshold
+ *  - DataState::STALE_LOST   → Measurement exceeds timeout threshold
+ *
+ * If @p diff_ms is negative, the measurement is treated as invalid
+ * and classified as STALE_LOST.
+ *
+ * Additionally, the computed age is stored in:
+ *   @c llu_status.data_age_ms
+ *
+ * @param diff_ms
+ *        Age of the measurement in milliseconds
+ *        (typically computed as: now - measurement_time).
+ *
+ * @note
+ *        The threshold values are defined by:
+ *          - LIBRELINKUPDATAWARNMS
+ *          - LIBRELINKUPSENSORTIMEOUT
+ *
+ * @warning
+ *        This function only evaluates data freshness.
+ *        It does not validate sensor lifecycle state.
+ */
 void LIBRELINKUP::update_data_state_from_diff(int32_t diff_ms)
 {
     // diff_ms is the age of the measurement in milliseconds
@@ -439,8 +691,26 @@ void LIBRELINKUP::update_data_state_from_diff(int32_t diff_ms)
     }
 }
 
-
-// check glucose api.libreview.io graphdata. returns count of non Zero value
+/**
+ * @brief Counts valid glucose values in the historical graph data buffer.
+ *
+ * This function iterates through the internal graph data array and
+ * counts all entries that are non-zero.
+ *
+ * Zero values are treated as invalid or unused data points.
+ *
+ * @return
+ *        The number of valid (non-zero) glucose measurements
+ *        currently stored in the graph data buffer.
+ *
+ * @note
+ *        The size of the buffer is defined by GRAPHDATAARRAYSIZE.
+ *
+ * @warning
+ *        A value of zero is assumed to indicate missing or invalid data.
+ *        If zero can be a valid measurement in future sensor revisions,
+ *        this logic must be adjusted accordingly.
+ */
 uint8_t LIBRELINKUP::check_graphdata(void){
     
     uint8_t count_valid_graph_data = 0;
@@ -455,14 +725,67 @@ uint8_t LIBRELINKUP::check_graphdata(void){
 }
 
 
-// redirect case
+/**
+ * @brief Maps a LibreLinkUp region code to the corresponding API base URL.
+ *
+ * LibreLinkUp uses region-specific API endpoints. This function
+ * translates a given region identifier into the appropriate
+ * base URL used for API communication.
+ *
+ * Currently supported mappings:
+ *  - "de" or "eu" → https://api-de.libreview.io
+ *  - Any other value → https://api.libreview.io (default)
+ *
+ * @param region
+ *        Region identifier returned by the LibreLinkUp authentication API
+ *        (e.g. "de", "eu", "us").
+ *
+ * @return
+ *        The base URL string corresponding to the given region.
+ *
+ * @note
+ *        If the region is unknown or not explicitly handled,
+ *        the default global API endpoint is returned.
+ */
 String LIBRELINKUP::regionToBaseUrl(const String& region) {
     if (region == "de" || region == "eu") return "https://api-de.libreview.io";
     return "https://api.libreview.io";
 }
 
 
-// user Accept Terms api.libreview.io
+/**
+ * @brief Sends a "Terms of Use" acceptance request to the LibreLinkUp API.
+ *
+ * This function performs an authenticated HTTP POST request to the
+ * LibreLinkUp "accept terms" endpoint. It is typically required when
+ * the API indicates that the user must accept updated Terms of Use
+ * before normal API access can continue.
+ *
+ * The function:
+ *  - Initializes an HTTPS connection
+ *  - Adds required authentication headers (Bearer token)
+ *  - Sends a POST request
+ *  - Parses the JSON response
+ *  - Updates user-related fields (user_id, country, login status)
+ *  - Cleans up HTTP and TLS resources
+ *
+ * @return
+ *        1 if the request was initiated successfully,
+ *        0 if HTTPS initialization failed.
+ *
+ * @note
+ *        A successful return value does not necessarily mean that the
+ *        Terms of Use were accepted — it only indicates that the request
+ *        was processed. HTTP status codes should be checked in logs.
+ *
+ * @warning
+ *        Requires a valid and non-expired user_token in
+ *        @c llu_login_data.user_token.
+ *
+ * @details
+ *        On HTTP 200 or 301 responses, the function parses the returned
+ *        JSON and updates internal login state accordingly.
+ */
 uint16_t LIBRELINKUP::tou_user(void){
     
     uint8_t result = 0;
@@ -532,7 +855,45 @@ uint16_t LIBRELINKUP::tou_user(void){
     return result;
 }
 
-// get auth data from api.libreview.io
+/**
+ * @brief Authenticates a LibreLinkUp user and retrieves an access token.
+ *
+ * This function performs an HTTPS POST request to the LibreLinkUp
+ * authentication endpoint using the provided email and password.
+ *
+ * On success, it parses the JSON response and updates internal login data:
+ *  - user_login_status
+ *  - user_country
+ *  - user_id
+ *  - user_token
+ *  - user_token_expires
+ *  - account_id (SHA-256 hash of user_id)
+ *
+ * The LibreLinkUp API may request a region redirect. In that case, the function
+ * updates @c base_url to the redirected region endpoint and retries the login once.
+ *
+ * @param user_email
+ *        LibreLinkUp account email address.
+ *
+ * @param user_password
+ *        LibreLinkUp account password.
+ *
+ * @return
+ *        1 if authentication succeeded and token data was extracted,
+ *        0 if the HTTPS request could not be started or authentication failed.
+ *
+ * @note
+ *        This function resets the underlying HTTP/TLS state at the beginning
+ *        of each call by stopping the client and ending the HTTPClient session.
+ *
+ * @warning
+ *        This function handles credentials. Avoid logging sensitive values.
+ *
+ * @details
+ *        If the response indicates "redirect=true", the function switches
+ *        to a region-specific endpoint (e.g., https://api-<region>.libreview.io)
+ *        and recursively retries authentication once.
+ */
 uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
 
     uint8_t result = 0;
@@ -600,7 +961,42 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
 }
 
 
-// get graph glycose data from api.libreview.io
+/**
+ * @brief Fetches the current connection measurement data from the LibreLinkUp API.
+ *
+ * This function performs an authenticated HTTPS GET request to the
+ * LibreLinkUp "connections" endpoint and extracts the most recent
+ * glucose measurement data (current value + trend information).
+ *
+ * If no valid authentication token is available, the function triggers
+ * a login via auth_user(). If the API indicates that Terms of Use must
+ * be accepted (login status == 4), tou_user() is called.
+ *
+ * On successful response (HTTP 200/301), the JSON response is parsed using
+ * an ArduinoJson filter to minimize memory usage. The following fields are
+ * populated:
+ *  - llu_glucose_data.glucoseMeasurement
+ *  - llu_glucose_data.trendArrow
+ *  - llu_glucose_data.measurement_color
+ *  - llu_glucose_data.str_TrendMessage
+ *  - llu_glucose_data.str_measurement_timestamp
+ *  - llu_glucose_data.str_trendArrow (mapped arrow string)
+ *
+ * The function also clears intermediate JSON documents and cleans up
+ * HTTP/TLS resources after the request.
+ *
+ * @return
+ *        1 if the request succeeded and data was parsed,
+ *        0 if the request failed or could not be started.
+ *
+ * @note
+ *        HTTP 401 (unauthorized) triggers re-authorization via auth_user().
+ *        The function does not automatically retry the GET after reauth.
+ *
+ * @warning
+ *        Requires a valid network connection and proper TLS configuration.
+ *        The function may block while performing HTTPS operations.
+ */
 uint16_t LIBRELINKUP::get_connection_data(void){
     
     int8_t result = 0;
@@ -736,7 +1132,35 @@ uint16_t LIBRELINKUP::get_connection_data(void){
     return result;
 }
 
-// get graph glycose data from api.libreview.io
+/**
+ * @brief Fetches historical glucose graph data from the LibreLinkUp API.
+ *
+ * This function performs an authenticated HTTPS GET request to the
+ * LibreLinkUp "graph" endpoint to retrieve historical glucose measurements.
+ *
+ * If no valid authentication token is available, the function triggers
+ * a login via auth_user(). If the API indicates that Terms of Use must
+ * be accepted (login status == 4), tou_user() is called.
+ *
+ * On successful response (HTTP 200/301), the JSON response is parsed using
+ * an ArduinoJson filter to minimize memory usage. The relevant fields are
+ * extracted and stored in internal data structures.
+ *
+ * The function also measures and logs the time taken for the API call and
+ * cleans up HTTP/TLS resources after the request.
+ *
+ * @return
+ *        1 if the request succeeded and data was parsed,
+ *        0 if the request failed or could not be started.
+ *
+ * @note
+ *        HTTP 401 (unauthorized) triggers re-authorization via auth_user().
+ *        The function does not automatically retry the GET after reauth.
+ *
+ * @warning
+ *        Requires a valid network connection and proper TLS configuration.
+ *        The function may block while performing HTTPS operations.
+ */
 uint16_t LIBRELINKUP::get_graph_data(void){
 
     int8_t result = 0;
@@ -872,7 +1296,29 @@ uint16_t LIBRELINKUP::get_graph_data(void){
     return result;
 }
 
-// ingest_graph_json from external source
+/**
+ * @brief Parses the internal JSON document containing LibreLinkUp graph data.
+ *
+ * This function extracts relevant fields from the internal JSON document
+ * (populated by get_graph_data()) and updates the corresponding internal
+ * data structures for glucose measurements, sensor info, and historical data.
+ *
+ * The function also updates the timezone offset based on the measurement timestamps
+ * if it has not been locked yet.
+ *
+ * @return
+ *        true if parsing succeeded and data was extracted,
+ *        false if required fields were missing or parsing failed.
+ *
+ * @note
+ *        This function assumes that the internal JSON document is already
+ *        populated with valid data from the LibreLinkUp API. It does not
+ *        perform any HTTP operations or JSON deserialization itself.
+ *
+ * @warning
+ *        If the structure of the JSON document changes in future API versions,
+ *        this parsing logic may need to be updated accordingly.
+ */
 bool LIBRELINKUP::ingest_graph_json(const uint8_t* data, size_t len) {
 
     if (!data || len == 0) return false;
@@ -894,7 +1340,29 @@ bool LIBRELINKUP::ingest_graph_json(const uint8_t* data, size_t len) {
     return ok;
 }
 
-// parse_graph_json_doc from internal json_librelinkup
+/**
+ * @brief Parses the internal JSON document to extract LibreLinkUp graph data.
+ *
+ * This function reads the internal JSON document (populated by get_graph_data()
+ * or ingest_graph_json()) and extracts relevant fields to populate internal
+ * data structures for glucose measurements, sensor info, and historical data.
+ *
+ * The function also updates the timezone offset based on the measurement timestamps
+ * if it has not been locked yet.
+ *
+ * @return
+ *        true if parsing succeeded and data was extracted,
+ *        false if required fields were missing or parsing failed.
+ *
+ * @note
+ *        This function assumes that the internal JSON document is already
+ *        populated with valid data from the LibreLinkUp API. It does not
+ *        perform any HTTP operations or JSON deserialization itself.
+ *
+ * @warning
+ *        If the structure of the JSON document changes in future API versions,
+ *        this parsing logic may need to be updated accordingly.
+ */
 bool LIBRELINKUP::parse_graph_json_doc() {
 
     // resets previous timestamp
@@ -982,17 +1450,33 @@ bool LIBRELINKUP::parse_graph_json_doc() {
     return true;
 }
 
-// get last graph json data as String
+/**
+ * @brief Gets the last graph JSON data as a String.
+ *
+ * @return const String& Reference to the last graph JSON data.
+ */
 const String& LIBRELINKUP::get_last_graph_json() const {
     return last_graph_json;
 }
 
-// get WiFiClientSecure client pointer
+/**
+ * @brief Gets the WiFiClientSecure client pointer.
+ *
+ * @return WiFiClientSecure& Reference to the WiFiClientSecure client.
+ */
 WiFiClientSecure & LIBRELINKUP::get_wifisecureclient(void){
     return *llu_client;
 }
 
-//check connection to server
+/**
+ * @brief Checks the HTTPS connection to a given URL and logs the result.
+ *
+ * This function attempts to establish an HTTPS connection to the specified URL
+ * using the internal WiFiClientSecure instance. It performs a simple GET request
+ * and logs whether the connection was successful along with the HTTP response code.
+ *
+ * @param url The URL to check the HTTPS connection against.
+ */
 void LIBRELINKUP::check_https_connection(const char* url){
         
     // Test server connection
@@ -1021,7 +1505,13 @@ void LIBRELINKUP::check_https_connection(const char* url){
     }
 }
 
-// set new root certificate
+/**
+ * @brief Sets the CA certificate from a file.
+ *
+ * @param client Reference to the WiFiClientSecure instance.
+ * @param ca_file Path to the CA certificate file.
+ * @return true if the CA certificate was set successfully, false otherwise.
+ */
 bool LIBRELINKUP::setCAfromfile(WiFiClientSecure &client, const char* ca_file){
     
     File ca = LittleFS.open(ca_file, "r");
@@ -1043,7 +1533,15 @@ bool LIBRELINKUP::setCAfromfile(WiFiClientSecure &client, const char* ca_file){
     }
 }
 
-// get root certificate from file
+/**
+ * @brief Reads a CA certificate from a file and logs its content.
+ *
+ * This function reads the CA certificate from the specified file and logs
+ * its content line by line using the internal logger. It also prints the
+ * entire certificate to the serial console for debugging purposes.
+ *
+ * @param ca_file Path to the CA certificate file.
+ */
 void LIBRELINKUP::showCAfromfile(const char* ca_file){
     
     //get file size
@@ -1079,7 +1577,18 @@ void LIBRELINKUP::showCAfromfile(const char* ca_file){
     free(new_certificate);
 }
 
-// get certificate file
+/**
+ * @brief Downloads the root CA certificate from a specified URL and saves it to a file.
+ *
+ * This function performs an HTTPS GET request to the specified URL to download
+ * the root CA certificate. The downloaded certificate is then saved to a file
+ * in the LittleFS filesystem. The function logs the progress and any errors
+ * encountered during the download process.
+ *
+ * @param download_url The URL from which to download the root CA certificate.
+ * @param file_name The name of the file where the downloaded certificate will be saved.
+ * @return 1 if the download and file save were successful, 0 otherwise.
+ */
 uint16_t LIBRELINKUP::download_root_ca_to_file(const char* download_url, const char* file_name){
     
     int8_t result = 0;
@@ -1133,10 +1642,21 @@ uint16_t LIBRELINKUP::download_root_ca_to_file(const char* download_url, const c
     return result;
 }
 
-//---------------------------------------------------------------------------
-//get certificate from LittleFS
-//read2String(SPIFFS, REMOTE_CERT_FILE, myCertificate, file lenght);
-
+/**
+ * @brief Reads the content of a file into a string buffer.
+ *
+ * This function opens the specified file from the given filesystem, reads its
+ * content character by character, and stores it in the provided string buffer.
+ * The function ensures that the buffer does not overflow by respecting the
+ * specified maximum length. It also handles file opening errors and ensures
+ * that the buffer is null-terminated.
+ *
+ * @param fs Reference to the filesystem (e.g., LittleFS) from which to read the file.
+ * @param path The path to the file to be read.
+ * @param myString The buffer where the file content will be stored as a string.
+ * @param maxLength The maximum length of the string buffer (including null terminator).
+ * @return true if the file was read successfully, false if there was an error (e.g., file not found).
+ */
 bool LIBRELINKUP::read2String(fs::FS &fs, const char *path, char *myString, size_t maxLength) {
     File file = fs.open(path);
     if (!file || file.isDirectory()) {
