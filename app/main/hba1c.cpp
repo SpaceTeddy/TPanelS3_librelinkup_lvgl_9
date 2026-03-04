@@ -339,7 +339,7 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
     if (arr.size() > 0) {
         JsonObject lastEntry = arr[arr.size() - 1];
         if (lastEntry.containsKey("glucose") && lastEntry["glucose"] == glucose) {
-            logger.debug("⚠️  Neuer Wert ist identisch zum letzten Eintrag (%d mg/dL). Speichern übersprungen.", glucose);
+            logger.debug("new value identical to last entry (%d mg/dL).", glucose);
             return;
         }
     }
