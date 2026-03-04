@@ -1708,7 +1708,7 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
         else
         {
             // Sensor active longer than 12h - startup time handling
-            logger.debug("Draw graph startup time");
+            //logger.debug("Draw graph startup time");
 
             for (int i = 0; i < data_count; i++)
             {
@@ -2276,7 +2276,7 @@ void update_five_minute_counter()
     five_minute_chart_update_counter--;
 
     // Debug log for verification
-    logger.debug("five_minute_chart_update_counter: %d", five_minute_chart_update_counter);
+    //logger.debug("five_minute_chart_update_counter: %d", five_minute_chart_update_counter);
 
     // When counter reaches 0, perform chart update
     if (five_minute_chart_update_counter <= 0)

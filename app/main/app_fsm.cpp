@@ -1,6 +1,11 @@
 /**
  * @file app_fsm.cpp
  * @brief Implementation of the application state machine.
+ *
+ * Contains the FSM logic, backoff calculation, connection and health checks
+ * and the public API functions used by the main loop.
+ *
+ * @see app_fsm.h
  */
 
 #include "app_fsm.h"
@@ -48,6 +53,14 @@ extern void app_recover_offline();
 extern void ledcWrite(uint8_t channel, uint32_t duty);
 
 //------------------------[FSM implementation]-----------------------------------
+/**
+ * @brief Clamp a value into the inclusive range [lo, hi].
+ *
+ * @param v Value to clamp
+ * @param lo Minimum allowed value
+ * @param hi Maximum allowed value
+ * @return Clamped value
+ */
 static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
 {
     if (v < lo)
@@ -57,7 +70,20 @@ static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
     return v;
 }
 
-// Exponential backoff with jitter: base * 2^exp + random(0..1000)
+/**
+ * @brief Compute exponential backoff with jitter.
+ *
+ * Formula: base * 2^exp + random(0..1000). The exponent `exp` is derived from
+ * the number of consecutive failures (capped at 10). The result is clamped to
+ * the configured min/max backoff values.
+ *
+ * @param fsm Reference to the FSM (reads `cfg.backoff_min_ms`, `cfg.backoff_max_ms`, and `consecutive_failures`).
+ * @return Backoff in milliseconds
+ */
+/**
+ * @brief Computes exponential backoff with jitter based on consecutive failures.
+ * @param fsm FSM instance (reads config and failure counter).
+ */
 static uint32_t compute_backoff_ms(const AppFsm &fsm)
 {
     const uint32_t base = fsm.cfg.backoff_min_ms;
@@ -71,6 +97,9 @@ static uint32_t compute_backoff_ms(const AppFsm &fsm)
 
 // State transition helper
 // Helper to convert state enum to string for logging/debug UI
+/**
+ * @brief Converts an AppState enum value to a human-readable string.
+ */
 static const char* app_state_to_string(AppState s)
 {
     switch (s)
@@ -91,12 +120,21 @@ static const char* app_state_to_string(AppState s)
 }
 
 // Helper to convert state enum to string for logging/debug UI
+/**
+ * @brief Returns a safe transition reason string for logging (never returns null/empty).
+ * @param r Optional reason string.
+ */
 static const char* safe_reason(const char* r)
 {
     return (r && r[0]) ? r : "-";
 }
 
 // Helper to compute remaining backoff time in seconds for logging/debug UI
+/**
+ * @brief Computes the remaining backoff time in seconds.
+ * @param fsm FSM instance.
+ * @param now_ms Current millis().
+ */
 static uint32_t backoff_remaining_s(const AppFsm &fsm)
 {
     if (fsm.state != AppState::BACKOFF)
@@ -110,6 +148,12 @@ static uint32_t backoff_remaining_s(const AppFsm &fsm)
 }
 
 // State transition helper (logs old->new + reason + runtime + failures + backoff)
+/**
+ * @brief Performs a state transition and records transition metadata for logging/telemetry.
+ * @param fsm FSM instance to update.
+ * @param new_state Target state.
+ * @param reason Human-readable transition reason (optional).
+ */
 static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nullptr)
 {
     if (fsm.state == new_state)
@@ -135,22 +179,34 @@ static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nu
 }
 
 // Helper functions for state actions and conditions
+/**
+ * @brief Checks whether WiFi is connected.
+ */
 static bool wifi_ok()
 {
     return WiFi.status() == WL_CONNECTED;
 }
 
+/**
+ * @brief Returns true if MQTT mode is enabled in settings.
+ */
 static bool mqtt_enabled()
 {
     return (settings.config.mqtt_mode == 1) && (mqtt.mqtt_enable == 1);
 }
 
+/**
+ * @brief Checks whether the MQTT client is currently connected.
+ */
 static bool mqtt_ok()
 {
     return mqtt_client.connected();
 }
 
 // Subscribe to MQTT topics based on the current configuration
+/**
+ * @brief Subscribes to required MQTT topics after a successful connect.
+ */
 static void mqtt_subscribe_topics()
 {
     mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
@@ -169,6 +225,10 @@ static void mqtt_subscribe_topics()
  *
  * @param timeout_ms The maximum time to wait for a WiFi connection, in milliseconds.
  * @return `true` if the WiFi connection is established successfully, `false` otherwise.
+ */
+/**
+ * @brief Ensures WiFi is connected and triggers a (re)connect attempt if needed.
+ * @param fsm FSM instance (used for timeouts/telemetry).
  */
 static bool ensure_wifi_connected(uint32_t timeout_ms)
 {
@@ -200,6 +260,10 @@ static bool ensure_wifi_connected(uint32_t timeout_ms)
  *
  * @return `true` if the WireGuard VPN connection is active or not enabled, `false` if it is enabled but not working.
  */
+/**
+ * @brief Ensures WireGuard connectivity when enabled and performs periodic health checks/reinit.
+ * @param fsm FSM instance (used for scheduling, backoff and telemetry).
+ */
 static bool ensure_wireguard_ok()
 {
     // settings.config.wg_mode is the *desired* state (user config).
@@ -229,6 +293,10 @@ static bool ensure_wireguard_ok()
  *
  * @param timeout_ms The maximum time to wait for an MQTT connection, in milliseconds.
  * @return `true` if the MQTT connection is established successfully or MQTT is not enabled, `false` otherwise.
+ */
+/**
+ * @brief Performs a single MQTT connect attempt step with bounded runtime.
+ * @param fsm FSM instance (used for timeouts and telemetry).
  */
 static bool mqtt_connect_step(AppFsm &fsm, uint32_t timeout_ms)
 {
@@ -261,6 +329,10 @@ static bool mqtt_connect_step(AppFsm &fsm, uint32_t timeout_ms)
 }
 
 // Exponential backoff with jitter: base * 2^exp + random(0..1000)
+/**
+ * @brief Determines whether a master-mode fetch cycle should run now.
+ * @param fsm FSM instance.
+ */
 static bool should_fetch_master(const AppFsm &fsm)
 {
     if (!settings.config.mqtt_master_mode)
@@ -269,6 +341,10 @@ static bool should_fetch_master(const AppFsm &fsm)
 }
 
 // Display dimming logic
+/**
+ * @brief Determines whether the display should enter the dimming state based on inactivity.
+ * @param fsm FSM instance.
+ */
 static bool should_dim_display(const AppFsm &fsm)
 {
     if (fsm.display_dim_active)
@@ -277,6 +353,10 @@ static bool should_dim_display(const AppFsm &fsm)
 }
 
 // Display dimming step
+/**
+ * @brief Performs one incremental dimming step and returns true when dimming is complete.
+ * @param fsm FSM instance.
+ */
 static void display_dim_step(AppFsm &fsm)
 {
     const uint32_t step_ms = (fsm.cfg.display_dim_step_ms == 0) ? 30u : fsm.cfg.display_dim_step_ms;
@@ -291,6 +371,10 @@ static void display_dim_step(AppFsm &fsm)
 }
 
 // WireGuard check logic
+/**
+ * @brief Determines whether the periodic WireGuard check should run now.
+ * @param fsm FSM instance.
+ */
 static bool should_wg_check(const AppFsm &fsm)
 {
     if (settings.config.wg_mode != 1)
@@ -299,6 +383,10 @@ static bool should_wg_check(const AppFsm &fsm)
 }
 
 // Internet health check logic
+/**
+ * @brief Initializes the FSM instance and resets scheduling/telemetry counters.
+ * @param fsm FSM instance to initialize.
+ */
 void app_fsm_init(AppFsm &fsm)
 {
     fsm = AppFsm{};
@@ -314,12 +402,20 @@ void app_fsm_init(AppFsm &fsm)
 }
 
 // External triggers
+/**
+ * @brief Notifies the FSM that a master MQTT payload was received (client mode trigger).
+ * @param fsm FSM instance.
+ */
 void app_fsm_notify_mqtt_master_rx(AppFsm &fsm)
 {
     fsm.mqtt_master_rx_pending = true;
 }
 
 // Call this on any user activity that should wake the display (e.g., touch, button press, etc.)
+/**
+ * @brief Notifies the FSM of user activity to prevent/exit display dimming.
+ * @param fsm FSM instance.
+ */
 void app_fsm_notify_user_activity(AppFsm &fsm)
 {
     fsm.last_user_activity_ms = millis();
@@ -338,6 +434,10 @@ void app_fsm_notify_user_activity(AppFsm &fsm)
 }
 
 // Main FSM polling function to be called regularly (e.g., from loop())
+/**
+ * @brief Polls the FSM and executes state actions and transitions. Call from the main loop.
+ * @param fsm FSM instance.
+ */
 void app_fsm_poll(AppFsm &fsm)
 {
     if (ota_in_progress)

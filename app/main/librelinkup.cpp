@@ -381,36 +381,27 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
         return LOCAL_TIME_ERROR;
     }
 
-    time_t tCloud = parseTimestamp(cloud_ts.c_str());
+    time_t tCloud  = parseTimestamp(cloud_ts.c_str());
     time_t tFactory = parseTimestamp(factory_ts.c_str());
-    if (tFactory == 0) {
-        logger.notice("Error parsing FactoryTimestamp: %s", factory_ts.c_str());
+
+    if (tFactory <= 0 || tCloud <= 0) {
+        logger.notice("Timestamp parse failed (factory='%s' cloud='%s')",
+                      factory_ts.c_str(), cloud_ts.c_str());
         llu_status.data_state = DataState::INVALID_TIME;
         llu_status.data_age_ms = 0;
         return SENSOR_TIMECODE_ERROR;
     }
 
-    // Determine local UTC offset robustly from current system TZ/DST state
-    // NOTE: Ensure TZ is set to Europe/Berlin rules once at boot:
-    // setenv("TZ","CET-1CEST,M3.5.0/2,M10.5.0/3",1); tzset();
-    struct tm lt {};
+    // Determine offset from current TZ/DST state
+    struct tm lt{};
     localtime_r(&now, &lt);
-
     int32_t offset_s = (lt.tm_isdst > 0) ? 7200 : 3600;
 
-    // Optional: keep your "locked" offset variables consistent
     tz_locked = 1;
     tz_offset_s_locked = offset_s;
 
-    // Local time of measurement would be Factory + offset
-    time_t tLocalMeas = tFactory + (time_t)offset_s;
-
-    // diff between "now" (UTC epoch) and "meas expressed in UTC epoch"
-    // We want to know how long ago the measurement happened in local terms:
-    // now - (factory + offset)
     int32_t diff_ms = (int32_t)(now - (tFactory + (time_t)offset_s)) * 1000;
 
-    // Update data freshness state (OK / warn / lost)
     update_data_state_from_diff(diff_ms);
 
     if (print_mode == 1) {
@@ -418,13 +409,12 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
         logger.debug("ESP32 now epoch                   : %ld", (long)now);
         logger.debug("Factory epoch                     : %ld", (long)tFactory);
         logger.debug("Cloud TS epoch                    : %ld", (long)tCloud);
-        logger.debug("Local meas epoch (factory+off)    : %ld", (long)tLocalMeas);
-        logger.debug("diff_ms                           : %ld (timeout=%ld)",
-                      (long)diff_ms, (long)LIBRELINKUPDATAWARNMS);
+        logger.debug("diff_ms                           : %ld (warn=%ld stale=%ld)",
+                      (long)diff_ms, (long)LIBRELINKUPDATAWARNMS, (long)LIBRELINKUPSENSORTIMEOUT);
     }
 
     if (diff_ms < 0) return SENSOR_TIMECODE_OUT_OF_RANGE;
-    if (diff_ms > LIBRELINKUPDATAWARNMS) return SENSOR_TIMECODE_OUT_OF_RANGE;
+    if ((uint32_t)diff_ms > LIBRELINKUPSENSORTIMEOUT) return SENSOR_TIMECODE_OUT_OF_RANGE;
     return SENSOR_TIMECODE_VALID;
 }
 
@@ -1162,77 +1152,152 @@ bool LIBRELINKUP::read2String(fs::FS &fs, const char *path, char *myString, size
     return true;
 }
 
-// String-Timestamp in time_t umwandeln
-time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
-    setlocale(LC_TIME, "C"); // Erzwingt die C-Standard-Locale für AM/PM-Interpretation
+/**
+ * @brief Parses a LibreView timestamp string into Unix epoch time.
+ *
+ * This function converts a timestamp string in the format:
+ *
+ *     "MM/DD/YYYY HH:MM:SS AM"
+ *     "MM/DD/YYYY HH:MM:SS PM"
+ *
+ * into a time_t (Unix epoch seconds).
+ *
+ * The function:
+ *  - Forces the "C" locale to ensure reliable AM/PM parsing
+ *  - Removes the AM/PM suffix manually
+ *  - Parses the remaining date/time using strptime()
+ *  - Applies manual 12h → 24h conversion
+ *  - Uses mktime() to convert struct tm into epoch time
+ *
+ * Daylight saving time (DST) is automatically handled by setting
+ * tm_isdst = -1 before calling mktime().
+ *
+ * @param timestampStr
+ *        Null-terminated timestamp string received from LibreView.
+ *
+ * @return
+ *        Unix epoch time in seconds on success.
+ *        Returns -1 if parsing fails.
+ *
+ * @note
+ *        This function assumes US-style date formatting (MM/DD/YYYY).
+ *        It does not support ISO-8601 timestamps or IPv6-style date strings.
+ *
+ * @warning
+ *        The function modifies temporary internal buffers but does not
+ *        modify the original input string.
+ */
+time_t LIBRELINKUP::parseTimestamp(const char* timestampStr)
+{
+    if (!timestampStr || !*timestampStr) {
+        return (time_t)-1;
+    }
 
-    struct tm tm_time;
-    memset(&tm_time, 0, sizeof(struct tm));
+    // NOTE: setting locale is global; do it once if you really need it.
+    // setlocale(LC_TIME, "C");
 
-    // Parst Datum + Zeit OHNE AM/PM-Interpretation
-    char timeStr[50];
+    struct tm tm_time{};
+    memset(&tm_time, 0, sizeof(tm_time));
+
+    char timeStr[64];
     strncpy(timeStr, timestampStr, sizeof(timeStr) - 1);
     timeStr[sizeof(timeStr) - 1] = '\0';
 
-    // Prüfe auf AM oder PM
-    int is_pm = strstr(timeStr, "PM") != NULL;
+    // Detect AM/PM
+    const bool has_pm = (strstr(timeStr, "PM") != nullptr);
+    const bool has_am = (strstr(timeStr, "AM") != nullptr);
 
-    // Entferne AM/PM aus dem String für strptime
-    char clean_timeStr[50];
+    // Create clean buffer without AM/PM suffix
+    char clean_timeStr[64];
     strncpy(clean_timeStr, timeStr, sizeof(clean_timeStr) - 1);
     clean_timeStr[sizeof(clean_timeStr) - 1] = '\0';
-    char* am_pm = strstr(clean_timeStr, "AM");
-    if (!am_pm) am_pm = strstr(clean_timeStr, "PM");
-    if (am_pm) *am_pm = '\0'; // AM/PM entfernen
 
-    // Parse nur Datum + Uhrzeit
+    if (char* am_pm = strstr(clean_timeStr, "AM")) *am_pm = '\0';
+    if (char* am_pm = strstr(clean_timeStr, "PM")) *am_pm = '\0';
+
+    // Trim trailing spaces (strptime is picky sometimes)
+    for (int i = (int)strlen(clean_timeStr) - 1; i >= 0; --i) {
+        if (clean_timeStr[i] == ' ' || clean_timeStr[i] == '\t') clean_timeStr[i] = '\0';
+        else break;
+    }
+
+    // Parse "MM/DD/YYYY HH:MM:SS" (12-hour clock)
     char* ret = strptime(clean_timeStr, "%m/%d/%Y %I:%M:%S", &tm_time);
     if (!ret) {
-        DBGprint_LLU; Serial.println("strptime() konnte den String nicht parsen.");
-        return -1;
+        logger.debug("parseTimestamp: strptime failed for '%s'", timestampStr);
+        return (time_t)-1;
     }
 
-    // Manuelle AM/PM Anpassung
-    if (is_pm && tm_time.tm_hour != 12) {
-        tm_time.tm_hour += 12; // PM → +12 Stunden
-    } else if (!is_pm && tm_time.tm_hour == 12) {
-        tm_time.tm_hour = 0; // 12 AM → 00:00 Uhr
+    // Manual AM/PM handling (only if suffix was present)
+    if (has_pm && tm_time.tm_hour != 12) {
+        tm_time.tm_hour += 12;
+    } else if (has_am && tm_time.tm_hour == 12) {
+        tm_time.tm_hour = 0;
     }
 
-    tm_time.tm_isdst = -1; // Sommerzeit automatisch erkennen
+    tm_time.tm_isdst = -1;
 
-    time_t timestamp = mktime(&tm_time);
+    time_t ts = mktime(&tm_time);
+    if (ts <= 0) {
+        logger.debug("parseTimestamp: mktime failed for '%s' (ts=%ld)", timestampStr, (long)ts);
+        return (time_t)-1;
+    }
 
-    // Debug-Ausgabe
-    //printf("Input: %s → Parsed Time: %02d:%02d:%02d | Unix: %ld\n", timestampStr, tm_time.tm_hour, tm_time.tm_min, tm_time.tm_sec, timestamp);
-
-    return timestamp;
+    return ts;
 }
 
-
+/**
+ * @brief Derives and locks the timezone offset from a single timestamp sample.
+ *
+ * This function calculates the timezone offset between a local LibreLinkUp
+ * timestamp (@p ts_local) and the corresponding factory timestamp (@p ts_factory).
+ *
+ * The difference between both timestamps represents the effective timezone
+ * offset (including DST if applicable). The computed offset is then:
+ *
+ * - Stored in seconds (tz_offset_s_locked)
+ * - Stored in rounded hours (tz_offset_h_locked)
+ * - Marked as locked via @c tz_locked
+ *
+ * A sanity check ensures the offset remains within ±15 hours to prevent
+ * invalid results caused by parsing errors or corrupted timestamps.
+ *
+ * @param ts_local
+ *        Timestamp string representing the localized measurement time.
+ *
+ * @param ts_factory
+ *        Timestamp string representing the factory (base) measurement time.
+ *
+ * @return
+ *        true  if the timezone offset was successfully calculated and locked,
+ *        false if parsing failed or the calculated offset was implausible.
+ *
+ * @note
+ *        This function is intended to be called once per session. After
+ *        successful execution, tz_locked remains true and subsequent
+ *        updates are typically unnecessary.
+ */
 bool LIBRELINKUP::update_tz_offset_once(const String& ts_local, const String& ts_factory)
 {
     time_t tLocal   = parseTimestamp(ts_local.c_str());
     time_t tFactory = parseTimestamp(ts_factory.c_str());
 
-    if (tLocal == 0 || tFactory == 0) {
+    if (tLocal <= 0 || tFactory <= 0) {
         logger.debug("tz: parse failed (local=%ld factory=%ld)", (long)tLocal, (long)tFactory);
         return false;
     }
 
     int32_t off_s = (int32_t)difftime(tLocal, tFactory);
 
-    // Sanity: typischerweise ganze Stunden
     if (abs(off_s) > 15 * 3600) {
         logger.notice("tz: offset implausible: %ld s", (long)off_s);
         return false;
     }
 
-    // korrekt runden (auch für negative Offsets!)
     int16_t off_h = (int16_t)((off_s >= 0) ? ((off_s + 1800) / 3600)
                                            : ((off_s - 1800) / 3600));
 
-    tz_offset_s_locked = off_s;      // volle Sekundengenauigkeit behalten
+    tz_offset_s_locked = off_s;
     tz_offset_h_locked = off_h;
     tz_locked = true;
 

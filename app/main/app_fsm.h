@@ -2,6 +2,10 @@
  * @file app_fsm.h
  * @brief Event/timeout-driven application state machine for this ESP32 project.
  *
+ * @author Christian Weithe
+ * @date 2026-03-04
+ * @version 1.1
+ * @copyright MIT
  * Design goals:
  * - Deterministic sequencing: WiFi -> WireGuard(optional) -> MQTT(optional) -> Run
  * - Centralized timeouts/backoff handling
@@ -14,6 +18,9 @@
 #include <Arduino.h>
 
 
+/**
+ * @brief Finite-state machine states used by the application.
+ */
 enum class AppState : uint8_t
 {
   BOOT = 0,
@@ -29,6 +36,11 @@ enum class AppState : uint8_t
   OTA_MODE,
 };
 
+/**
+ * @brief Configuration parameters for the FSM timing/behavior.
+ *
+ * Simple POD values; can be adjusted at runtime before calling `app_fsm_init()`.
+ */
 struct AppFsmConfig
 {
   uint32_t display_dim_timeout_ms = 300000;   ///< 5 min
@@ -44,6 +56,12 @@ struct AppFsmConfig
   uint32_t debug_screen_period_ms = 1000; // 1s
 };
 
+/**
+ * @brief Runtime state and metadata for the FSM.
+ *
+ * This structure holds all runtime counters, timestamps and flags used and modified by
+ * `app_fsm_poll()` and helper functions.
+ */
 struct AppFsm
 {
   bool fetch_schedule_override = false; ///< If true, last_fetch_ms was adjusted for the next fetch
