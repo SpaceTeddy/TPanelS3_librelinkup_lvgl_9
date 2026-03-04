@@ -2398,21 +2398,8 @@ void update_glucose_data()
                       librelinkup.llu_glucose_data.str_trendArrow.c_str(),
                       glucose_delta);
 
-        // Update all display elements
-        /*
-        static uint8_t counter = 5;
-        counter--;
-        if(counter < 4){
-            librelinkup.sensor_livetime.sensor_valid_days = 0;
-            librelinkup.sensor_livetime.sensor_valid_hours = 0;
-            librelinkup.sensor_livetime.sensor_valid_minutes = 50;
-        }
-        if(counter == 0){
-            counter = 5;
-        }
-        */
-
         // Data freshness overlay: show placeholder when measurement is stale
+        /*
         if (librelinkup.llu_status.sensor_state == SENSOR_READY)
         {
             if (librelinkup.llu_status.data_state == DataState::STALE_LOST)
@@ -2426,7 +2413,7 @@ void update_glucose_data()
                 return;
             }
         }
-
+        */
         draw_chart_sensor_valid();
         draw_labels(true, librelinkup.llu_glucose_data.measurement_color,
                     librelinkup.llu_glucose_data.glucoseMeasurement,
