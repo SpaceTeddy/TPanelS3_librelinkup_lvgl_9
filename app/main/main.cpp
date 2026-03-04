@@ -2227,12 +2227,10 @@ void update_trend_message()
     {
     case SENSOR_EXPIRED:
         librelinkup.llu_glucose_data.str_TrendMessage = "sensor expired!";
-        //logger.notice("sensor expired!");
         break;
 
     case SENSOR_NOT_AVAILABLE:
         librelinkup.llu_glucose_data.str_TrendMessage = "no active sensor!";
-        //logger.notice("no active sensor");
         break;
 
     case SENSOR_STARTING:
@@ -2240,7 +2238,6 @@ void update_trend_message()
             librelinkup.llu_sensor_data.sensor_non_activ_unixtime);
         sprintf(buffer, "sensor ready in %d min", remaining_time);
         librelinkup.llu_glucose_data.str_TrendMessage = buffer;
-        logger.notice("Sensor in starting phase!");
         break;
 
     case SENSOR_READY:
@@ -2291,7 +2288,7 @@ void update_five_minute_counter()
         if (librelinkup.llu_status.sensor_state == SENSOR_READY)
         {
             update_glucose_json_logging();
-            glucose_statistics(); // Print glucose statistics
+            //glucose_statistics(); // Print glucose statistics
         }
     }
 }
