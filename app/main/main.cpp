@@ -190,6 +190,8 @@ AsyncWebServer server(80); ///< Async web server for OTA and config
 
 uint32_t ota_progress_millis = 0; ///< Last OTA progress update timestamp
 bool ota_in_progress = 0;         ///< OTA update in progress flag
+static bool g_ota_server_started = false;    ///< HTTP OTA server state
+static bool g_ota_routes_registered = false; ///< Web route registration state
 
 ///////////////////// WIFI BACKGROUND SCAN ////////////////////
 
@@ -299,6 +301,11 @@ void onOTAStart()
  */
 void onOTAProgress(size_t current, size_t final)
 {
+    if (final == 0)
+    {
+        return;
+    }
+
     // Log every 1000 milliseconds
     if (millis() - ota_progress_millis > 1000)
     {
@@ -1164,18 +1171,18 @@ static void btn_ota_cb(lv_event_t *event)
     {
         LV_LOG_USER("Clicked");
         logger.debug("OTA Mode Button clicked");
-        settings.saveConfiguration(settings.config_filename, settings.config);
 
         if (settings.config.ota_update == 1)
         {
             settings.config.ota_update = 0;
-            setup_OTA(settings.config.ota_update);
         }
         else if (settings.config.ota_update == 0)
         {
             settings.config.ota_update = 1;
-            setup_OTA(settings.config.ota_update);
         }
+
+        settings.saveConfiguration(settings.config_filename, settings.config);
+            setup_OTA(settings.config.ota_update);
     }
     else if (code == LV_EVENT_VALUE_CHANGED)
     {
@@ -2399,21 +2406,20 @@ void update_glucose_data()
                       glucose_delta);
 
         // Data freshness overlay: show placeholder when measurement is stale
-        /*
         if (librelinkup.llu_status.sensor_state == SENSOR_READY)
         {
             if (librelinkup.llu_status.data_state == DataState::STALE_LOST)
             {
-                draw_labels(false, COLOR_RED, 0, "-", "---", 0);
+                draw_labels(false, COLOR_RED, 0, "-", "sensor manual error!", 0);
                 return;
             }
             if (librelinkup.llu_status.data_state == DataState::STALE_WARN)
             {
-                draw_labels(false, COLOR_YELLOW, 0, "-", "---", 0);
+                draw_labels(false, COLOR_YELLOW, 0, "-", "sensor data delayed!", 0);
                 return;
             }
         }
-        */
+    
         draw_chart_sensor_valid();
         draw_labels(true, librelinkup.llu_glucose_data.measurement_color,
                     librelinkup.llu_glucose_data.glucoseMeasurement,
@@ -3153,8 +3159,12 @@ void setup_OTA(bool mode)
 
     if (mode == 1)
     {
+        if (g_ota_server_started)
+        {
+            return;
+        }
 
-        if (g_ap_mode == false)
+        if (g_ap_mode == false && wifiScanHandle == NULL)
         {
             // Create WiFi scan background task
             xTaskCreatePinnedToCore(
@@ -3169,7 +3179,11 @@ void setup_OTA(bool mode)
         }
 
         // Register web routes
+        if (!g_ota_routes_registered)
+        {
         register_webpage_routes(server);
+            g_ota_routes_registered = true;
+        }
 
         // Start ElegantOTA
         ElegantOTA.begin(&server);
@@ -3178,14 +3192,26 @@ void setup_OTA(bool mode)
         ElegantOTA.onEnd(onOTAEnd);
 
         server.begin();
+        g_ota_server_started = true;
         DBGprint;
         Serial.println("HTTP server started");
     }
     else
     {
-        // server.end();
-        // DBGprint;
-        // Serial.println("HTTP server stopped");
+        if (g_ota_server_started)
+        {
+            server.end();
+            g_ota_server_started = false;
+            DBGprint;
+            Serial.println("HTTP server stopped");
+        }
+
+        if (wifiScanHandle != NULL)
+        {
+            vTaskDelete(wifiScanHandle);
+            wifiScanHandle = NULL;
+            g_scan_in_progress = false;
+        }
     }
 }
 
