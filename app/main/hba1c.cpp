@@ -32,6 +32,7 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <cstring>
 #include <time.h>
 
 //---------------------------[globals]------------------------------------
@@ -107,8 +108,14 @@ void HBA1C::createTestJsonFiles() {
  */
 void HBA1C::updateFilename() {
     time_t now = time(nullptr);
-    struct tm *timeinfo = localtime(&now);
-    strftime(today_json_filename, sizeof(today_json_filename), "/%Y-%m-%d.json", timeinfo);
+    updateFilename(now);
+    //logger.debug("UpdateFilename: %s", today_json_filename);
+}
+
+void HBA1C::updateFilename(time_t timestamp) {
+    struct tm timeinfo;
+    localtime_r(&timestamp, &timeinfo);
+    strftime(today_json_filename, sizeof(today_json_filename), "/%Y-%m-%d.json", &timeinfo);
     //logger.debug("UpdateFilename: %s", today_json_filename);
 }
 
@@ -313,15 +320,16 @@ bool HBA1C::deleteJsonFile(const char* filename) {
  * - Enforces MAX_ENTRIES by removing oldest entry.
  */
 void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
-    static time_t last_timestamp = 0;
-    updateFilename();
+    updateFilename(timestamp);
 
-    struct tm *timeinfo = localtime(&timestamp);
-    struct tm *last_timeinfo = localtime(&last_timestamp);
+    struct tm timeinfo;
+    struct tm last_timeinfo;
+    localtime_r(&timestamp, &timeinfo);
+    localtime_r(&last_timestamp, &last_timeinfo);
 
-    if (last_timeinfo->tm_mday != timeinfo->tm_mday) {
+    if (last_timeinfo.tm_mday != timeinfo.tm_mday) {
         //logger.debug("🟢 Neuer Tag erkannt, Datei wechseln zu %s...", today_json_filename);
-        updateFilename();
+        updateFilename(timestamp);
     }
 
     last_timestamp = timestamp;
@@ -363,10 +371,12 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
  */
 void HBA1C::checkNewDay() {
     time_t now = time(nullptr);
-    struct tm *timeinfo = localtime(&now);
-    struct tm *last_timeinfo = localtime(&last_timestamp);
+    struct tm timeinfo;
+    struct tm last_timeinfo;
+    localtime_r(&now, &timeinfo);
+    localtime_r(&last_timestamp, &last_timeinfo);
 
-    if (last_timeinfo->tm_mday != timeinfo->tm_mday) {
+    if (last_timeinfo.tm_mday != timeinfo.tm_mday) {
         Serial.println("Neuer Tag erkannt, Datei wechseln...");
         logger.notice("Neuer Tag erkannt, Datei wechseln...");
         updateFilename();
@@ -384,13 +394,23 @@ void HBA1C::checkNewDay() {
  * @note Current implementation ignores 0 values in the sum, but still divides by size.
  */
 float HBA1C::calculateGlucoseMeanFromHistory(uint16_t values[], uint16_t size) {
+    if (size == 0) {
+        return 0.0f;
+    }
+
     float sum = 0;
+    uint16_t valid_count = 0;
     for (int i = 0; i < size; i++) {
         if(values[i] != 0){
             sum += values[i];
+            valid_count++;
         }
     }
-    return sum / size;
+
+    if (valid_count == 0) {
+        return 0.0f;
+    }
+    return sum / valid_count;
 }
 
 /**
@@ -513,13 +533,19 @@ float HBA1C::calculateGlucoseMeanForLast7Days() {
             filepath = "/" + filepath;
         }
 
-        if (filename == "config.json") {
+        if (filename == "config.json" || filename == "/config.json") {
             file = root.openNextFile();
             continue;
         }
 
+        const char* baseName = filename.c_str();
+        const char* slash = strrchr(baseName, '/');
+        if (slash != nullptr && *(slash + 1) != '\0') {
+            baseName = slash + 1;
+        }
+
         int year, month, day;
-        if (sscanf(filename.c_str(), "%4d-%2d-%2d.json", &year, &month, &day) != 3) {
+        if (sscanf(baseName, "%4d-%2d-%2d.json", &year, &month, &day) != 3) {
             logger.notice("⚠️  Datei %s hat kein gültiges Datumsformat!", filename.c_str());
             file = root.openNextFile();
             continue;
@@ -570,6 +596,10 @@ float HBA1C::calculate_hba1c(float mean_glucose) {
  * @return Percentage [0..100] in range.
  */
 float HBA1C::calculate_time_in_range(uint16_t values[], uint16_t size, int min_range, int max_range) {
+    if (size == 0) {
+        return 0.0f;
+    }
+
     int count = 0;
     for (int i = 0; i < size; i++) {
         if (values[i] >= min_range && values[i] <= max_range) {
@@ -587,6 +617,10 @@ float HBA1C::calculate_time_in_range(uint16_t values[], uint16_t size, int min_r
  * @return Standard deviation (mg/dL).
  */
 float HBA1C::calculate_standard_deviation(uint16_t values[], uint16_t size, float mean) {
+    if (size == 0) {
+        return 0.0f;
+    }
+
     double sum = 0;
     for (int i = 0; i < size; i++) {
         sum += pow(values[i] - mean, 2);
@@ -601,5 +635,8 @@ float HBA1C::calculate_standard_deviation(uint16_t values[], uint16_t size, floa
  * @return CV in percent.
  */
 float HBA1C::calculate_coefficient_of_variation(float std_dev, float mean) {
+    if (mean == 0.0f) {
+        return 0.0f;
+    }
     return (std_dev / mean) * 100.0;
 }

@@ -65,6 +65,7 @@ public:
    * Uses local time (time(nullptr) + localtime()) and writes into the global buffer.
    */
   void updateFilename();
+  void updateFilename(time_t timestamp);
 
   /**
    * @brief Print raw file contents for debugging (block-wise).
