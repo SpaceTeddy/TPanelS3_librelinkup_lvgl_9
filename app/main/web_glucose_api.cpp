@@ -7,20 +7,20 @@
 
 #include <Arduino.h>
 #include <time.h>
-#include "librelinkup.h"
+#include <librelinkup.h>
 
 extern LIBRELINKUP librelinkup;
 extern int16_t glucose_delta;
 
 String web_get_glucose_latest_json() {
-    const uint16_t mgdl = (uint16_t)librelinkup.llu_glucose_data.glucoseMeasurement;
-    const uint16_t low  = (uint16_t)librelinkup.llu_glucose_data.glucosetargetLow;
-    const uint16_t high = (uint16_t)librelinkup.llu_glucose_data.glucosetargetHigh;
-    const bool ts_ok    = (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_VALID);
+    const uint16_t mgdl = (uint16_t)librelinkup.glucose_data().glucoseMeasurement;
+    const uint16_t low  = (uint16_t)librelinkup.glucose_data().glucosetargetLow;
+    const uint16_t high = (uint16_t)librelinkup.glucose_data().glucosetargetHigh;
+    const bool ts_ok    = (librelinkup.status().timestamp_status == SENSOR_TIMECODE_VALID);
 
     
     // Warm-up (Libre): sensor starting -> remaining warmup minutes (based on sensor_non_activ_unixtime)
-    const int sensor_state = (int)librelinkup.llu_status.sensor_state;
+    const int sensor_state = (int)librelinkup.status().sensor_state;
     int warmup_min = 0;
     int warmup_sec = 0;
     bool warmup_active = false;
@@ -28,7 +28,7 @@ String web_get_glucose_latest_json() {
         // Your project already uses this helper; keep behavior consistent with device UI
         // App-like rounding: compute remaining seconds and use ceil(minutes)
         time_t now = time(NULL);
-        time_t end = (time_t)librelinkup.llu_sensor_data.sensor_non_activ_unixtime + (60 * 60);
+        time_t end = (time_t)librelinkup.sensor_data().sensor_non_activ_unixtime + (60 * 60);
         long rem_sec = (long)(end - now);
         if (rem_sec < 0) rem_sec = 0;
         warmup_sec = (int)rem_sec;
@@ -37,10 +37,10 @@ if (warmup_min < 0) warmup_min = 0;
         // Best-effort seconds (minute resolution)        warmup_active = (warmup_min > 0);
     }
 const int delta = (int)glucose_delta;
-    const char* trend = librelinkup.llu_glucose_data.str_trendArrow.c_str();
+    const char* trend = librelinkup.glucose_data().str_trendArrow.c_str();
 
     // Restlaufzeit (15 Tage) aus activation_time
-    const uint32_t activation = (uint32_t)librelinkup.llu_sensor_data.sensor_activation_time;
+    const uint32_t activation = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
     const uint32_t lifetime_s = 15UL * 24UL * 3600UL;
     const uint32_t now = (uint32_t)time(nullptr);
 
@@ -79,8 +79,8 @@ out += "}";
 
 String web_get_glucose_history_json() {
     const uint16_t N = (uint16_t)librelinkup.GRAPHDATAARRAYSIZE;
-    const uint16_t low  = (uint16_t)librelinkup.llu_glucose_data.glucosetargetLow;
-    const uint16_t high = (uint16_t)librelinkup.llu_glucose_data.glucosetargetHigh;
+    const uint16_t low  = (uint16_t)librelinkup.glucose_data().glucosetargetLow;
+    const uint16_t high = (uint16_t)librelinkup.glucose_data().glucosetargetHigh;
 
     String out;
     out.reserve(120 + N * 26);
@@ -91,13 +91,13 @@ String web_get_glucose_history_json() {
     out += ",\"values\":[";
 
     for (uint16_t i = 0; i < N; i++) {
-        const uint16_t v = (uint16_t)librelinkup.llu_sensor_history_data.graph_data[i];
+        const uint16_t v = (uint16_t)librelinkup.sensor_history_data().graph_data[i];
 
         // Prefer local timestamp[i] if present
         uint32_t ts = 0;
         // Some builds may name it timestamp (as user said). Fallback to factory_timestamp.
-        ts = (uint32_t)librelinkup.llu_sensor_history_data.timestamp[i];
-        if (ts == 0) ts = (uint32_t)librelinkup.llu_sensor_history_data.factory_timestamp[i];
+        ts = (uint32_t)librelinkup.sensor_history_data().timestamp[i];
+        if (ts == 0) ts = (uint32_t)librelinkup.sensor_history_data().factory_timestamp[i];
 
         if (v == 0 || ts == 0) {
             out += "null";

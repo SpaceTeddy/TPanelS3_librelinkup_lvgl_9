@@ -149,7 +149,7 @@ HBA1C hba1c; ///< HbA1c calculation engine
 
 ///////////////////// LIBRELINKUP API CLIENT ////////////////////
 
-#include "librelinkup.h"
+#include <librelinkup.h>
 
 LIBRELINKUP librelinkup; ///< LibreLinkUp API client instance
 
@@ -504,8 +504,8 @@ void mqtt_publish()
 {
 
     // Publish glucose and system data
-    json_mqtt["glucoseMeasurement"] = librelinkup.llu_glucose_data.glucoseMeasurement;
-    json_mqtt["trendArrow"] = librelinkup.llu_glucose_data.trendArrow;
+    json_mqtt["glucoseMeasurement"] = librelinkup.glucose_data().glucoseMeasurement;
+    json_mqtt["trendArrow"] = librelinkup.glucose_data().trendArrow;
     json_mqtt["brightness"] = settings.config.brightness;
     json_mqtt["mqtt_mode"] = settings.config.mqtt_mode;
     json_mqtt["ota_server"] = settings.config.ota_update;
@@ -620,7 +620,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         // --- dedup via measurement timestamp ---------------------------------
         // Use the measurement timestamp parsed from the incoming JSON.
         // (This is what you already convert later in update_glucose_data())
-        const String &ts = librelinkup.llu_glucose_data.str_measurement_timestamp;
+        const String &ts = librelinkup.glucose_data().str_measurement_timestamp;
 
         int64_t meas_epoch = (int64_t)helper.convertStrToUnixTime(ts);
 
@@ -849,11 +849,11 @@ static void highlight_last_point()
     const uint8_t y_pos_offset = 12; ///< Y-axis offset for marker centering
 
     // Get last stored value from array
-    int16_t last_value = librelinkup.llu_sensor_history_data.graph_data[librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1];
+    int16_t last_value = librelinkup.sensor_history_data().graph_data[librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1];
 
     // Hide marker if no valid value exists
     if (last_value == LV_CHART_POINT_NONE ||
-        librelinkup.llu_sensor_history_data.graph_data[librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1] == 0)
+        librelinkup.sensor_history_data().graph_data[librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1] == 0)
     {
         lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
         return; // Exit if no value present
@@ -878,8 +878,8 @@ static void highlight_last_point()
     lv_coord_t y_pos = (chart_height - ((last_value - y_min) * chart_height) / (y_max - y_min)) - y_pos_offset;
 
     // Set marker color based on glucose range
-    if (last_value >= librelinkup.llu_glucose_data.glucosetargetHigh ||
-        last_value <= librelinkup.llu_glucose_data.glucoseAlarmLow)
+    if (last_value >= librelinkup.glucose_data().glucosetargetHigh ||
+        last_value <= librelinkup.glucose_data().glucoseAlarmLow)
     {
         lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker,
                                   lv_palette_main(LV_PALETTE_RED), 0);
@@ -1275,7 +1275,7 @@ static void touch_event_cb(lv_event_t *e)
         index = 0;
 
     // Get Y value from chart series
-    int16_t value = librelinkup.llu_sensor_history_data.graph_data[index];
+    int16_t value = librelinkup.sensor_history_data().graph_data[index];
 
     // Hide marker if no valid value
     if (value == LV_CHART_POINT_NONE || value == 0)
@@ -1301,8 +1301,8 @@ static void touch_event_cb(lv_event_t *e)
     const uint8_t y_pos_offset = 6;  ///< Y-axis centering offset
 
     // Set marker color based on glucose range
-    if (value >= librelinkup.llu_glucose_data.glucosetargetHigh ||
-        value <= librelinkup.llu_glucose_data.glucoseAlarmLow)
+    if (value >= librelinkup.glucose_data().glucosetargetHigh ||
+        value <= librelinkup.glucose_data().glucoseAlarmLow)
     {
         lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker,
                                   lv_palette_main(LV_PALETTE_RED), 0);
@@ -1323,15 +1323,15 @@ static void touch_event_cb(lv_event_t *e)
 
     // Update main display with touched value
     uint8_t mode = 1; // Display mode: show value
-    uint8_t color = (value >= librelinkup.llu_glucose_data.glucosetargetHigh ||
-                     value <= librelinkup.llu_glucose_data.glucoseAlarmLow)
+    uint8_t color = (value >= librelinkup.glucose_data().glucosetargetHigh ||
+                     value <= librelinkup.glucose_data().glucoseAlarmLow)
                         ? LV_PALETTE_RED
                         : LV_PALETTE_GREEN;
     uint16_t glucose_value = value;
 
     draw_labels(mode, color, glucose_value,
-                librelinkup.llu_glucose_data.str_trendArrow,
-                librelinkup.llu_glucose_data.str_TrendMessage, 0);
+                librelinkup.glucose_data().str_trendArrow,
+                librelinkup.glucose_data().str_TrendMessage, 0);
 
     // Debug output
     logger.notice("Touch X (rel): %d, Index: %d, Value: %d, Y: %d",
@@ -1464,9 +1464,9 @@ void lcd_status_indication(bool on_off, uint8_t color)
 void draw_chart_sensor_valid()
 {
     // Rohwerte (wie berechnet)
-    int rawDays = librelinkup.sensor_livetime.sensor_valid_days;
-    int rawHours = librelinkup.sensor_livetime.sensor_valid_hours;
-    int rawMinutes = librelinkup.sensor_livetime.sensor_valid_minutes;
+    int rawDays = librelinkup.sensor_lifetime().sensor_valid_days;
+    int rawHours = librelinkup.sensor_lifetime().sensor_valid_hours;
+    int rawMinutes = librelinkup.sensor_lifetime().sensor_valid_minutes;
 
     // Expired/invalid detection (before +1!)
     bool expired = (rawDays < 0) || (rawHours < 0) || (rawMinutes < 0);
@@ -1491,12 +1491,12 @@ void draw_chart_sensor_valid()
     // --------------------------
     if (rawDays > 0)
     {
-        if (librelinkup.llu_sensor_data.sensor_runtime == 14 * 86400)
+        if (librelinkup.sensor_data().sensor_runtime == 14 * 86400)
         {
             switch_sensor_valid_progress_bar(&dayBar14, 0);
             update_chart_valid_values(&dayBar14, days);
         }
-        else if (librelinkup.llu_sensor_data.sensor_runtime == 15 * 86400)
+        else if (librelinkup.sensor_data().sensor_runtime == 15 * 86400)
         {
             switch_sensor_valid_progress_bar(&dayBar15, 0);
             update_chart_valid_values(&dayBar15, days);
@@ -1598,9 +1598,9 @@ void add_axis_labels()
     uint8_t data_count = librelinkup.check_graphdata();
 
     // Determine first, middle and last timestamps
-    uint32_t first_timestamp = librelinkup.llu_sensor_history_data.timestamp[0];
-    uint32_t middle_timestamp = librelinkup.llu_sensor_history_data.timestamp[data_count / 2];
-    uint32_t last_timestamp = librelinkup.llu_sensor_history_data.timestamp[data_count - 1];
+    uint32_t first_timestamp = librelinkup.sensor_history_data().timestamp[0];
+    uint32_t middle_timestamp = librelinkup.sensor_history_data().timestamp[data_count / 2];
+    uint32_t last_timestamp = librelinkup.sensor_history_data().timestamp[data_count - 1];
 
     // Format timestamps
     helper.format_time(labels[0], sizeof(labels[0]), first_timestamp);  // First timestamp
@@ -1646,9 +1646,9 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
         // Draw limit lines
         lv_chart_set_x_start_point(ui_Chart_Glucose_5Min, glucoseValueSeries_5Min, 0);
         lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_upperlimit,
-                               librelinkup.llu_glucose_data.glucosetargetHigh);
+                               librelinkup.glucose_data().glucosetargetHigh);
         lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_lowerlimit,
-                               librelinkup.llu_glucose_data.glucosetargetLow);
+                               librelinkup.glucose_data().glucosetargetLow);
     }
 
     if (mode == 1 || mode == 3)
@@ -1663,9 +1663,9 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
         lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_last, LV_CHART_POINT_NONE);
 
         // Iterate through all historical data
-        uint32_t sensor_active_time = (librelinkup.sensor_livetime.sensor_valid_days * 24 * 60 * 60) +
-                                      (librelinkup.sensor_livetime.sensor_valid_hours * 60 * 60) +
-                                      (librelinkup.sensor_livetime.sensor_valid_minutes * 60);
+        uint32_t sensor_active_time = (librelinkup.sensor_lifetime().sensor_valid_days * 24 * 60 * 60) +
+                                      (librelinkup.sensor_lifetime().sensor_valid_hours * 60 * 60) +
+                                      (librelinkup.sensor_lifetime().sensor_valid_minutes * 60);
 
         if (sensor_active_time <= librelinkup.TIMEFULLGRAPHDATA)
         {
@@ -1678,13 +1678,13 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
                 if (index < 0 || index >= librelinkup.GRAPHDATAARRAYSIZE)
                     continue;
 
-                glucose_value = librelinkup.llu_sensor_history_data.graph_data[index];
+                glucose_value = librelinkup.sensor_history_data().graph_data[index];
 
                 if (glucose_value != 0)
                 {
                     // Check if value is out of target range
-                    if (glucose_value > librelinkup.llu_glucose_data.glucosetargetHigh ||
-                        glucose_value < librelinkup.llu_glucose_data.glucosetargetLow)
+                    if (glucose_value > librelinkup.glucose_data().glucosetargetHigh ||
+                        glucose_value < librelinkup.glucose_data().glucosetargetLow)
                     {
                         lv_chart_set_value_by_id(ui_Chart_Glucose_5Min, glucoseValueSeries_alert,
                                                  index, glucose_value);
@@ -1713,12 +1713,12 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
             for (int i = 0; i < data_count; i++)
             {
                 uint8_t index = (data_count - 1) - i;
-                glucose_value = librelinkup.llu_sensor_history_data.graph_data[index];
+                glucose_value = librelinkup.sensor_history_data().graph_data[index];
 
                 if (glucose_value != 0)
                 {
-                    if (glucose_value > librelinkup.llu_glucose_data.glucosetargetHigh ||
-                        glucose_value < librelinkup.llu_glucose_data.glucosetargetLow)
+                    if (glucose_value > librelinkup.glucose_data().glucosetargetHigh ||
+                        glucose_value < librelinkup.glucose_data().glucosetargetLow)
                     {
                         lv_chart_set_value_by_id(ui_Chart_Glucose_5Min, glucoseValueSeries_alert,
                                                  (librelinkup.GRAPHDATAARRAYSIZE - 1) - i, glucose_value);
@@ -1735,13 +1735,13 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
         // Set current measurement at index 141
         uint16_t last_index = librelinkup.GRAPHDATAARRAYSIZE;
 
-        if (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_VALID)
+        if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_VALID)
         {
-            librelinkup.llu_sensor_history_data.graph_data[last_index] =
-                librelinkup.llu_glucose_data.glucoseMeasurement;
+            librelinkup.sensor_history_data().graph_data[last_index] =
+                librelinkup.glucose_data().glucoseMeasurement;
 
             lv_chart_set_value_by_id(ui_Chart_Glucose_5Min, glucoseValueSeries_5Min,
-                                     last_index, librelinkup.llu_glucose_data.glucoseMeasurement);
+                                     last_index, librelinkup.glucose_data().glucoseMeasurement);
 
             // Highlight last point
             highlight_last_point();
@@ -1920,10 +1920,10 @@ void handle_internet_disconnection()
         WiFi.reconnect();
     }
 
-    draw_labels(false, librelinkup.llu_glucose_data.measurement_color,
-                librelinkup.llu_glucose_data.glucoseMeasurement,
-                librelinkup.llu_glucose_data.str_trendArrow,
-                librelinkup.llu_glucose_data.str_TrendMessage, 0);
+    draw_labels(false, librelinkup.glucose_data().measurement_color,
+                librelinkup.glucose_data().glucoseMeasurement,
+                librelinkup.glucose_data().str_trendArrow,
+                librelinkup.glucose_data().str_TrendMessage, 0);
 }
 
 /**
@@ -1939,7 +1939,7 @@ void handle_llu_api_error()
 {
     internet_status = 2;
     lcd_status_indication(0, 1);
-    librelinkup.sensor_reconnect = 1;
+    librelinkup.reconnect_flag() = 1;
     logger.notice("API Error: get graph data");
 }
 
@@ -1955,7 +1955,7 @@ void handle_llu_api_error()
 void handle_sensor_reconnect()
 {
     logger.notice("Sensor reconnect!");
-    librelinkup.sensor_reconnect = 0;
+    librelinkup.reconnect_flag() = 0;
     glucose_delta = 0;
     draw_chart_glucose_data(3, false);
 }
@@ -1978,26 +1978,26 @@ void handle_sensor_reconnect()
 void handle_invalid_timestamp()
 {
 
-    draw_labels(false, librelinkup.llu_glucose_data.measurement_color,
-                librelinkup.llu_glucose_data.glucoseMeasurement,
-                librelinkup.llu_glucose_data.str_trendArrow,
-                librelinkup.llu_glucose_data.str_TrendMessage, 0);
+    draw_labels(false, librelinkup.glucose_data().measurement_color,
+                librelinkup.glucose_data().glucoseMeasurement,
+                librelinkup.glucose_data().str_trendArrow,
+                librelinkup.glucose_data().str_TrendMessage, 0);
 
-    if (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_OUT_OF_RANGE)
+    if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_OUT_OF_RANGE)
     {
         logger.notice("glucoseMeasurement: no valid sensor data");
-        librelinkup.sensor_reconnect = 1;
+        librelinkup.reconnect_flag() = 1;
     }
     
     /*
-    if(librelinkup.llu_status.timestamp_status == SENSOR_LOST){
+    if(librelinkup.status().timestamp_status == SENSOR_LOST){
         logger.notice("glucoseMeasurement: sensor lost?!");
     }*/
 
     static uint8_t invalid_timestamp_counter = 0;
 
-    if (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_ERROR &&
-        librelinkup.llu_status.sensor_state == SENSOR_NOT_AVAILABLE)
+    if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_ERROR &&
+        librelinkup.status().sensor_state == SENSOR_NOT_AVAILABLE)
     {
 
         if (++invalid_timestamp_counter == 5)
@@ -2006,7 +2006,7 @@ void handle_invalid_timestamp()
             logger.notice("LLU Re-auth...");
             librelinkup.auth_user(settings.config.login_email, settings.config.login_password);
 
-            if (librelinkup.llu_login_data.user_login_status == 4)
+            if (librelinkup.login_data().user_login_status == 4)
             {
                 esp_status_counter_llu_retou++;
                 librelinkup.tou_user();
@@ -2128,7 +2128,7 @@ void synchronize_time_offset_epoch()
     }
 
     // This is your FactoryTimestamp string (MM/DD/YYYY hh:mm:ss AM/PM)
-    const String &fts = librelinkup.llu_glucose_data.str_measurement_factorytimestamp;
+    const String &fts = librelinkup.glucose_data().str_measurement_factorytimestamp;
 
     // Parse FactoryTimestamp to epoch (raw). In your project, parseTimestamp() seems to work for this.
     // If you don't have direct access to parseTimestamp() here, keep your existing parse function.
@@ -2220,7 +2220,7 @@ void synchronize_time_offset_epoch()
  * - SENSOR_READY: "" (no message)
  *
  * @note Warmup countdown calculated from sensor activation time
- * @note Message stored in librelinkup.llu_glucose_data.str_TrendMessage
+ * @note Message stored in librelinkup.glucose_data().str_TrendMessage
  *
  * @warning Buffer size limited to 30 characters
  */
@@ -2229,35 +2229,35 @@ void update_trend_message()
     char buffer[30];
     int remaining_time = 0;
 
-    switch (librelinkup.llu_status.sensor_state)
+    switch (librelinkup.status().sensor_state)
     {
     case SENSOR_EXPIRED:
-        librelinkup.llu_glucose_data.str_TrendMessage = "sensor expired!";
+        librelinkup.glucose_data().str_TrendMessage = "sensor expired!";
         logger.notice("sensor expired!");
         break;
 
     case SENSOR_NOT_AVAILABLE:
-        librelinkup.llu_glucose_data.str_TrendMessage = "no active sensor";
+        librelinkup.glucose_data().str_TrendMessage = "no active sensor";
         logger.notice("no active sensor");
         break;
 
     case SENSOR_LOST:
-        librelinkup.llu_glucose_data.str_TrendMessage = "sensor lost!";
+        librelinkup.glucose_data().str_TrendMessage = "sensor lost!";
         logger.notice("sensor lost!");
         break;
     
     case SENSOR_STARTING:
         remaining_time = librelinkup.get_remaining_warmup_time(
-            librelinkup.llu_sensor_data.sensor_non_activ_unixtime);
+            librelinkup.sensor_data().sensor_non_activ_unixtime);
         sprintf(buffer, "sensor ready in %d min", remaining_time);
-        librelinkup.llu_glucose_data.str_TrendMessage = buffer;
+        librelinkup.glucose_data().str_TrendMessage = buffer;
         logger.notice("Sensor in starting phase!");
         break;
 
     case SENSOR_READY:
-        librelinkup.llu_glucose_data.str_TrendMessage = "";
-        if(librelinkup.llu_status.timestamp_status == SENSOR_LOST){
-            librelinkup.llu_glucose_data.str_TrendMessage = "sensor lost!";
+        librelinkup.glucose_data().str_TrendMessage = "";
+        if(librelinkup.status().timestamp_status == SENSOR_LOST){
+            librelinkup.glucose_data().str_TrendMessage = "sensor lost!";
             //logger.notice("sensor lost!");
         }
         break;
@@ -2298,7 +2298,7 @@ void update_five_minute_counter()
         logger.debug("Triggering 5-minute chart update...");
         draw_chart_glucose_data(1, true); // Perform 5-minute update
 
-        if (librelinkup.llu_status.sensor_state == SENSOR_READY)
+        if (librelinkup.status().sensor_state == SENSOR_READY)
         {
             update_glucose_json_logging();
             //glucose_statistics(); // Print glucose statistics
@@ -2372,44 +2372,44 @@ void update_glucose_data()
     }
 
     // Read sensor status and timestamp
-    librelinkup.llu_status.sensor_state = librelinkup.check_sensor_lifetime(
-        librelinkup.llu_sensor_data.sensor_non_activ_unixtime,
-        librelinkup.llu_sensor_data.sensor_runtime);
-    //logger.debug("Sensor State: %d", librelinkup.llu_status.sensor_state);
+    librelinkup.status().sensor_state = librelinkup.check_sensor_lifetime(
+        librelinkup.sensor_data().sensor_non_activ_unixtime,
+        librelinkup.sensor_data().sensor_runtime);
+    //logger.debug("Sensor State: %d", librelinkup.status().sensor_state);
 
     // Validate timestamp
-    librelinkup.llu_status.timestamp_status = librelinkup.check_valid_timestamp_factory(
-        librelinkup.llu_glucose_data.str_measurement_factorytimestamp,
-        librelinkup.llu_glucose_data.str_measurement_timestamp, 1);
+    librelinkup.status().timestamp_status = librelinkup.check_valid_timestamp_factory(
+        librelinkup.glucose_data().str_measurement_factorytimestamp,
+        librelinkup.glucose_data().str_measurement_timestamp, 1);
 
     // Convert timestamp to Unix time
-    librelinkup.llu_status.last_timestamp_unixtime = helper.convertStrToUnixTime(
-        librelinkup.llu_glucose_data.str_measurement_timestamp);
+    librelinkup.status().last_timestamp_unixtime = helper.convertStrToUnixTime(
+        librelinkup.glucose_data().str_measurement_timestamp);
 
     // Set trend message based on sensor status
     update_trend_message();
 
     // Check if LLU timestamp is valid and process data
-    if (librelinkup.llu_status.timestamp_status == SENSOR_TIMECODE_VALID)
+    if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_VALID)
     {
 
         if (settings.config.mqtt_master_mode)
         {
             synchronize_time_offset_epoch();
         }
-        if (librelinkup.sensor_reconnect == 1)
+        if (librelinkup.reconnect_flag() == 1)
         {
             handle_sensor_reconnect();
         }
         else
         {
-            glucose_delta = librelinkup.llu_glucose_data.glucoseMeasurement -
+            glucose_delta = librelinkup.glucose_data().glucoseMeasurement -
                             glucoseMeasurement_backup;
         }
 
         logger.notice("glucoseMeasurement: %d %s ∆: %d",
-                      librelinkup.llu_glucose_data.glucoseMeasurement,
-                      librelinkup.llu_glucose_data.str_trendArrow.c_str(),
+                      librelinkup.glucose_data().glucoseMeasurement,
+                      librelinkup.glucose_data().str_trendArrow.c_str(),
                       glucose_delta);
 
         // Update all display elements
@@ -2417,9 +2417,9 @@ void update_glucose_data()
         static uint8_t counter = 5;
         counter--;
         if(counter < 4){
-            librelinkup.sensor_livetime.sensor_valid_days = 0;
-            librelinkup.sensor_livetime.sensor_valid_hours = 0;
-            librelinkup.sensor_livetime.sensor_valid_minutes = 50;
+            librelinkup.sensor_lifetime().sensor_valid_days = 0;
+            librelinkup.sensor_lifetime().sensor_valid_hours = 0;
+            librelinkup.sensor_lifetime().sensor_valid_minutes = 50;
         }
         if(counter == 0){
             counter = 5;
@@ -2427,23 +2427,23 @@ void update_glucose_data()
         */
 
         draw_chart_sensor_valid();
-        draw_labels(true, librelinkup.llu_glucose_data.measurement_color,
-                    librelinkup.llu_glucose_data.glucoseMeasurement,
-                    librelinkup.llu_glucose_data.str_trendArrow,
-                    librelinkup.llu_glucose_data.str_TrendMessage,
+        draw_labels(true, librelinkup.glucose_data().measurement_color,
+                    librelinkup.glucose_data().glucoseMeasurement,
+                    librelinkup.glucose_data().str_trendArrow,
+                    librelinkup.glucose_data().str_TrendMessage,
                     glucose_delta);
         draw_chart_glucose_data(3, false);
 
-        glucoseMeasurement_backup = librelinkup.llu_glucose_data.glucoseMeasurement;
+        glucoseMeasurement_backup = librelinkup.glucose_data().glucoseMeasurement;
     }
     else
     {
         // Invalid timestamp - handle error
         handle_invalid_timestamp();
-        draw_labels(false, librelinkup.llu_glucose_data.measurement_color,
-                    librelinkup.llu_glucose_data.glucoseMeasurement,
-                    librelinkup.llu_glucose_data.str_trendArrow,
-                    librelinkup.llu_glucose_data.str_TrendMessage, 0);
+        draw_labels(false, librelinkup.glucose_data().measurement_color,
+                    librelinkup.glucose_data().glucoseMeasurement,
+                    librelinkup.glucose_data().str_trendArrow,
+                    librelinkup.glucose_data().str_TrendMessage, 0);
     }
 }
 
@@ -2463,8 +2463,8 @@ void update_glucose_data()
 void update_glucose_json_logging()
 {
     uint32_t unixtime_now = librelinkup.get_epoch_time();
-    hba1c.addGlucoseValue(unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement);
-    // logger.debug("addGlucoseValue to LittleFS: %d / %d", unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement);
+    hba1c.addGlucoseValue(unixtime_now, librelinkup.glucose_data().glucoseMeasurement);
+    // logger.debug("addGlucoseValue to LittleFS: %d / %d", unixtime_now, librelinkup.glucose_data().glucoseMeasurement);
 }
 
 /**
@@ -2492,17 +2492,17 @@ void glucose_statistics()
     uint8_t data_count = librelinkup.check_graphdata();
 
     float mean_glucose_value_from_history = hba1c.calculateGlucoseMeanFromHistory(
-        librelinkup.llu_sensor_history_data.graph_data, data_count);
+        librelinkup.sensor_history_data().graph_data, data_count);
     float mean_glucose_value_from_json = hba1c.calculateGlucoseMeanFromJson(
         today_json_filename);
     float mean_glucose_weekly_value_from_json = hba1c.calculateGlucoseMeanForLast7Days();
     float std_dev = hba1c.calculate_standard_deviation(
-        librelinkup.llu_sensor_history_data.graph_data, data_count,
+        librelinkup.sensor_history_data().graph_data, data_count,
         mean_glucose_value_from_history);
 
     logger.debug("========== Glucose Statistics =============");
     logger.debug("Current glucose value        : %d mg/dl",
-                 librelinkup.llu_glucose_data.glucoseMeasurement);
+                 librelinkup.glucose_data().glucoseMeasurement);
     logger.debug("Mean of history glucose value: %.0f mg/dl",
                  mean_glucose_value_from_history);
     logger.debug("Mean of weekly glucose value : %.0f mg/dl",
@@ -2511,7 +2511,7 @@ void glucose_statistics()
                  hba1c.calculate_hba1c(mean_glucose_value_from_history));
     logger.debug("TIR-Value of history data    : %.2f %%",
                  hba1c.calculate_time_in_range(
-                     librelinkup.llu_sensor_history_data.graph_data,
+                     librelinkup.sensor_history_data().graph_data,
                      data_count, 70, 180));
     logger.debug("Std-Dev of history data      : %.2f σ", std_dev);
     logger.debug("Glucose variability (CV)     : %.2f %%",
@@ -2555,16 +2555,16 @@ void update_debug_screen()
             snprintf(buf, sizeof(buf), "IP: %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
             lv_label_set_text(ui_Label_DebugIP, buf);
 
-            snprintf(buf, sizeof(buf), "Sensor: %s", librelinkup.llu_sensor_data.sensor_id.c_str());
+            snprintf(buf, sizeof(buf), "Sensor: %s", librelinkup.sensor_data().sensor_id.c_str());
             lv_label_set_text(ui_Label_DebugSensor, buf);
 
             snprintf(buf, sizeof(buf), "Valid: %dDays %dHours %dMinutes",
-                        librelinkup.sensor_livetime.sensor_valid_days,
-                        librelinkup.sensor_livetime.sensor_valid_hours,
-                        librelinkup.sensor_livetime.sensor_valid_minutes);
+                        librelinkup.sensor_lifetime().sensor_valid_days,
+                        librelinkup.sensor_lifetime().sensor_valid_hours,
+                        librelinkup.sensor_lifetime().sensor_valid_minutes);
             lv_label_set_text(ui_Label_DebugSensorTimestamp, buf);
 
-            const int st = librelinkup.llu_sensor_data.sensor_state;
+            const int st = librelinkup.sensor_data().sensor_state;
             const char *st_txt =
                 (st == 0) ? "unknown" : (st == 1) ? "not started yet"
                                     : (st == 2)   ? "starting phase"
@@ -2586,8 +2586,8 @@ void update_debug_screen()
                 snprintf(delta_buf, sizeof(delta_buf), "%d", glucose_delta);
 
             snprintf(buf, sizeof(buf), "Sensor Value: %d%s %s mg/dL",
-                        librelinkup.llu_glucose_data.glucoseMeasurement,
-                        librelinkup.llu_glucose_data.str_trendArrow.c_str(),
+                        librelinkup.glucose_data().glucoseMeasurement,
+                        librelinkup.glucose_data().str_trendArrow.c_str(),
                         delta_buf);
             lv_label_set_text(ui_Label_DebugSensorValue, buf);
         }
@@ -2758,7 +2758,7 @@ void setup_tpanels3()
 void setup_load_system_config()
 {
     settings.loadConfiguration(settings.config_filename, settings.config);
-    librelinkup.timezone = settings.config.timezone;
+    librelinkup.timezone_offset() = settings.config.timezone;
 }
 
 /**

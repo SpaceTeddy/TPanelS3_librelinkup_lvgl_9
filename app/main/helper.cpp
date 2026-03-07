@@ -2,7 +2,7 @@
 #include "helper.h"
 #include <IPAddress.h>
 
-#include "librelinkup.h"
+#include <librelinkup.h>
 extern LIBRELINKUP librelinkup;
 
 //------------------------[uuid logger]-----------------------------------
@@ -191,7 +191,7 @@ String HELPER::get_esp_time_date(){
     strftime(timeinfo_hour,3, "%H", &timeinfo);
     
     if (timeinfo.tm_isdst == 1){                            // check for daylight save time
-        hour_localtime = atoi(timeinfo_hour) - 1;// + librelinkup.timezone;
+        hour_localtime = atoi(timeinfo_hour) - 1;// + librelinkup.timezone_offset();
     }
     else{
         hour_localtime = atoi(timeinfo_hour);

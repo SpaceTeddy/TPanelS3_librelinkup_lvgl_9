@@ -15,7 +15,7 @@
 #include "main.h"
 #include "commands.h"
 #include "settings.h"
-#include "librelinkup.h"
+#include <librelinkup.h>
 #include "mqtt.h"
 #include "hba1c.h"
 #include "ui.h"
@@ -310,7 +310,7 @@ void configSettingCommand(uuid::console::Shell &shell, const std::vector<std::st
 void timezoneCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
     int timezone = parseArgument(arguments, 0, settings.config.timezone);
     settings.config.timezone = timezone;
-    librelinkup.timezone = timezone;
+    librelinkup.timezone_offset() = timezone;
     settings.saveConfiguration(settings.config_filename, settings.config);
     shell.printfln(F("Timezone set to %d and saved to config"), timezone);
 }
@@ -399,7 +399,7 @@ void create_json_week_files_Command(uuid::console::Shell &shell, const std::vect
 void addGlucoseValueToJsonCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
     shell.printfln(F("Add glucose value to json file..."));
     uint32_t unixtime_now = librelinkup.get_epoch_time();
-    hba1c.addGlucoseValue(unixtime_now, librelinkup.llu_glucose_data.glucoseMeasurement);
+    hba1c.addGlucoseValue(unixtime_now, librelinkup.glucose_data().glucoseMeasurement);
 }
 
 /**
@@ -448,21 +448,21 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
 
         if (llu_argument == "value") {
             shell.printfln("glucoseMeasurement: %d %s ∆: %d",
-                librelinkup.llu_glucose_data.glucoseMeasurement,
-                librelinkup.llu_glucose_data.str_trendArrow.c_str(),
+                librelinkup.glucose_data().glucoseMeasurement,
+                librelinkup.glucose_data().str_trendArrow.c_str(),
                 glucose_delta
             );
         }
         else if ((llu_argument == "user_id")) {
-            shell.printfln(F("LLU User_ID: %s"), librelinkup.llu_login_data.user_id.c_str());
+            shell.printfln(F("LLU User_ID: %s"), librelinkup.login_data().user_id.c_str());
         }
         else if ((llu_argument == "user_token")) {
             String token_part1;
             String token_part2;
 
-            token_part1 = librelinkup.llu_login_data.user_token.substring(0, 220);
-            token_part2 = librelinkup.llu_login_data.user_token.substring(
-                220, librelinkup.llu_login_data.user_token.length()
+            token_part1 = librelinkup.login_data().user_token.substring(0, 220);
+            token_part2 = librelinkup.login_data().user_token.substring(
+                220, librelinkup.login_data().user_token.length()
             );
 
             shell.printf("LLU User_Token: %s", token_part1.c_str());
@@ -471,14 +471,14 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
         else if ((llu_argument == "auth")) {
             shell.println(F("LLU Auth..."));
             librelinkup.auth_user(settings.config.login_email, settings.config.login_password);
-            shell.printfln("LLU User_ID: %s", librelinkup.llu_login_data.user_id.c_str());
+            shell.printfln("LLU User_ID: %s", librelinkup.login_data().user_id.c_str());
 
             String token_part1;
             String token_part2;
 
-            token_part1 = librelinkup.llu_login_data.user_token.substring(0, 220);
-            token_part2 = librelinkup.llu_login_data.user_token.substring(
-                220, librelinkup.llu_login_data.user_token.length()
+            token_part1 = librelinkup.login_data().user_token.substring(0, 220);
+            token_part2 = librelinkup.login_data().user_token.substring(
+                220, librelinkup.login_data().user_token.length()
             );
 
             shell.printf("LLU User_Token: %s", token_part1.c_str());
@@ -489,16 +489,16 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
             librelinkup.tou_user();
         }
         else if ((llu_argument == "sensor_id")) {
-            shell.printfln(F("LLU Sensor_ID: %s"), librelinkup.llu_sensor_data.sensor_id.c_str());
+            shell.printfln(F("LLU Sensor_ID: %s"), librelinkup.sensor_data().sensor_id.c_str());
         }
         else if ((llu_argument == "sensor_sn")) {
-            shell.printfln(F("LLU Sensor_SN: %s"), librelinkup.llu_sensor_data.sensor_sn.c_str());
+            shell.printfln(F("LLU Sensor_SN: %s"), librelinkup.sensor_data().sensor_sn.c_str());
         }
         else if ((llu_argument == "sensor_type")) {
             String sensor_type_str = "";
-            if (librelinkup.llu_sensor_data.sensor_runtime == 14 * 86400) {
+            if (librelinkup.sensor_data().sensor_runtime == 14 * 86400) {
                 sensor_type_str = "FreeStyle Libre 3";
-            } else if (librelinkup.llu_sensor_data.sensor_runtime == 15 * 86400) {
+            } else if (librelinkup.sensor_data().sensor_runtime == 15 * 86400) {
                 sensor_type_str = "FreeStyle Libre 3 Plus";
             } else {
                 sensor_type_str = "Unknown";
@@ -507,13 +507,13 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
         }
         else if ((llu_argument == "sensor_expiry")) {
             shell.printfln("LLU Sensor Expiry: %dDays %dHours %dMinutes",
-                librelinkup.sensor_livetime.sensor_valid_days,
-                librelinkup.sensor_livetime.sensor_valid_hours,
-                librelinkup.sensor_livetime.sensor_valid_minutes
+                librelinkup.sensor_lifetime().sensor_valid_days,
+                librelinkup.sensor_lifetime().sensor_valid_hours,
+                librelinkup.sensor_lifetime().sensor_valid_minutes
             );
         }
         else if ((llu_argument == "timestamp")) {
-            shell.printfln(F("LLU Timestamp: %s"), librelinkup.llu_glucose_data.str_measurement_timestamp.c_str());
+            shell.printfln(F("LLU Timestamp: %s"), librelinkup.glucose_data().str_measurement_timestamp.c_str());
         }
         else if ((llu_argument == "history")) {
             static char time_in_hours[librelinkup.GRAPHDATAARRAYSIZE][6]; // "HH:MM" + null terminator
@@ -536,14 +536,14 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
                             "----------------",
                             "------------------");
             for (uint8_t i = 0; i < librelinkup.GRAPHDATAARRAYSIZE; i++) {
-                helper.format_time(time_in_hours[i], sizeof(time_in_hours[i]), librelinkup.llu_sensor_history_data.timestamp[i]);
-                helper.format_time(factory_time_in_hours[i], sizeof(factory_time_in_hours[i]), librelinkup.llu_sensor_history_data.factory_timestamp[i]);
+                helper.format_time(time_in_hours[i], sizeof(time_in_hours[i]), librelinkup.sensor_history_data().timestamp[i]);
+                helper.format_time(factory_time_in_hours[i], sizeof(factory_time_in_hours[i]), librelinkup.sensor_history_data().factory_timestamp[i]);
                 shell.printfln("%-9u | %-7u | %-13lu | %-13s | %-17lu | %-19s",
                                 i,
-                                librelinkup.llu_sensor_history_data.graph_data[i],
-                                librelinkup.llu_sensor_history_data.timestamp[i],
+                                librelinkup.sensor_history_data().graph_data[i],
+                                librelinkup.sensor_history_data().timestamp[i],
                                 time_in_hours[i],
-                                librelinkup.llu_sensor_history_data.factory_timestamp[i],
+                                librelinkup.sensor_history_data().factory_timestamp[i],
                                 factory_time_in_hours[i]);
             }
         }
@@ -552,7 +552,7 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
             shell.printfln(F("Historical data: [%d/%d]"), data_count, librelinkup.GRAPHDATAARRAYSIZE);
             shell.printfln("Last_LCD_Position: %03d Value: %03d",
                 (librelinkup.GRAPHDATAARRAYSIZE),
-                librelinkup.llu_sensor_history_data.graph_data[librelinkup.GRAPHDATAARRAYSIZE]
+                librelinkup.sensor_history_data().graph_data[librelinkup.GRAPHDATAARRAYSIZE]
             );
 
             int index = librelinkup.GRAPHDATAARRAYSIZE - 1;
@@ -560,8 +560,8 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
             for (int i = data_count - 1; i >= 0; i--) {
                 shell.printfln("Position: %03d Value: %03d TimeStamp: %d",
                     index,
-                    librelinkup.llu_sensor_history_data.graph_data[i],
-                    librelinkup.llu_sensor_history_data.timestamp[i]
+                    librelinkup.sensor_history_data().graph_data[i],
+                    librelinkup.sensor_history_data().timestamp[i]
                 );
                 index--;
             }
@@ -573,11 +573,11 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
         else if ((llu_argument == "get_graphdata")) {
             shell.println(F("LLU Get GraphData..."));
             librelinkup.get_graph_data();
-            shell.printfln("SensorSN_non_activated: %s", librelinkup.llu_sensor_data.sensor_sn_non_active.c_str());
+            shell.printfln("SensorSN_non_activated: %s", librelinkup.sensor_data().sensor_sn_non_active.c_str());
             uint8_t data_count = librelinkup.check_graphdata();
             shell.printfln("glucoseMeasurement: %d %s",
-                librelinkup.llu_glucose_data.glucoseMeasurement,
-                librelinkup.llu_glucose_data.str_trendArrow.c_str()
+                librelinkup.glucose_data().glucoseMeasurement,
+                librelinkup.glucose_data().str_trendArrow.c_str()
             );
             shell.printfln("Historical data: [%d/%d]", data_count, librelinkup.GRAPHDATAARRAYSIZE);
         }
@@ -604,10 +604,10 @@ void lluSensorTypeCommand(uuid::console::Shell &shell, const std::vector<std::st
     String sensor_type = arguments[0].c_str();
 
     if (sensor_type == "Libre3") {
-        librelinkup.llu_sensor_data.sensor_runtime = 14 * 86400; // 14 days
+        librelinkup.sensor_data().sensor_runtime = 14 * 86400; // 14 days
         switch_sensor_valid_progress_bar(&dayBar14, 0);
     } else if ((sensor_type == "Libre3Plus")) {
-        librelinkup.llu_sensor_data.sensor_runtime = 15 * 86400; // 15 days
+        librelinkup.sensor_data().sensor_runtime = 15 * 86400; // 15 days
         switch_sensor_valid_progress_bar(&dayBar15, 0);
     } else {
         shell.printfln("invalid sensor type: %s", sensor_type.c_str());

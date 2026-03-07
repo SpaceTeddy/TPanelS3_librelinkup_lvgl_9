@@ -23,7 +23,7 @@
 #include <esp_heap_caps.h>
 #endif
 
-#include "librelinkup.h"
+#include <librelinkup.h>
 
 #include <string>
 #include <vector>
@@ -1400,41 +1400,41 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
     JsonObject llu = doc.createNestedObject("llu");
 
     JsonObject st = llu.createNestedObject("status");
-    st["timestamp_status"] = (uint8_t)librelinkup.llu_status.timestamp_status;
-    st["sensor_state"] = (uint8_t)librelinkup.llu_status.sensor_state;
-    st["last_timestamp_unixtime"] = (uint32_t)librelinkup.llu_status.last_timestamp_unixtime;
+    st["timestamp_status"] = (uint8_t)librelinkup.status().timestamp_status;
+    st["sensor_state"] = (uint8_t)librelinkup.status().sensor_state;
+    st["last_timestamp_unixtime"] = (uint32_t)librelinkup.status().last_timestamp_unixtime;
 
     JsonObject se = llu.createNestedObject("sensor");
-    se["sensor_state"] = (uint8_t)librelinkup.llu_sensor_data.sensor_state;
-    se["sensor_sn_non_active"] = librelinkup.llu_sensor_data.sensor_sn_non_active;
-    se["sensor_id_non_active"] = librelinkup.llu_sensor_data.sensor_id_non_active;
-    se["sensor_non_activ_unixtime"] = (uint32_t)librelinkup.llu_sensor_data.sensor_non_activ_unixtime;
-    se["sensor_id"] = librelinkup.llu_sensor_data.sensor_id;
-    se["sensor_sn"] = librelinkup.llu_sensor_data.sensor_sn;
-    se["LIBRE3PLUS_SERIAL_START"] = librelinkup.llu_sensor_data.LIBRE3PLUS_SERIAL_START;
-    se["sensor_runtime"] = (uint32_t)librelinkup.llu_sensor_data.sensor_runtime;
-    se["sensor_activation_time"] = (uint32_t)librelinkup.llu_sensor_data.sensor_activation_time;
+    se["sensor_state"] = (uint8_t)librelinkup.sensor_data().sensor_state;
+    se["sensor_sn_non_active"] = librelinkup.sensor_data().sensor_sn_non_active;
+    se["sensor_id_non_active"] = librelinkup.sensor_data().sensor_id_non_active;
+    se["sensor_non_activ_unixtime"] = (uint32_t)librelinkup.sensor_data().sensor_non_activ_unixtime;
+    se["sensor_id"] = librelinkup.sensor_data().sensor_id;
+    se["sensor_sn"] = librelinkup.sensor_data().sensor_sn;
+    se["LIBRE3PLUS_SERIAL_START"] = librelinkup.sensor_data().LIBRE3PLUS_SERIAL_START;
+    se["sensor_runtime"] = (uint32_t)librelinkup.sensor_data().sensor_runtime;
+    se["sensor_activation_time"] = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
 
 // LibreLinkUp login snapshot (no secrets in cleartext)
 JsonObject lo = llu.createNestedObject("login");
-lo["email"] = librelinkup.llu_login_data.email;
-lo["user_id"] = librelinkup.llu_login_data.user_id;
-lo["account_id"] = librelinkup.llu_login_data.account_id;
-lo["user_country"] = librelinkup.llu_login_data.user_country;
-lo["connection_country"] = librelinkup.llu_login_data.connection_country;
-lo["connection_status"] = (int16_t)librelinkup.llu_login_data.connection_status;
-lo["user_token_expires"] = (uint32_t)librelinkup.llu_login_data.user_token_expires;
-lo["user_login_status"] = (uint8_t)librelinkup.llu_login_data.user_login_status;
+lo["email"] = librelinkup.login_data().email;
+lo["user_id"] = librelinkup.login_data().user_id;
+lo["account_id"] = librelinkup.login_data().account_id;
+lo["user_country"] = librelinkup.login_data().user_country;
+lo["connection_country"] = librelinkup.login_data().connection_country;
+lo["connection_status"] = (int16_t)librelinkup.login_data().connection_status;
+lo["user_token_expires"] = (uint32_t)librelinkup.login_data().user_token_expires;
+lo["user_login_status"] = (uint8_t)librelinkup.login_data().user_login_status;
 
 // Security helpers
-lo["password_set"] = (librelinkup.llu_login_data.password.length() > 0);
-lo["token_present"] = (librelinkup.llu_login_data.user_token.length() > 0);
+lo["password_set"] = (librelinkup.login_data().password.length() > 0);
+lo["token_present"] = (librelinkup.login_data().user_token.length() > 0);
 
 // Short token preview (safe)
-if (librelinkup.llu_login_data.user_token.length() > 10) {
+if (librelinkup.login_data().user_token.length() > 10) {
     lo["token_preview"] =
-        librelinkup.llu_login_data.user_token.substring(0, 6) + "..." +
-        librelinkup.llu_login_data.user_token.substring(librelinkup.llu_login_data.user_token.length() - 4);
+        librelinkup.login_data().user_token.substring(0, 6) + "..." +
+        librelinkup.login_data().user_token.substring(librelinkup.login_data().user_token.length() - 4);
 } else {
     lo["token_preview"] = String("");
 }

@@ -26,7 +26,7 @@
 #include <PubSubClient.h>
 
 #include "settings.h"
-#include "librelinkup.h"
+#include <librelinkup.h>
 #include "mqtt.h"
 #include "hba1c.h"
 #include "main.h"
