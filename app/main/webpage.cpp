@@ -1522,6 +1522,7 @@ static void handleLogin(AsyncWebServerRequest *request) {
 
     settings.config.login_email    = username;
     settings.config.login_password = password;
+    librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
     settings.saveConfiguration(settings.config_filename, settings.config);
 
     request->send(200, "text/html", "Login successful!<br><a href='/configuration'>Back</a>");

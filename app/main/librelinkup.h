@@ -18,19 +18,9 @@
  * @{
  */
 #include <Arduino.h>                ///< Arduino core functions
-#include <WiFiClientSecure.h>       ///< Secure WiFi client
-#include <HTTPClient.h>             ///< HTTP client functionality
-#include <ArduinoJson.h>            ///< JSON parsing and generation
-#include <StreamUtils.h>            ///< Stream utility extensions
-#include <FS.h>                     ///< Filesystem operations
-
-#include <memory>                   ///< Smart pointers
-#include <string>                   ///< String operations
-#include <vector>                   ///< Vector container
-#include <uuid/common.h>            ///< UUID common utilities
-#include <uuid/console.h>           ///< Console interaction
-#include <uuid/telnet.h>            ///< Telnet server
-#include <uuid/log.h>               ///< Logging system
+class HTTPClient;                   ///< Forward declaration
+class WiFiClientSecure;             ///< Forward declaration
+namespace fs { class FS; }          ///< Forward declaration
 /** @} */
 
 /**
@@ -101,15 +91,6 @@ typedef struct {
 
 
 /**
- * @defgroup security Security Configuration
- * @brief SSL/TLS certificate management
- * @{
- */
-/// Google Trust Services R4 Root CA for api.libreview.io
-static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
-/** @} */
-
-/**
  * @class LIBRELINKUP
  * @brief Main controller class for LibreLinkUp integration
  * 
@@ -129,21 +110,10 @@ private:
      * @return Calculated milliseconds
      */
     uint32_t convertToMillis(uint8_t hours, uint8_t minutes, uint8_t seconds);
+    uint16_t reauth_user();
 
-    inline void addDefaultLLUHeaders(HTTPClient& https) {
-        https.addHeader("User-Agent", "Mozilla/5.0");
-        https.addHeader("Content-Type", "application/json");
-        https.addHeader("version", "4.16.0");
-        https.addHeader("product", "llu.ios");
-        https.addHeader("Connection", "close");
-        https.addHeader("Pragma", "no-cache");
-        https.addHeader("Cache-Control", "no-cache");
-    }
-
-    inline void addAuthHeaders(HTTPClient& https, const String& bearer, const String& accountId) {
-        https.addHeader("Authorization", "Bearer " + bearer);
-        if (accountId.length()) https.addHeader("Account-ID", accountId);
-    }
+    void addDefaultLLUHeaders(HTTPClient& https);
+    void addAuthHeaders(HTTPClient& https, const String& bearer, const String& accountId);
 
     // parse graph json document  
     bool parse_graph_json_doc();  // ONE parser for both sources
@@ -412,6 +382,8 @@ public:
      * - 500: Server error
      */
     uint16_t auth_user(String user_email, String user_password);
+    void set_credentials(const String& user_email, const String& user_password);
+    bool has_credentials() const;
 
     /**
      * @brief Accept Terms of Use

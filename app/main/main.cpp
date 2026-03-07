@@ -1210,6 +1210,7 @@ static void btn_login_event_cb(lv_event_t *event)
         // Store in configuration
         settings.config.login_email = email;
         settings.config.login_password = password;
+        librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
 
         Serial.printf("Entered Email: %s\n", settings.config.login_email);
         Serial.printf("Entered Password: %s\n", settings.config.login_password); // TODO: Remove in production
@@ -2300,7 +2301,7 @@ void update_five_minute_counter()
         if (librelinkup.llu_status.sensor_state == SENSOR_READY)
         {
             update_glucose_json_logging();
-            glucose_statistics(); // Print glucose statistics
+            //glucose_statistics(); // Print glucose statistics
         }
     }
 }
@@ -3069,6 +3070,10 @@ void setup_librelinkup()
     if (settings.config.login_email == "" || settings.config.login_password == "")
     {
         lv_disp_load_scr(ui_Login_screen);
+    }
+    else
+    {
+        librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
     }
     librelinkup.begin(2);
 }

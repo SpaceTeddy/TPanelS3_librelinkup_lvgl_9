@@ -128,6 +128,7 @@ void LLULoginDataCommand(uuid::console::Shell &shell, const std::vector<std::str
         String LoginPassword = arguments[1].c_str();
         shell.printfln("LoginName: %s", LoginPassword.c_str());
         settings.config.login_password = LoginPassword;
+        librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
 
         settings.saveConfiguration(settings.config_filename, settings.config);
     }

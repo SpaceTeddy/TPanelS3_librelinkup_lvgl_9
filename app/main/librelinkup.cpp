@@ -9,20 +9,19 @@
 
 #include "librelinkup.h"
 
-#include "helper.h"
-extern HELPER helper;
-
-#include "settings.h"
-extern SETTINGS settings;                   // Deklariert die globale Instanz aus main.cpp
-
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 #include <mbedtls/sha256.h>
 
 #include <FS.h>
 #include <LittleFS.h>
 #include <string.h>
+#include <uuid/log.h>
+
+// Google Trust Services R4 Root CA for api.libreview.io
+static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 
 // Globale JSON-Pointer
 #define LIBRELINKUP_JSON_BUFFER_SIZE        16384 //6144
@@ -41,18 +40,87 @@ HTTPClient https;
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 //------------------------------------------------------------------------
 
-/* convertToMillis 
- * 
- * Parameter:   uint8_t hours, 
- *              uint8_t minutes, 
- *              uint8_t seconds
- * 
- * output:      time in ms
- *         
+/**
+ * @brief Converts time components to milliseconds.
+ * @param hours Hour component (0-23)
+ * @param minutes Minute component (0-59)
+ * @param seconds Second component (0-59)
+ * @return Calculated milliseconds
  */
-// Funktion zur Umrechnung von Stunden, Minuten und Sekunden in Millisekunden
 uint32_t LIBRELINKUP::convertToMillis(uint8_t hours, uint8_t minutes, uint8_t seconds) {
     return (hours * 3600UL + minutes * 60UL + seconds) * 1000UL;
+}
+
+/**
+ * @brief Adds default headers to the HTTP client.
+ *
+ * This function adds the necessary default headers for LibreLinkUp API requests.
+ *
+ * @param https The HTTP client instance.
+ */
+void LIBRELINKUP::addDefaultLLUHeaders(HTTPClient& https) {
+    https.addHeader("User-Agent", "Mozilla/5.0");
+    https.addHeader("Content-Type", "application/json");
+    https.addHeader("version", "4.16.0");
+    https.addHeader("product", "llu.ios");
+    https.addHeader("Connection", "close");
+    https.addHeader("Pragma", "no-cache");
+    https.addHeader("Cache-Control", "no-cache");
+}
+
+/**
+ * @brief Adds authentication headers to the HTTP client.
+ *
+ * This function adds the necessary authentication headers for LibreLinkUp API requests.
+ *
+ * @param https       The HTTP client instance.
+ * @param bearer      The bearer token for authentication.
+ * @param accountId   The account ID for the request.
+ */
+void LIBRELINKUP::addAuthHeaders(HTTPClient& https, const String& bearer, const String& accountId) {
+    https.addHeader("Authorization", "Bearer " + bearer);
+    if (accountId.length()) {
+        https.addHeader("Account-ID", accountId);
+    }
+}
+
+/**
+ * @brief Re-authenticates the user with the LibreLinkUp API.
+ *
+ * This function attempts to re-authenticate the user using stored credentials.
+ *
+ * @return 1 if re-authentication is successful, 0 otherwise.
+ */
+uint16_t LIBRELINKUP::reauth_user() {
+    if (llu_login_data.email.isEmpty() || llu_login_data.password.isEmpty()) {
+        logger.warning("Reauth requested but no stored credentials available");
+        return 0;
+    }
+    return auth_user(llu_login_data.email, llu_login_data.password);
+}
+
+/**
+ * @brief Sets the user credentials for LibreLinkUp API access.
+ *
+ * This function stores the provided email and password for later use in API authentication.
+ *
+ * @param user_email    The user's email address.
+ * @param user_password The user's password.
+ */
+void LIBRELINKUP::set_credentials(const String& user_email, const String& user_password) {
+    llu_login_data.email = user_email;
+    llu_login_data.password = user_password;
+}
+
+/**
+ * @brief Checks if user credentials are available.
+ *
+ * This function checks if both email and password are stored.
+ *
+ * @return true if credentials are available, false otherwise.
+ */
+bool LIBRELINKUP::has_credentials() const {
+    return !(llu_login_data.email.isEmpty() || llu_login_data.password.isEmpty());
 }
 
 /**
@@ -106,14 +174,13 @@ String LIBRELINKUP::extractHost(const String& urlOrHost) {
     return s;
 }
 
-/* begin 
- * 
- * Parameter:   0= API communication Insecure
- *              1= CERT from PROGMEM
- *              2= CERT from LittleFS (default)
- * 
- * output: 0=
- *         1=
+/**
+ * @brief Initializes the LibreLinkUp client.
+ *
+ * This function sets up the HTTP client and configures the necessary certificates for secure communication.
+ *
+ * @param use_cert The certificate usage mode (0=Insecure, 1=PROGMEM, 2=LittleFS).
+ * @return 1 if initialization is successful, 0 otherwise.
  */
 uint8_t LIBRELINKUP::begin(uint8_t use_cert) {
 
@@ -149,7 +216,11 @@ uint8_t LIBRELINKUP::begin(uint8_t use_cert) {
     return 1;
 }
 
-//sha256 account-id calculation as String
+/**
+ * @brief Calculates the SHA-256 hash of the user ID.
+ * @param user_id The user ID string.
+ * @return The SHA-256 hash as a hexadecimal string.
+ */
 String LIBRELINKUP::account_id_sha256(String user_id){
     // change input to byte array
     const char *data = user_id.c_str();
@@ -171,7 +242,10 @@ String LIBRELINKUP::account_id_sha256(String user_id){
     return hashString;
 }
 
-// check clients 0= not connected
+/**
+ * @brief Checks the connection status of the HTTP client.
+ * @return 1 if the client is connected, 0 otherwise.
+ */
 bool LIBRELINKUP::check_client(){
 
     if(llu_client->connected() == 0){
@@ -182,7 +256,10 @@ bool LIBRELINKUP::check_client(){
     return 1;
 }
 
-// Get_Epoch_Time() Function that gets current epoch time
+/**
+ * @brief Gets the current epoch time.
+ * @return The current epoch time.
+ */
 time_t LIBRELINKUP::get_epoch_time() {
     time_t now;
     struct tm timeinfo;
@@ -195,8 +272,12 @@ time_t LIBRELINKUP::get_epoch_time() {
     return now;
 }
 
-// compare two sensor serials
-// Rückgabewert: -1 wenn s1 < s2, 0 wenn gleich, 1 wenn s1 > s2
+/**
+ * @brief Compares two sensor serial numbers.
+ * @param s1 First sensor serial number.
+ * @param s2 Second sensor serial number.
+ * @return -1 if s1 < s2, 0 if equal, 1 if s1 > s2.
+ */
 int LIBRELINKUP::check_sensor_type(const char *s1, const char *s2) {
     int result = strcmp(s1, s2);
     
@@ -209,7 +290,11 @@ int LIBRELINKUP::check_sensor_type(const char *s1, const char *s2) {
     return 0;  // Beide sind identisch
 }
 
-// check libre3 sensor state
+/**
+ * @brief Gets the current state of the sensor.
+ * @param state The sensor state to check.
+ * @return The sensor state.
+ */
 uint8_t LIBRELINKUP::get_sensor_state(uint8_t state){
 
     //DBGprint_LLU;Serial.print("Sensor state: ");
@@ -244,8 +329,12 @@ uint8_t LIBRELINKUP::get_sensor_state(uint8_t state){
     return state;
 }
 
-// check if freestyle libre3 sensor is expired
-// sensor_days: 14 -> 14 Tage, 15 -> 15 Tage (Libre 3 Plus)
+/**
+ * @brief Checks the lifetime of the sensor.
+ * @param unix_activation_time The Unix timestamp of sensor activation.
+ * @param sensor_runtime The runtime of the sensor in seconds.
+ * @return The sensor state based on its lifetime.
+ */
 int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t sensor_runtime){
     
     int result = -1;
@@ -317,7 +406,14 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
     return result;
 }
 
-// check sensor type and set remaining sensor time
+/**
+ * @brief Checks the sensor type based on its serial number.
+ *
+ * This function compares the sensor's serial number with a known reference to determine its type.
+ * It also sets the sensor runtime based on the identified type.
+ *
+ * @return 1 if the sensor is identified as Libre 3 Plus, -1 if it's Libre 3, and 0 if unknown or not checked.
+ */
 int LIBRELINKUP::check_sensor_type() {
     static bool already_checked = false;  ///< Flag to avoid multiple checks
 
@@ -354,7 +450,11 @@ int LIBRELINKUP::check_sensor_type() {
     return 0;
 }
 
-// Funktion zur Berechnung der verbleibenden Zeit in Minuten
+/**
+ * @brief Gets the remaining warm-up time for the sensor.
+ * @param unix_activation_time The Unix timestamp of sensor activation.
+ * @return The remaining warm-up time in minutes.
+ */
 int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
     time_t current_time = time(NULL);  // Aktuelle Zeit holen (Unix-Zeit)
     int remaining_time = (unix_activation_time + (60 * 60)) - current_time;  // 60 Minuten Warmup
@@ -365,9 +465,13 @@ int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
     return remaining_time / 60;  // Sekunden in Minuten umrechnen
 }
 
-// check glucose api.libreview.io valid timestamp with ESP32 local time 
-// (0= error or not valid; 1=valid; 2=timecode "00:00:00 00.00.0000" 3= no activated sensor)        
-
+/**
+ * @brief Checks the validity of the factory timestamp against the cloud timestamp.
+ * @param factory_ts The factory timestamp.
+ * @param cloud_ts The cloud timestamp.
+ * @param print_mode The print mode for debugging.
+ * @return The validity state of the timestamp.
+ */
 uint8_t LIBRELINKUP::check_valid_timestamp_factory(
     const String& factory_ts,
     const String& cloud_ts,
@@ -427,7 +531,10 @@ uint8_t LIBRELINKUP::check_valid_timestamp_factory(
 }
 
 
-// check glucose api.libreview.io graphdata. returns count of non Zero value
+/**
+ * @brief Checks the validity of the glucose graph data.
+ * @return The count of valid glucose data points.
+ */
 uint8_t LIBRELINKUP::check_graphdata(void){
     
     uint8_t count_valid_graph_data = 0;
@@ -442,14 +549,21 @@ uint8_t LIBRELINKUP::check_graphdata(void){
 }
 
 
-// redirect case
+/**
+ * @brief Converts a region code to the corresponding base URL for the LibreLinkUp API.
+ * @param region The region code (e.g., "de", "eu").
+ * @return The base URL for the specified region.
+ */
 String LIBRELINKUP::regionToBaseUrl(const String& region) {
     if (region == "de" || region == "eu") return "https://api-de.libreview.io";
     return "https://api.libreview.io";
 }
 
 
-// user Accept Terms api.libreview.io
+/**
+ * @brief Accepts the terms of use for the LibreLinkUp user.
+ * @return 1 if successful, 0 otherwise.
+ */
 uint16_t LIBRELINKUP::tou_user(void){
     
     uint8_t result = 0;
@@ -459,8 +573,8 @@ uint16_t LIBRELINKUP::tou_user(void){
         vTaskDelay(pdMS_TO_TICKS(10));
         //Serial.println("Connected to: " + url);
 
-        addDefaultLLUHeaders(https);        
-        https.addHeader("Authorization","Bearer " + llu_login_data.user_token + "");
+        addDefaultLLUHeaders(https);
+        addAuthHeaders(https, llu_login_data.user_token, "");
 
         // JSON data to send with HTTP POST
         String httpRequestData = "";           
@@ -483,20 +597,20 @@ uint16_t LIBRELINKUP::tou_user(void){
                 llu_login_data.user_country        = (*json_librelinkup)["data"]["user"]["country"].as<String>();
                 
                 Serial.println();
-                DBGprint_LLU;Serial.print("LibreLinkUp Accept Terms for: ");Serial.println(settings.config.login_email);
+                DBGprint_LLU;Serial.print("LibreLinkUp Accept Terms for: ");Serial.println(llu_login_data.email);
                 DBGprint_LLU;Serial.print("user_id           : ");Serial.println(llu_login_data.user_id);
                 DBGprint_LLU;Serial.print("user_country      : ");Serial.println(llu_login_data.user_country);
                 DBGprint_LLU;Serial.print("user_login_status : ");Serial.println(llu_login_data.user_login_status);
                 Serial.println();
 
-                logger.debug("LibreLinkUp Accept Terms for: %s",settings.config.login_email.c_str());
+                logger.debug("LibreLinkUp Accept Terms for: %s",llu_login_data.email.c_str());
                 logger.debug("user_id           : %s",llu_login_data.user_id.c_str());
                 logger.debug("user_country      : %s",llu_login_data.user_country.c_str());
                 logger.debug("user_login_status : %d",llu_login_data.user_login_status);
 
-                Json_Buffer_Info buffer_info;
-                buffer_info = helper.getBufferSize(&(*json_librelinkup));
-                logger.debug("tou json_librelinkup: Used Bytes / Total Capacity: %d / %d", buffer_info.usedCapacity, buffer_info.totalCapacity);
+                logger.debug("tou json_librelinkup: Used Bytes / Total Capacity: %u / %u",
+                             (unsigned)json_librelinkup->memoryUsage(),
+                             (unsigned)json_librelinkup->capacity());
 
                 json_librelinkup->clear();                                          //clears the data object
             }
@@ -519,10 +633,18 @@ uint16_t LIBRELINKUP::tou_user(void){
     return result;
 }
 
-// get auth data from api.libreview.io
+/**
+ * @brief Authenticates a user with the LibreLinkUp API.
+ * @param user_email The user's email address.
+ * @param user_password The user's password.
+ * @return 1 if authentication is successful, 0 otherwise.
+ */
 uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
 
     uint8_t result = 0;
+
+    // Keep credentials for automatic re-authentication inside the library.
+    set_credentials(user_email, user_password);
 
     // important: pro call reset
     llu_client->stop();
@@ -587,7 +709,10 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
 }
 
 
-// get graph glycose data from api.libreview.io
+/**
+ * @brief Gets the connection data from the LibreLinkUp API.
+ * @return 1 if successful, 0 otherwise.
+ */
 uint16_t LIBRELINKUP::get_connection_data(void){
     
     int8_t result = 0;
@@ -599,7 +724,10 @@ uint16_t LIBRELINKUP::get_connection_data(void){
     if(llu_login_data.user_id == "" || llu_login_data.user_token == "" || llu_login_data.user_token == "null" /*strcmp(user_token.c_str(), "null") == 0*/){
         logger.debug("Auth User: no user_id available!");
         DBGprint_LLU;Serial.println("Auth User: no user_id available!");
-        auth_user(settings.config.login_email,settings.config.login_password);
+        if (reauth_user() == 0) {
+            logger.warning("Auth User failed: missing credentials or reauth failed");
+            return 0;
+        }
         if(llu_login_data.user_login_status == 4){
             DBGprint_LLU;Serial.println("LLU Login: Tou required");
             tou_user();
@@ -612,8 +740,7 @@ uint16_t LIBRELINKUP::get_connection_data(void){
 
         // Add LLU default headers
         addDefaultLLUHeaders(https);
-        https.addHeader("Authorization","Bearer " + llu_login_data.user_token);
-        https.addHeader("Account-ID", llu_login_data.account_id);
+        addAuthHeaders(https, llu_login_data.user_token, llu_login_data.account_id);
 
         int code = https.GET();
         //DBGprint_LLU;Serial.printf("HTTP Code: [%d]\r\n", code);
@@ -701,7 +828,7 @@ uint16_t LIBRELINKUP::get_connection_data(void){
                         
             if (code == HTTP_CODE_UNAUTHORIZED){    //Token Auth Error handling
                 DBGprint_LLU; Serial.println("Error, wrong Token -> reauthorization...");
-                auth_user(settings.config.login_email,settings.config.login_password);             
+                reauth_user();
                 json_filter->clear();
                 json_librelinkup->clear();
             }
@@ -723,7 +850,10 @@ uint16_t LIBRELINKUP::get_connection_data(void){
     return result;
 }
 
-// get graph glycose data from api.libreview.io
+/**
+ * @brief Gets the graph data from the LibreLinkUp API.
+ * @return 1 if successful, 0 otherwise.
+ */
 uint16_t LIBRELINKUP::get_graph_data(void){
 
     int8_t result = 0;
@@ -735,7 +865,10 @@ uint16_t LIBRELINKUP::get_graph_data(void){
     if (llu_login_data.user_id == "" || llu_login_data.user_token == "" || llu_login_data.user_token == "null") {
         logger.debug("Auth User: no user_id available!");
         DBGprint_LLU; Serial.println("Auth User: no user_id available!");
-        auth_user(settings.config.login_email, settings.config.login_password);
+        if (reauth_user() == 0) {
+            logger.warning("Auth User failed: missing credentials or reauth failed");
+            return 0;
+        }
         if (llu_login_data.user_login_status == 4) {
             DBGprint_LLU; Serial.println("LLU Login: Tou required");
             logger.debug("LLU Login: Tou required");
@@ -752,8 +885,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
         // Add LLU default headers
         addDefaultLLUHeaders(https);
-        https.addHeader("Authorization","Bearer " + llu_login_data.user_token);
-        https.addHeader("Account-ID", llu_login_data.account_id);
+        addAuthHeaders(https, llu_login_data.user_token, llu_login_data.account_id);
 
         int code = https.GET();
         logger.debug("HTTP code=%d size=%d", code, https.getSize());
@@ -811,12 +943,12 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 // ONE parser for both sources
                 bool ok = parse_graph_json_doc();
 
-                Json_Buffer_Info buffer_info;
-                buffer_info = helper.getBufferSize(&(*json_librelinkup));
-                logger.debug("json_librelinkup: Used Bytes / Total Capacity: %d / %d", buffer_info.usedCapacity, buffer_info.totalCapacity);
-
-                buffer_info = helper.getBufferSize(&(*json_filter));
-                logger.debug("json_filter     : Used Bytes / Total Capacity: %d / %d", buffer_info.usedCapacity, buffer_info.totalCapacity);
+                logger.debug("json_librelinkup: Used Bytes / Total Capacity: %u / %u",
+                             (unsigned)json_librelinkup->memoryUsage(),
+                             (unsigned)json_librelinkup->capacity());
+                logger.debug("json_filter     : Used Bytes / Total Capacity: %u / %u",
+                             (unsigned)json_filter->memoryUsage(),
+                             (unsigned)json_filter->capacity());
 
                 json_filter->clear();
                 json_librelinkup->clear();
@@ -836,7 +968,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 logger.debug("Error, wrong Token -> reauthorization...");
                 json_filter->clear();
                 json_librelinkup->clear();
-                auth_user(settings.config.login_email, settings.config.login_password);
+                reauth_user();
                 result = get_graph_data();
             }
         }
@@ -859,7 +991,12 @@ uint16_t LIBRELINKUP::get_graph_data(void){
     return result;
 }
 
-// ingest_graph_json from external source
+/**
+ * @brief Ingests graph JSON data from an external source.
+ * @param data The JSON data to ingest.
+ * @param len The length of the JSON data.
+ * @return 1 if successful, 0 otherwise.
+ */
 bool LIBRELINKUP::ingest_graph_json(const uint8_t* data, size_t len) {
 
     if (!data || len == 0) return false;
@@ -969,17 +1106,27 @@ bool LIBRELINKUP::parse_graph_json_doc() {
     return true;
 }
 
-// get last graph json data as String
+/**
+ * @brief Gets the last graph JSON data as a String.
+ * @return A reference to the last graph JSON data.
+ */
 const String& LIBRELINKUP::get_last_graph_json() const {
     return last_graph_json;
 }
 
-// get WiFiClientSecure client pointer
+
+/**
+ * @brief Gets the WiFiClientSecure client pointer.
+ * @return A reference to the WiFiClientSecure client.
+ */
 WiFiClientSecure & LIBRELINKUP::get_wifisecureclient(void){
     return *llu_client;
 }
 
-//check connection to server
+/**
+ * @brief Checks the HTTPS connection to a specified URL.
+ * @param url The URL to check the connection for.
+ */
 void LIBRELINKUP::check_https_connection(const char* url){
         
     // Test server connection
@@ -1008,7 +1155,13 @@ void LIBRELINKUP::check_https_connection(const char* url){
     }
 }
 
-// set new root certificate
+
+/**
+ * @brief Sets the CA certificate from a file.
+ * @param client The WiFiClientSecure client.
+ * @param ca_file The path to the CA certificate file.
+ * @return 1 if successful, 0 otherwise.
+ */
 bool LIBRELINKUP::setCAfromfile(WiFiClientSecure &client, const char* ca_file){
     
     File ca = LittleFS.open(ca_file, "r");
@@ -1030,7 +1183,11 @@ bool LIBRELINKUP::setCAfromfile(WiFiClientSecure &client, const char* ca_file){
     }
 }
 
-// get root certificate from file
+
+/**
+ * @brief Shows the CA certificate from a file.
+ * @param ca_file The path to the CA certificate file.
+ */
 void LIBRELINKUP::showCAfromfile(const char* ca_file){
     
     //get file size
@@ -1066,7 +1223,12 @@ void LIBRELINKUP::showCAfromfile(const char* ca_file){
     free(new_certificate);
 }
 
-// get certificate file
+/**
+ * @brief Downloads the root CA certificate from a specified URL and saves it to a file.
+ * @param download_url The URL to download the CA certificate from.
+ * @param file_name The name of the file to save the CA certificate to.
+ * @return 1 if successful, 0 otherwise.
+ */
 uint16_t LIBRELINKUP::download_root_ca_to_file(const char* download_url, const char* file_name){
     
     int8_t result = 0;
@@ -1120,10 +1282,14 @@ uint16_t LIBRELINKUP::download_root_ca_to_file(const char* download_url, const c
     return result;
 }
 
-//---------------------------------------------------------------------------
-//get certificate from LittleFS
-//read2String(SPIFFS, REMOTE_CERT_FILE, myCertificate, file lenght);
-
+/**
+ * @brief Reads the content of a file into a string.
+ * @param fs The file system to read from.
+ * @param path The path to the file.
+ * @param myString The buffer to store the string in.
+ * @param maxLength The maximum length of the string (including null terminator).
+ * @return true if successful, false otherwise.
+ */
 bool LIBRELINKUP::read2String(fs::FS &fs, const char *path, char *myString, size_t maxLength) {
     File file = fs.open(path);
     if (!file || file.isDirectory()) {
@@ -1139,7 +1305,11 @@ bool LIBRELINKUP::read2String(fs::FS &fs, const char *path, char *myString, size
     return true;
 }
 
-// String-Timestamp in time_t umwandeln
+/**
+ * @brief Parses a timestamp string into a time_t value.
+ * @param timestampStr The timestamp string to parse.
+ * @return The parsed time_t value, or -1 if parsing fails.
+ */
 time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
     setlocale(LC_TIME, "C"); // Erzwingt die C-Standard-Locale für AM/PM-Interpretation
 
@@ -1186,7 +1356,12 @@ time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
     return timestamp;
 }
 
-
+/**
+ * @brief Updates the time zone offset once based on local and factory timestamps.
+ * @param ts_local The local timestamp.
+ * @param ts_factory The factory timestamp.
+ * @return true if successful, false otherwise.
+ */
 bool LIBRELINKUP::update_tz_offset_once(const String& ts_local, const String& ts_factory)
 {
     time_t tLocal   = parseTimestamp(ts_local.c_str());
