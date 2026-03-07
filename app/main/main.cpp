@@ -1865,6 +1865,11 @@ void draw_labels(uint8_t mode, uint32_t _glucose_measurement_color,
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0x0000FF),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
+        else
+        {
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF),
+                                        LV_PART_MAIN | LV_STATE_DEFAULT);
+        }
 
         // Display glucose value
         char buf_label1[4];
@@ -1898,6 +1903,41 @@ void draw_labels(uint8_t mode, uint32_t _glucose_measurement_color,
     {
         lv_label_set_text(ui_Label_GlucoseTrendMessage, "");
     }
+}
+
+/**
+ * @brief Calculates the glucose value label color from local limits.
+ *
+ * Rules:
+ * - inside target range -> white
+ * - outside target range -> yellow
+ * - outside alarm range -> red
+ */
+static uint32_t get_glucose_label_color_from_limits(uint16_t glucose_value)
+{
+    const uint16_t target_low = librelinkup.llu_glucose_data.glucosetargetLow;
+    const uint16_t target_high = librelinkup.llu_glucose_data.glucosetargetHigh;
+    const uint16_t alarm_low = librelinkup.llu_glucose_data.glucoseAlarmLow;
+    const uint16_t alarm_high = librelinkup.llu_glucose_data.glucoseAlarmHigh;
+
+    // Limits not initialized yet.
+    if (target_low == 0 || target_high == 0)
+    {
+        return COLOR_WHITE;
+    }
+
+    if ((alarm_low > 0 && glucose_value <= alarm_low) ||
+        (alarm_high > 0 && glucose_value >= alarm_high))
+    {
+        return COLOR_RED;
+    }
+
+    if (glucose_value < target_low || glucose_value > target_high)
+    {
+        return COLOR_YELLOW;
+    }
+
+    return COLOR_WHITE;
 }
 
 ///////////////////// ERROR HANDLING FUNCTIONS ////////////////////
@@ -2421,7 +2461,9 @@ void update_glucose_data()
         }
     
         draw_chart_sensor_valid();
-        draw_labels(true, librelinkup.llu_glucose_data.measurement_color,
+        const uint32_t label_color = get_glucose_label_color_from_limits(
+            librelinkup.llu_glucose_data.glucoseMeasurement);
+        draw_labels(true, label_color,
                     librelinkup.llu_glucose_data.glucoseMeasurement,
                     librelinkup.llu_glucose_data.str_trendArrow,
                     librelinkup.llu_glucose_data.str_TrendMessage,
