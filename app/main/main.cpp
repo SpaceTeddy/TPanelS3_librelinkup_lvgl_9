@@ -2617,17 +2617,14 @@ void LoopTask(void *pvParameters)
 
     while (1)
     {
-
         // ElegantOTA update handling
         ElegantOTA.loop();
 
-        // if(ota_in_progress == 0){
         //  Telnet console handling
         uuid::loop();
         telnet.loop();
         Shell::loop_all();
         yield();
-        //}
 
         vTaskDelay(pdMS_TO_TICKS(10)); // Don't block task scheduler
     }
