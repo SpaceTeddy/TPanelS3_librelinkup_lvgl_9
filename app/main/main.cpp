@@ -2229,6 +2229,20 @@ void update_trend_message()
     char buffer[30];
     int remaining_time = 0;
 
+    // Timestamp status has priority for delayed/lost states.
+    if (librelinkup.status().timestamp_status == SENSOR_LOST)
+    {
+        librelinkup.glucose_data().str_TrendMessage = "sensor lost!";
+        logger.notice("sensor lost!");
+        return;
+    }
+    if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_OUT_OF_RANGE)
+    {
+        librelinkup.glucose_data().str_TrendMessage = "sensor delayed";
+        logger.notice("sensor delayed");
+        return;
+    }
+
     switch (librelinkup.status().sensor_state)
     {
     case SENSOR_EXPIRED:
@@ -2239,11 +2253,6 @@ void update_trend_message()
     case SENSOR_NOT_AVAILABLE:
         librelinkup.glucose_data().str_TrendMessage = "no active sensor";
         logger.notice("no active sensor");
-        break;
-
-    case SENSOR_LOST:
-        librelinkup.glucose_data().str_TrendMessage = "sensor lost!";
-        logger.notice("sensor lost!");
         break;
     
     case SENSOR_STARTING:
@@ -2256,10 +2265,6 @@ void update_trend_message()
 
     case SENSOR_READY:
         librelinkup.glucose_data().str_TrendMessage = "";
-        if(librelinkup.status().timestamp_status == SENSOR_LOST){
-            librelinkup.glucose_data().str_TrendMessage = "sensor lost!";
-            //logger.notice("sensor lost!");
-        }
         break;
     }
 }
