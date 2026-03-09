@@ -73,7 +73,7 @@ void HBA1C::createTestJsonFiles() {
     struct tm timeinfo;
 
     for (int i = 0; i < 7; i++) {
-        time_t testTime = now - (i * 24 * 60 * 60);  // i Tage zurück
+        time_t testTime = now - (i * 24 * 60 * 60);  // i days back
         localtime_r(&testTime, &timeinfo);
 
         char filename[20];
@@ -84,18 +84,18 @@ void HBA1C::createTestJsonFiles() {
 
         for (int j = 0; j < 10; j++) {
             JsonObject obj = arr.createNestedObject();
-            obj["timestamp"] = testTime + (j * 300);  // alle 5 Minuten
-            obj["glucose"] = random(80, 180);         // Zufällige Werte zwischen 80 und 180
+            obj["timestamp"] = testTime + (j * 300);  // every 5 minutes
+            obj["glucose"] = random(80, 180);         // random values between 80 and 180
         }
 
         File file = LittleFS.open(filename, "w");
         if (file) {
             serializeJson(doc, file);
-            file.flush(); // Wichtig für sicheres Speichern
+            file.flush(); // Important for safe persistence
             file.close();
-            logger.notice("✅ Testdatei erstellt: %s", filename);
+            logger.notice("Test file created: %s", filename);
         } else {
-            logger.notice("❌ Fehler beim Erstellen der Datei %s!", filename);
+            logger.notice("Error creating file %s!", filename);
         }
     }
 }
@@ -121,14 +121,14 @@ void HBA1C::updateFilename() {
 void HBA1C::debugRawFileContents(const char* filename) {
     File file = LittleFS.open(filename, "r");
     if (!file) {
-        logger.notice("❌ Fehler: Datei %s nicht gefunden!", filename);
+        logger.notice("Error: file %s not found!", filename);
         return;
     }
 
-    logger.notice("=== Rohdaten aus Datei %s ===", filename);
-    Serial.printf("=== Rohdaten aus Datei %s ===\n\r", filename);
+    logger.notice("=== Raw data from file %s ===", filename);
+    Serial.printf("=== Raw data from file %s ===\n\r", filename);
 
-    char buffer[257];  // 256 Zeichen + Nullterminator
+    char buffer[257];  // 256 chars + null terminator
     size_t bytesRead;
 
     while ((bytesRead = file.readBytes(buffer, sizeof(buffer) - 1)) > 0) {
@@ -155,37 +155,37 @@ void HBA1C::printJsonFileTelnet(const char* filename) {
         path = "/" + path;
     }
 
-    logger.notice("Debug: Öffne Datei %s", filename);
-    Serial.printf("Debug: Öffne Datei %s\n\r", filename);
+    logger.notice("Debug: opening file %s", filename);
+    Serial.printf("Debug: opening file %s\n\r", filename);
 
     File file = LittleFS.open(path.c_str(), "r");
     if (!file) {
-        logger.notice("Fehler: Datei %s nicht gefunden!", filename);
-        Serial.printf("Fehler: Datei %s nicht gefunden!\n\r", filename);
+        logger.notice("Error: file %s not found!", filename);
+        Serial.printf("Error: file %s not found!\n\r", filename);
         return;
     }
 
     globalJsonDoc->clear();
 
-    logger.notice("Debug: Lese JSON-Daten...");
+    logger.notice("Debug: reading JSON data...");
     DeserializationError error = deserializeJson(*globalJsonDoc, file);
     file.close();
 
     if (error) {
-        logger.notice("Fehler beim Lesen von %s: %s", filename, error.c_str());
-        Serial.printf("Fehler beim Lesen von %s: %s\n\r", filename, error.c_str());
+        logger.notice("Error reading %s: %s", filename, error.c_str());
+        Serial.printf("Error reading %s: %s\n\r", filename, error.c_str());
         return;
     }
 
     if (!globalJsonDoc->is<JsonArray>()) {
-        logger.notice("Fehler: JSON-Datei %s ist kein Array!", filename);
-        Serial.printf("Fehler: JSON-Datei %s ist kein Array!\n\r", filename);
+        logger.notice("Error: JSON file %s is not an array!", filename);
+        Serial.printf("Error: JSON file %s is not an array!\n\r", filename);
         return;
     }
 
     JsonArray arr = globalJsonDoc->as<JsonArray>();
-    logger.notice("=== Glucose-Werte aus %s (Einträge: %d) ===", filename, arr.size());
-    Serial.printf("=== Glucose-Werte aus %s (Einträge: %d) ===\n\r", filename, arr.size());
+    logger.notice("=== Glucose values from %s (entries: %d) ===", filename, arr.size());
+    Serial.printf("=== Glucose values from %s (entries: %d) ===\n\r", filename, arr.size());
 
     for (JsonObject obj : arr) {
         time_t timestamp = obj["timestamp"].as<time_t>();
@@ -195,13 +195,13 @@ void HBA1C::printJsonFileTelnet(const char* filename) {
         char timeString[20];
         strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", timeinfo);
 
-        logger.notice("Zeit: %s | Glucose: %d mg/dL", timeString, glucose);
-        Serial.printf("Zeit: %s | Glucose: %d mg/dL\n\r", timeString, glucose);
+        logger.notice("Time: %s | Glucose: %d mg/dL", timeString, glucose);
+        Serial.printf("Time: %s | Glucose: %d mg/dL\n\r", timeString, glucose);
 
         yield();
     }
 
-    logger.notice("Debug: JSON-Ausgabe abgeschlossen.");
+    logger.notice("Debug: JSON output completed.");
     globalJsonDoc->clear();
 }
 
@@ -211,17 +211,17 @@ void HBA1C::printJsonFileTelnet(const char* filename) {
 void HBA1C::listJsonFilesTelnet() {
     File root = LittleFS.open("/");
     if (!root) {
-        logger.err("Fehler: LittleFS konnte nicht geöffnet werden!");
+        logger.err("Error: could not open LittleFS!");
         return;
     }
 
-    logger.notice("=== Alle gespeicherten JSON-Dateien ===");
+    logger.notice("=== All stored JSON files ===");
 
     File file = root.openNextFile();
     while (file) {
         String filename = file.name();
         if (filename.endsWith(".json")) {
-            //logger.debug("Datei: %s | Größe: %d Bytes", filename.c_str(), file.size());
+            //logger.debug("File: %s | Size: %d bytes", filename.c_str(), file.size());
         }
         file = root.openNextFile();
     }
@@ -237,25 +237,25 @@ void HBA1C::listJsonFilesTelnet() {
 void HBA1C::loadJsonFromFile(const char* filename, DynamicJsonDocument &jsonDoc) {
     File file = LittleFS.open(filename, "r");
     if (!file) {
-        logger.err("📂 Datei %s nicht gefunden, neue Datei wird erstellt!", filename);
+        logger.err("File %s not found, creating new file!", filename);
         jsonDoc.clear();
         jsonDoc.to<JsonArray>();
         return;
     }
 
-    //logger.debug("📂 Lade Datei %s...", filename);
+    //logger.debug("Loading file %s...", filename);
 
     jsonDoc.clear();
     DeserializationError error = deserializeJson(jsonDoc, file);
     file.close();
 
     if (error) {
-        logger.err("❌ Fehler beim Lesen von %s: %s", filename, error.c_str());
+        logger.err("Error reading %s: %s", filename, error.c_str());
         jsonDoc.clear();
         jsonDoc.to<JsonArray>();
     }
 
-    //logger.debug("📄 Datei %s geladen mit %d Einträgen.", filename, jsonDoc.size());
+    //logger.debug("File %s loaded with %d entries.", filename, jsonDoc.size());
 }
 
 /**
@@ -265,13 +265,13 @@ void HBA1C::loadJsonFromFile(const char* filename, DynamicJsonDocument &jsonDoc)
  */
 void HBA1C::saveJsonToFile(const char* filename, DynamicJsonDocument &jsonDoc) {
     if (!jsonDoc.is<JsonArray>() || jsonDoc.size() == 0) {
-        logger.err("❌ Fehler: JSON-Dokument ist leer oder ungültig! Speichern abgebrochen.");
+        logger.err("Error: JSON document is empty or invalid! Save aborted.");
         return;
     }
 
     File file = LittleFS.open(filename, "w");
     if (!file) {
-        logger.err("❌ Fehler: Datei %s konnte nicht zum Schreiben geöffnet werden!", filename);
+        logger.err("Error: could not open file %s for writing!", filename);
         return;
     }
 
@@ -279,7 +279,7 @@ void HBA1C::saveJsonToFile(const char* filename, DynamicJsonDocument &jsonDoc) {
     file.flush();
     file.close();
 
-    //logger.debug("✅ Datei %s erfolgreich gespeichert mit %d Einträgen.", filename, jsonDoc.size());
+    //logger.debug("File %s saved successfully with %d entries.", filename, jsonDoc.size());
     jsonDoc.clear();
 }
 
@@ -291,14 +291,14 @@ void HBA1C::saveJsonToFile(const char* filename, DynamicJsonDocument &jsonDoc) {
 bool HBA1C::deleteJsonFile(const char* filename) {
     if (LittleFS.exists(filename)) {
         if (LittleFS.remove(filename)) {
-            logger.notice("🗑️ Datei %s wurde erfolgreich gelöscht!", filename);
+            logger.notice("File %s was deleted successfully!", filename);
             return true;
         } else {
-            logger.notice("❌ Fehler: Datei %s konnte nicht gelöscht werden!", filename);
+            logger.notice("Error: could not delete file %s!", filename);
             return false;
         }
     } else {
-        logger.notice("⚠️  Datei %s existiert nicht, kann nicht gelöscht werden.", filename);
+        logger.notice("Warning: file %s does not exist, cannot delete.", filename);
         return false;
     }
 }
@@ -320,7 +320,7 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
     struct tm *last_timeinfo = localtime(&last_timestamp);
 
     if (last_timeinfo->tm_mday != timeinfo->tm_mday) {
-        //logger.debug("🟢 Neuer Tag erkannt, Datei wechseln zu %s...", today_json_filename);
+        //logger.debug("New day detected, switching file to %s...", today_json_filename);
         updateFilename();
     }
 
@@ -329,7 +329,7 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
     loadJsonFromFile(today_json_filename, *globalJsonDoc);
 
     if (!globalJsonDoc->is<JsonArray>()) {
-        logger.err("❌ Fehler: JSON-Dokument ist kein Array! Erstelle neues Array.");
+        logger.err("Error: JSON document is not an array! Creating a new array.");
         globalJsonDoc->clear();
         globalJsonDoc->to<JsonArray>();
     }
@@ -339,7 +339,7 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
     if (arr.size() > 0) {
         JsonObject lastEntry = arr[arr.size() - 1];
         if (lastEntry.containsKey("glucose") && lastEntry["glucose"] == glucose) {
-            logger.debug("⚠️  Neuer Wert ist identisch zum letzten Eintrag (%d mg/dL). Speichern übersprungen.", glucose);
+            logger.debug("Warning: new value equals last entry (%d mg/dL). Save skipped.", glucose);
             return;
         }
     }
@@ -355,7 +355,7 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
     saveJsonToFile(today_json_filename, *globalJsonDoc);
     globalJsonDoc->clear();
 
-    //logger.debug("✅ Neuer Wert gespeichert: %ld | Glucose: %d mg/dL in Datei: %s", timestamp, glucose, today_json_filename);
+    //logger.debug("New value saved: %ld | Glucose: %d mg/dL in file: %s", timestamp, glucose, today_json_filename);
 }
 
 /**
@@ -367,8 +367,8 @@ void HBA1C::checkNewDay() {
     struct tm *last_timeinfo = localtime(&last_timestamp);
 
     if (last_timeinfo->tm_mday != timeinfo->tm_mday) {
-        Serial.println("Neuer Tag erkannt, Datei wechseln...");
-        logger.notice("Neuer Tag erkannt, Datei wechseln...");
+        Serial.println("New day detected, switching file...");
+        logger.notice("New day detected, switching file...");
         updateFilename();
     }
 
@@ -402,23 +402,23 @@ float HBA1C::calculateGlucoseMeanFromHistory(uint16_t values[], uint16_t size) {
 uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
     File file = LittleFS.open(filename, "r");
     if (!file) {
-        logger.err("❌ Fehler: Datei %s konnte nicht geöffnet werden!", filename);
+        logger.err("Error: could not open file %s!", filename);
         return 0;
     }
 
-    //logger.debug("📂 Lade Datei %s...", filename);
+    //logger.debug("Loading file %s...", filename);
 
     globalJsonDoc->clear();
     DeserializationError error = deserializeJson(*globalJsonDoc, file);
     file.close();
 
     if (error) {
-        logger.err("❌ Fehler beim Lesen von %s: %s", filename, error.c_str());
+        logger.err("Error reading %s: %s", filename, error.c_str());
         return 0;
     }
 
     if (!globalJsonDoc->is<JsonArray>()) {
-        logger.err("⚠️  Datei %s enthält kein JSON-Array!", filename);
+        logger.err("Warning: file %s does not contain a JSON array!", filename);
         return 0;
     }
 
@@ -435,7 +435,7 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
     }
 
     count += local_count;
-    //logger.debug("📄 Datei %s verarbeitet: %d Werte gefunden.", filename, local_count);
+    //logger.debug("Processed file %s: %d values found.", filename, local_count);
     globalJsonDoc->clear();
     return sum;
 }
@@ -452,7 +452,7 @@ float HBA1C::calculateGlucoseMeanFromJson(const char* filename) {
     if (strcmp(filename, "*") == 0) {
         File root = LittleFS.open("/");
         if (!root || !root.isDirectory()) {
-            logger.debug("❌ Fehler: Konnte Root-Verzeichnis nicht öffnen!");
+            logger.debug("Error: could not open root directory!");
             return 0.0;
         }
 
@@ -466,7 +466,7 @@ float HBA1C::calculateGlucoseMeanFromJson(const char* filename) {
         }
     } else {
         if (!LittleFS.exists(filename)) {
-            logger.debug("❌ Fehler: Datei %s existiert nicht!", filename);
+            logger.debug("Error: file %s does not exist!", filename);
             return 0.0;
         }
 
@@ -474,12 +474,12 @@ float HBA1C::calculateGlucoseMeanFromJson(const char* filename) {
     }
 
     if (count == 0) {
-        logger.debug("⚠️  Keine gültigen Glucose-Daten gefunden!");
+        logger.debug("Warning: no valid glucose data found!");
         return 0.0;
     }
 
     float mean = (float)sum / count;
-    //logger.debug("📊 Berechneter Glucose-Mean aus %s: %.2f mg/dL (aus %d Einträgen)", filename, mean, count);
+    //logger.debug("Calculated glucose mean from %s: %.2f mg/dL (from %d entries)", filename, mean, count);
     return mean;
 }
 
@@ -493,7 +493,7 @@ float HBA1C::calculateGlucoseMeanForLast7Days() {
 
     File root = LittleFS.open("/");
     if (!root || !root.isDirectory()) {
-        logger.notice("❌ Fehler: Konnte Root-Verzeichnis nicht öffnen!");
+        logger.notice("Error: could not open root directory!");
         return 0.0;
     }
 
@@ -520,7 +520,7 @@ float HBA1C::calculateGlucoseMeanForLast7Days() {
 
         int year, month, day;
         if (sscanf(filename.c_str(), "%4d-%2d-%2d.json", &year, &month, &day) != 3) {
-            logger.notice("⚠️  Datei %s hat kein gültiges Datumsformat!", filename.c_str());
+            logger.notice("Warning: file %s has invalid date format!", filename.c_str());
             file = root.openNextFile();
             continue;
         }
@@ -533,22 +533,22 @@ float HBA1C::calculateGlucoseMeanForLast7Days() {
 
         double diff_days = difftime(now, file_time) / (60 * 60 * 24);
         if (diff_days >= 0 && diff_days <= 7) {
-            //logger.debug("📂 Einbeziehen: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
+            //logger.debug("Including: %s (%.0f days ago)", filepath.c_str(), diff_days);
             sum += processJsonFile(filepath.c_str(), count);
         } else {
-            //logger.debug("📂 Ignoriert: %s (vor %.0f Tagen)", filepath.c_str(), diff_days);
+            //logger.debug("Ignored: %s (%.0f days ago)", filepath.c_str(), diff_days);
         }
 
         file = root.openNextFile();
     }
 
     if (count == 0) {
-        logger.debug("⚠️  Keine Glucose-Daten in den letzten 7 Tagen gefunden!");
+        logger.debug("Warning: no glucose data found in the last 7 days!");
         return 0.0;
     }
 
     float mean = (float)sum / count;
-    //logger.debug("📊 Durchschnittlicher Glucosewert der letzten 7 Tage: %.2f mg/dL (aus %d Werten)", mean, count);
+    //logger.debug("Average glucose in last 7 days: %.2f mg/dL (from %d values)", mean, count);
     return mean;
 }
 

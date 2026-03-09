@@ -516,13 +516,13 @@ void app_fsm_poll(AppFsm &fsm)
             break;
         }
 
-        // 6) Debug screen tick (jede Sekunde)
+        // 6) Debug screen tick (every second)
         // Debug screen update (every 1s) — no FSM transition (avoids log spam)
         if (!fsm.display_dim_active &&
             (millis() - fsm.last_debug_screen_ms) >= fsm.cfg.debug_screen_period_ms)
         {
             fsm.last_debug_screen_ms = millis();
-            flag_debug_screen = true; // Set flag, damit der Hauptloop weiß, dass er den Debug-Bildschirm aktualisieren soll
+            flag_debug_screen = true; // Set flag so the main loop knows to refresh the debug screen
         }
     
         // 7) Periodic internet health check

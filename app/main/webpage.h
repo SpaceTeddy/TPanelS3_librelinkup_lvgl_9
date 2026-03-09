@@ -1,11 +1,11 @@
 // webpage.h  (1:1 DROP-IN)
 // ------------------------------------------------------------
-// Drop-in Replacement für dein bestehendes webpage.h
-// Änderung: SSID-Override UI:
-// - Dropdown bleibt (name="networks")
-// - Zusätzlich Textfeld "wifiSsidManual" (ohne name)
-// - Beim Submit: wenn Textfeld gefüllt, wird "networks" auf diesen Wert gesetzt
-//   (ohne Backend-Änderung).
+// Drop-in replacement for your existing webpage.h
+// Change: SSID override UI:
+// - Keep dropdown (name="networks")
+// - Add text field "wifiSsidManual" (without name)
+// - On submit: if the text field is filled, set "networks" to that value
+//   (without backend changes).
 // ------------------------------------------------------------
 
 #ifndef webpage_H
@@ -15,8 +15,8 @@
 #include <ESPAsyncWebServer.h>
 
 /**
- * Registriert alle HTTP-Routen/Handler am Server.
- * Ruft das EINMAL nach dem Erzeugen des AsyncWebServer auf (z. B. in setup_OTA(true)).
+ * Registers all HTTP routes/handlers on the server.
+ * Call this ONCE after creating the AsyncWebServer (e.g. in setup_OTA(true)).
  */
 void register_webpage_routes(AsyncWebServer& server);
 

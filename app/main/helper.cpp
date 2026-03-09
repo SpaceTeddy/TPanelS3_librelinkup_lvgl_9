@@ -121,11 +121,11 @@ long HELPER::convertStrToUnixTime(const String& datetime) {
 }
 
 
-// Funktion zur Umwandlung von Unix-Timestamp in "HH:MM"
+// Function to convert Unix timestamp to "HH:MM"
 // format_time(labels[i], sizeof(labels[i]), timecode_array[i]);
 void HELPER::format_time(char *buffer, size_t buffer_size, time_t timestamp) {
-    setlocale(LC_TIME, "C"); // Verhindert AM/PM und erzwingt 24h-Format
-    struct tm *tm_info = localtime(&timestamp); // Nutze lokale Zeit
+    setlocale(LC_TIME, "C"); // Prevent AM/PM and enforce 24h format
+    struct tm *tm_info = localtime(&timestamp); // Use local time
     strftime(buffer, buffer_size, "%H:%M", tm_info);
 }
 //-----------------------[check internet connection with Ping]-------------------
@@ -222,19 +222,19 @@ String HELPER::get_esp_time_date(){
 String HELPER::get_flashmemory_id() {
     uint64_t chipid = ESP.getEfuseMac();   // 48-Bit MAC
 
-    // 48 Bit → 32 Bit eindampfen
+    // Fold 48-bit to 32-bit
     uint32_t shortid = (uint32_t)(chipid ^ (chipid >> 32));
 
     char buf[9];  
-    snprintf(buf, sizeof(buf), "%08X", shortid);  // 8 Stellen, HEX
+    snprintf(buf, sizeof(buf), "%08X", shortid);  // 8 chars, HEX
     return String(buf);
 }
 
 //------------------------[get json memory data]--------------------------------
 Json_Buffer_Info HELPER::getBufferSize(JsonDocument* doc) {
-    Json_Buffer_Info info = {0, 0};  // Standardwerte
+    Json_Buffer_Info info = {0, 0};  // Default values
     if (doc == nullptr) {
-        return info;                // Rückgabe bei Nullpointer
+        return info;                // Return for null pointer
     }
     info.usedCapacity = doc->memoryUsage();
     info.totalCapacity = doc->capacity();

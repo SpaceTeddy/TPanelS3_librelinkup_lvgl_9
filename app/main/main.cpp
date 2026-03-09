@@ -527,7 +527,7 @@ void mqtt_publish()
         logger.debug("raw len=%u topic=%s", (unsigned)payload.length(), topic.c_str());
         logger.debug("mqtt connected=%d buffer=%u",
                     mqtt_client.connected(),
-                    mqtt_client.getBufferSize());   // falls deine PubSubClient-Version das hat
+                    mqtt_client.getBufferSize());   // if your PubSubClient version supports this
         */
         bool ok = mqtt_client.publish(topic.c_str(),
                                       (const uint8_t *)payload.c_str(),
@@ -1530,7 +1530,7 @@ void draw_chart_sensor_valid()
         return;
     }
 
-    // (optional) falls alles 0 ist und du lieber "expired" zeigen willst:
+    // (optional) if everything is 0 and you prefer showing "expired":
     // switch_sensor_valid_progress_bar(NULL, -1);
 }
 
@@ -2069,7 +2069,7 @@ static bool parse_factory_timestamp_utc(const String &s_in, int64_t &out_epoch_s
     char ampm[3] = {0};
 
     // Format: M/D/YYYY h:mm:ss AM
-    // akzeptiert auch 02/23/2026 01:28:38 PM
+    // also accepts 02/23/2026 01:28:38 PM
     if (sscanf(s.c_str(), "%d/%d/%d %d:%d:%d %2s", &mon, &day, &year, &hh, &mm, &ss, ampm) != 7)
         return false;
 
@@ -2089,9 +2089,9 @@ static bool parse_factory_timestamp_utc(const String &s_in, int64_t &out_epoch_s
     t.tm_hour = hh;
     t.tm_min  = mm;
     t.tm_sec  = ss;
-    t.tm_isdst = -1; // wichtig: DST automatisch nach TZ-Regel bestimmen lassen
+    t.tm_isdst = -1; // important: let DST be determined automatically by TZ rules
 
-    time_t epoch = mktime(&t);   // interpretiert t als *lokale Zeit* gemäß TZ-Regel!
+    time_t epoch = mktime(&t);   // interprets t as *local time* according to TZ rules
     if (epoch <= 0) return false;
 
     out_epoch_s = (int64_t)epoch;
