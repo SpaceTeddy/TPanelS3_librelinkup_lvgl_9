@@ -27,9 +27,9 @@
  */
 
 #include <Arduino.h>
+#include <string.h>
 #include "main.h"
 #include "app_fsm.h"
-#include <string.h>
 #include "lvgl.h"
 #include "Arduino_GFX_Library.h"
 #include "pin_config.h"
