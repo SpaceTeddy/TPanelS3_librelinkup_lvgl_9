@@ -425,7 +425,7 @@ MQTT mqtt; ///< MQTT configuration and helper class
 WiFiClient mqttClient;                ///< WiFi client for MQTT connection
 PubSubClient mqtt_client(mqttClient); ///< MQTT client instance
 
-DynamicJsonDocument json_mqtt(1024); ///< JSON document for MQTT messages
+JsonDocument json_mqtt; ///< JSON document for MQTT messages
 
 // RAW dedup / retained handling
 static bool    g_allow_retained_once = true;    // nach (Re)Connect einmal erlauben

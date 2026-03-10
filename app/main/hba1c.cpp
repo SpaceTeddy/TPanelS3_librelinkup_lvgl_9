@@ -16,7 +16,7 @@
  * - Debug output helpers (raw dump, formatted print, list files)
  * - Statistics (mean glucose, estimated HbA1c, TIR, standard deviation, CV)
  *
- * @note Uses a global DynamicJsonDocument allocated on heap (optionally PSRAM).
+ * @note Uses a global JsonDocument allocated on heap (optionally PSRAM).
  * @note Uses LittleFS and flush() after writes for persistence.
  */
 
@@ -42,7 +42,7 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
  * Allocated on heap to allow larger capacity; can be moved to PSRAM if desired.
  * Cleared frequently to keep memory usage stable.
  */
-DynamicJsonDocument* globalJsonDoc = new DynamicJsonDocument(JSON_BUFFER_SIZE);
+JsonDocument* globalJsonDoc = new JsonDocument();
 
 /**
  * @brief Current day's JSON filename ("/YYYY-MM-DD.json").
@@ -79,11 +79,11 @@ void HBA1C::createTestJsonFiles() {
         char filename[20];
         strftime(filename, sizeof(filename), "/%Y-%m-%d.json", &timeinfo);
 
-        DynamicJsonDocument doc(1024);
+        JsonDocument doc;
         JsonArray arr = doc.to<JsonArray>();
 
         for (int j = 0; j < 10; j++) {
-            JsonObject obj = arr.createNestedObject();
+            JsonObject obj = arr.add<JsonObject>();
             obj["timestamp"] = testTime + (j * 300);  // every 5 minutes
             obj["glucose"] = random(80, 180);         // random values between 80 and 180
         }
@@ -234,7 +234,7 @@ void HBA1C::listJsonFilesTelnet() {
  *
  * If the file is missing or unreadable, jsonDoc becomes an empty JsonArray.
  */
-void HBA1C::loadJsonFromFile(const char* filename, DynamicJsonDocument &jsonDoc) {
+void HBA1C::loadJsonFromFile(const char* filename, JsonDocument &jsonDoc) {
     File file = LittleFS.open(filename, "r");
     if (!file) {
         logger.err("File %s not found, creating new file!", filename);
@@ -263,7 +263,7 @@ void HBA1C::loadJsonFromFile(const char* filename, DynamicJsonDocument &jsonDoc)
  * @param filename Path of JSON file.
  * @param jsonDoc JSON document (must be non-empty JsonArray).
  */
-void HBA1C::saveJsonToFile(const char* filename, DynamicJsonDocument &jsonDoc) {
+void HBA1C::saveJsonToFile(const char* filename, JsonDocument &jsonDoc) {
     if (!jsonDoc.is<JsonArray>() || jsonDoc.size() == 0) {
         logger.err("Error: JSON document is empty or invalid! Save aborted.");
         return;
@@ -338,7 +338,7 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
 
     if (arr.size() > 0) {
         JsonObject lastEntry = arr[arr.size() - 1];
-        if (lastEntry.containsKey("glucose") && lastEntry["glucose"] == glucose) {
+        if (lastEntry["glucose"].is<uint16_t>() && lastEntry["glucose"] == glucose) {
             logger.debug("Warning: new value equals last entry (%d mg/dL). Save skipped.", glucose);
             return;
         }
@@ -348,7 +348,7 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
         arr.remove(0);
     }
 
-    JsonObject obj = arr.createNestedObject();
+    JsonObject obj = arr.add<JsonObject>();
     obj["timestamp"] = timestamp;
     obj["glucose"]   = glucose;
 
@@ -427,7 +427,7 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
     JsonArray arr = globalJsonDoc->as<JsonArray>();
 
     for (JsonObject obj : arr) {
-        if (obj.containsKey("glucose")) {
+        if (obj["glucose"].is<uint16_t>()) {
             uint16_t glucose = obj["glucose"];
             sum += glucose;
             local_count++;

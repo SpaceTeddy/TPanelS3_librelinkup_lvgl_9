@@ -29,7 +29,7 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
  * @param config Reference to the Config object where the loaded configuration values are stored.
  */
 void SETTINGS::loadConfiguration(const char* filename, Config &config) {
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
 
     // Open file for reading
     File file = LittleFS.open(filename, FILE_READ);
@@ -129,7 +129,7 @@ void SETTINGS::loadConfiguration(const char* filename, Config &config) {
  * @param config The Config object containing the configuration data to be saved.
  */
 void SETTINGS::saveConfiguration(const char *filename, Config &config) {
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     
     // Delete existing file to prevent appending
     LittleFS.remove(filename);

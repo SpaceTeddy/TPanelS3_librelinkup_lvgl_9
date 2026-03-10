@@ -236,7 +236,9 @@ Json_Buffer_Info HELPER::getBufferSize(JsonDocument* doc) {
     if (doc == nullptr) {
         return info;                // Return for null pointer
     }
-    info.usedCapacity = doc->memoryUsage();
-    info.totalCapacity = doc->capacity();
+    // ArduinoJson 7 removed memoryUsage()/capacity() on JsonDocument.
+    // Keep this API for callers and expose lightweight runtime indicators.
+    info.usedCapacity = doc->size();
+    info.totalCapacity = doc->overflowed() ? 1 : 0;
     return info;
 }

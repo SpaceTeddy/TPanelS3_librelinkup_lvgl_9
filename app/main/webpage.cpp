@@ -1358,19 +1358,19 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
         }
     }
 
-    DynamicJsonDocument doc(12288);
+    JsonDocument doc;
 
     doc["millis"] = (uint32_t)millis();
     time_t now = time(nullptr);
     doc["time_epoch"] = (uint32_t)now;
 
-    JsonObject wifi = doc.createNestedObject("wifi");
+    JsonObject wifi = doc["wifi"].to<JsonObject>();
     wifi["connected"] = WiFi.isConnected();
     wifi["ssid"] = WiFi.SSID();
     wifi["rssi"] = WiFi.isConnected() ? WiFi.RSSI() : 0;
     wifi["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : String("");
 
-    JsonObject heap = doc.createNestedObject("heap");
+    JsonObject heap = doc["heap"].to<JsonObject>();
     // Heap stats (ESP-IDF)
 #ifdef ESP32
     heap["total_free"] = (uint32_t)esp_get_free_heap_size();
@@ -1384,7 +1384,7 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
 
 
     // Embed the normal /api/glucose payload
-    DynamicJsonDocument glu(2048);
+    JsonDocument glu;
     DeserializationError e1 = deserializeJson(glu, web_get_glucose_latest_json());
     if (!e1) {
         doc["glucose"] = glu.as<JsonVariant>();
@@ -1397,14 +1397,14 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
     doc["glucose_delta_int16"] = (int)glucose_delta;
 
     // LibreLinkUp status + sensor snapshot
-    JsonObject llu = doc.createNestedObject("llu");
+    JsonObject llu = doc["llu"].to<JsonObject>();
 
-    JsonObject st = llu.createNestedObject("status");
+    JsonObject st = llu["status"].to<JsonObject>();
     st["timestamp_status"] = (uint8_t)librelinkup.status().timestamp_status;
     st["sensor_state"] = (uint8_t)librelinkup.status().sensor_state;
     st["last_timestamp_unixtime"] = (uint32_t)librelinkup.status().last_timestamp_unixtime;
 
-    JsonObject se = llu.createNestedObject("sensor");
+    JsonObject se = llu["sensor"].to<JsonObject>();
     se["sensor_state"] = (uint8_t)librelinkup.sensor_data().sensor_state;
     se["sensor_sn_non_active"] = librelinkup.sensor_data().sensor_sn_non_active;
     se["sensor_id_non_active"] = librelinkup.sensor_data().sensor_id_non_active;
@@ -1416,7 +1416,7 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
     se["sensor_activation_time"] = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
 
 // LibreLinkUp login snapshot (no secrets in cleartext)
-JsonObject lo = llu.createNestedObject("login");
+JsonObject lo = llu["login"].to<JsonObject>();
 lo["email"] = librelinkup.login_data().email;
 lo["user_id"] = librelinkup.login_data().user_id;
 lo["account_id"] = librelinkup.login_data().account_id;
@@ -1441,7 +1441,7 @@ if (librelinkup.login_data().user_token.length() > 10) {
 
 
     // Add a small config snapshot (no secrets)
-    JsonObject cfg = doc.createNestedObject("config");
+    JsonObject cfg = doc["config"].to<JsonObject>();
     cfg["ota_update"] = settings.config.ota_update;
     cfg["wg_mode"] = settings.config.wg_mode;
     cfg["mqtt_mode"] = settings.config.mqtt_mode;
@@ -1549,7 +1549,7 @@ static void handleConnect(AsyncWebServerRequest *request) {
 static void handleStatus(AsyncWebServerRequest *request) {
     settings.loadConfiguration("/config.json", settings.config);
 
-    DynamicJsonDocument json_config(512);
+    JsonDocument json_config;
     json_config["ota_update"] = settings.config.ota_update;
     json_config["wg_mode"]    = settings.config.wg_mode;
     json_config["mqtt_mode"]         = settings.config.mqtt_mode;
@@ -1697,7 +1697,7 @@ static std::map<uint32_t, TelnetSession> g_telnet_sessions;
 
 static void telnet_send_status(AsyncWebSocketClient* c, const String& msg) {
     if (!c) return;
-    DynamicJsonDocument d(256);
+    JsonDocument d;
     d["type"] = "status";
     d["msg"] = msg;
     String out;
@@ -1707,7 +1707,7 @@ static void telnet_send_status(AsyncWebSocketClient* c, const String& msg) {
 
 static void telnet_send_data(AsyncWebSocketClient* c, const String& data) {
     if (!c) return;
-    DynamicJsonDocument d(512);
+    JsonDocument d;
     d["type"] = "data";
     d["data"] = data;
     String out;
@@ -1828,7 +1828,7 @@ static void ws_telnet_on_event(AsyncWebSocket *server, AsyncWebSocketClient *cli
         msg.reserve(len + 1);
         for (size_t i=0;i<len;i++) msg += (char)data[i];
 
-        DynamicJsonDocument d(512);
+        JsonDocument d;
         DeserializationError e = deserializeJson(d, msg);
         if (e) {
             telnet_send_status(client, "bad json");

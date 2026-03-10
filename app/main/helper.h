@@ -41,9 +41,9 @@ class HELPER {
         /**
          * @brief Creates a JSON document in PSRAM.
          * @param size The size of the JSON document in bytes.
-         * @return Pointer to the created DynamicJsonDocument.
+         * @return Pointer to the created JsonDocument.
          */
-        DynamicJsonDocument* createJsonInPSRAM(size_t size);
+        JsonDocument* createJsonInPSRAM(size_t size);
         
         /**
          * @brief Parses a string representation of an IP address into an IPAddress object.

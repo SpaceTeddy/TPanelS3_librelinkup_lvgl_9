@@ -24,7 +24,7 @@
  * Allocated in the corresponding .cpp file. This is shared by multiple functions and
  * cleared frequently to keep memory usage stable.
  */
-extern DynamicJsonDocument* globalJsonDoc;
+extern JsonDocument* globalJsonDoc;
 
 /**
  * @brief Current daily JSON filename in the form "/YYYY-MM-DD.json".
@@ -197,14 +197,14 @@ private:
    *
    * If file is missing or unreadable, jsonDoc becomes an empty JSON array.
    */
-  void loadJsonFromFile(const char* filename, DynamicJsonDocument& jsonDoc);
+  void loadJsonFromFile(const char* filename, JsonDocument& jsonDoc);
 
   /**
    * @brief Save a JSON document to a file and flush.
    * @param filename Path to JSON file.
    * @param jsonDoc Document to write (must be non-empty JsonArray).
    */
-  void saveJsonToFile(const char* filename, DynamicJsonDocument& jsonDoc);
+  void saveJsonToFile(const char* filename, JsonDocument& jsonDoc);
 };
 
 #endif  // HBA1C_H
