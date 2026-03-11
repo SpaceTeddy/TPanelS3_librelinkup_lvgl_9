@@ -1,0 +1,99 @@
+name: PlatformIO Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "PlatformIO environment"
+        required: true
+        default: "main"
+      version:
+        description: "Release tag (e.g. v1.3.0)"
+        required: true
+      prerelease:
+        description: "Mark as pre-release"
+        required: true
+        default: "false"
+      generate_notes:
+        description: "Use GitHub auto-generated release notes"
+        required: true
+        default: "true"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Build firmware
+        run: pio run -e "${{ github.event.inputs.environment }}"
+
+      - name: Verify firmware binary
+        id: fw
+        shell: bash
+        run: |
+          FW=".pio/build/${{ github.event.inputs.environment }}/firmware.bin"
+          if [ ! -f "$FW" ]; then
+            echo "Firmware not found: $FW"
+            exit 1
+          fi
+          ls -lh "$FW"
+          echo "path=$FW" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.inputs.version }}
+          ENV_NAME: ${{ github.event.inputs.environment }}
+          PRERELEASE: ${{ github.event.inputs.prerelease }}
+          GENERATE_NOTES: ${{ github.event.inputs.generate_notes }}
+          FW_PATH: ${{ steps.fw.outputs.path }}
+        run: |
+          ASSET_NAME="firmware-${ENV_NAME}.bin"
+
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists, updating asset..."
+            gh release upload "$VERSION" "${FW_PATH}#${ASSET_NAME}" --clobber
+            exit 0
+          fi
+
+          EXTRA_ARGS=()
+          if [ "$PRERELEASE" = "true" ]; then
+            EXTRA_ARGS+=("--prerelease")
+          fi
+
+          if [ "$GENERATE_NOTES" = "true" ]; then
+            EXTRA_ARGS+=("--generate-notes")
+          else
+            EXTRA_ARGS+=("--notes" "Automated release for ${VERSION}")
+          fi
+
+          gh release create "$VERSION" "${FW_PATH}#${ASSET_NAME}" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            "${EXTRA_ARGS[@]}"
