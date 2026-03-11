@@ -1,0 +1,86 @@
+name: OTA Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "PlatformIO environment"
+        required: true
+        default: "main"
+      upload_url:
+        description: "OTA base URL, e.g. http://192.168.0.76/update (optional if secret is set)"
+        required: false
+        default: ""
+      use_auth:
+        description: "Use HTTP digest auth from secrets OTA_USERNAME / OTA_PASSWORD"
+        required: true
+        default: "false"
+
+jobs:
+  ota-upload:
+    # OTA to local devices requires network access from your own runner
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Resolve OTA target URL
+        id: target
+        shell: bash
+        env:
+          INPUT_URL: ${{ github.event.inputs.upload_url }}
+          SECRET_URL: ${{ secrets.OTA_UPLOAD_URL }}
+        run: |
+          URL="$INPUT_URL"
+          if [ -z "$URL" ]; then
+            URL="$SECRET_URL"
+          fi
+          if [ -z "$URL" ]; then
+            echo "No OTA URL provided. Set workflow input 'upload_url' or secret 'OTA_UPLOAD_URL'."
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Build firmware
+        run: pio run -e "${{ github.event.inputs.environment }}"
+
+      - name: Upload via custom PlatformIO script (no auth)
+        if: ${{ github.event.inputs.use_auth != 'true' }}
+        run: |
+          pio run -e "${{ github.event.inputs.environment }}" -t upload \
+            --project-option "custom_upload_url=${{ steps.target.outputs.url }}"
+
+      - name: Upload via custom PlatformIO script (digest auth)
+        if: ${{ github.event.inputs.use_auth == 'true' }}
+        env:
+          OTA_USERNAME: ${{ secrets.OTA_USERNAME }}
+          OTA_PASSWORD: ${{ secrets.OTA_PASSWORD }}
+        run: |
+          if [ -z "$OTA_USERNAME" ] || [ -z "$OTA_PASSWORD" ]; then
+            echo "use_auth=true requires secrets OTA_USERNAME and OTA_PASSWORD"
+            exit 1
+          fi
+          pio run -e "${{ github.event.inputs.environment }}" -t upload \
+            --project-option "custom_upload_url=${{ steps.target.outputs.url }}" \
+            --project-option "custom_username=$OTA_USERNAME" \
+            --project-option "custom_password=$OTA_PASSWORD"
