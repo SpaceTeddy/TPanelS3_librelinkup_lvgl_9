@@ -1,0 +1,90 @@
+name: PlatformIO Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "PlatformIO environment"
+        required: true
+        default: "main"
+      device_ip:
+        description: "Target device IP address (e.g. 192.168.0.76)"
+        required: true
+        default: "192.168.0.76"
+      upload_path:
+        description: "Upload path on device"
+        required: true
+        default: "/update"
+      use_auth:
+        description: "Use digest auth from secrets OTA_USERNAME / OTA_PASSWORD"
+        required: true
+        default: "false"
+
+jobs:
+  update:
+    # Device IPs in local LAN require a self-hosted runner in the same network.
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Build upload URL
+        id: url
+        shell: bash
+        run: |
+          IP="${{ github.event.inputs.device_ip }}"
+          PATH_PART="${{ github.event.inputs.upload_path }}"
+
+          if [ -z "$IP" ]; then
+            echo "device_ip must not be empty"
+            exit 1
+          fi
+
+          if [[ "$PATH_PART" != /* ]]; then
+            PATH_PART="/$PATH_PART"
+          fi
+
+          echo "value=http://$IP$PATH_PART" >> "$GITHUB_OUTPUT"
+          echo "Using upload URL: http://$IP$PATH_PART"
+
+      - name: PlatformIO update (no auth)
+        if: ${{ github.event.inputs.use_auth != 'true' }}
+        run: |
+          pio run -e "${{ github.event.inputs.environment }}" -t upload \
+            --project-option "custom_upload_url=${{ steps.url.outputs.value }}"
+
+      - name: PlatformIO update (digest auth)
+        if: ${{ github.event.inputs.use_auth == 'true' }}
+        env:
+          OTA_USERNAME: ${{ secrets.OTA_USERNAME }}
+          OTA_PASSWORD: ${{ secrets.OTA_PASSWORD }}
+        run: |
+          if [ -z "$OTA_USERNAME" ] || [ -z "$OTA_PASSWORD" ]; then
+            echo "use_auth=true requires secrets OTA_USERNAME and OTA_PASSWORD"
+            exit 1
+          fi
+
+          pio run -e "${{ github.event.inputs.environment }}" -t upload \
+            --project-option "custom_upload_url=${{ steps.url.outputs.value }}" \
+            --project-option "custom_username=$OTA_USERNAME" \
+            --project-option "custom_password=$OTA_PASSWORD"
