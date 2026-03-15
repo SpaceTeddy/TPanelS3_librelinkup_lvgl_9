@@ -2457,6 +2457,7 @@ void update_glucose_data()
                     librelinkup.glucose_data().glucoseMeasurement,
                     librelinkup.glucose_data().str_trendArrow,
                     librelinkup.glucose_data().str_TrendMessage, 0);
+        draw_chart_glucose_data(1,false);
     }
 }
 
@@ -3352,7 +3353,7 @@ void setup()
     app_fsm_init(g_fsm);
 
     // ------------------------ Initial data & UI push -------------------------
-    if (settings.config.mqtt_master_mode == true || flag_mqtt_master_rx == true)
+    if (settings.config.mqtt_master_mode == true)
     {
         flag_mqtt_master_rx = false;
         update_glucose_data();          ///< First data fetch from LibreLinkUp backend
@@ -3361,7 +3362,7 @@ void setup()
         update_glucose_json_logging();  ///< Persist first reading to JSON log
         g_fsm.last_fetch_ms = millis(); ///< Prevent immediate refetch after boot
     }
-
+    
     // Switch to the main screen as the default UI
     lv_disp_load_scr(ui_Main_screen);
     // ------------------------------------------------------------------------
