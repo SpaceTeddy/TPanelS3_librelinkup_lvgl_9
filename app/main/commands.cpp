@@ -568,6 +568,11 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
         }
         else if ((llu_argument == "graph_redraw")) {
             shell.println(F("LLU Graph redraw..."));
+            uint8_t data_count = librelinkup.check_graphdata();
+            if (data_count == 0) {
+                shell.println(F("No graph data available yet. Run `llu get_graphdata` first."));
+                return;
+            }
             draw_chart_glucose_data(3, false);
         }
         else if ((llu_argument == "get_graphdata")) {

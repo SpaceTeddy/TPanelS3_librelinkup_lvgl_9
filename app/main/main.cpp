@@ -1596,6 +1596,13 @@ void add_axis_labels()
     // X-axis: Only three labels (start, middle, end)
     static char labels[3][6]; // "HH:MM" + null terminator
     uint8_t data_count = librelinkup.check_graphdata();
+    if (data_count == 0)
+    {
+        lv_label_set_text(ui_Chart_x_label_start, "--:--");
+        lv_label_set_text(ui_Chart_x_label_middle, "--:--");
+        lv_label_set_text(ui_Chart_x_label_end, "--:--");
+        return;
+    }
 
     // Determine first, middle and last timestamps
     uint32_t first_timestamp = librelinkup.sensor_history_data().timestamp[0];
