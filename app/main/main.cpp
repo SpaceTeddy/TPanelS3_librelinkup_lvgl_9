@@ -1983,6 +1983,14 @@ void handle_invalid_timestamp()
                 librelinkup.glucose_data().str_trendArrow,
                 librelinkup.glucose_data().str_TrendMessage, 0);
 
+    // Keep target limit lines visible even if the sensor data timestamp is invalid.
+    draw_chart_glucose_data(0, false);
+    lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_5Min, LV_CHART_POINT_NONE);
+    lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_alert, LV_CHART_POINT_NONE);
+    lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_last, LV_CHART_POINT_NONE);
+    lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_invalidate(ui_Chart_Glucose_5Min);
+
     if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_OUT_OF_RANGE)
     {
         logger.notice("glucoseMeasurement: no valid sensor data");
