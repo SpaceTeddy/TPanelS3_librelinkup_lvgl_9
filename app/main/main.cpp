@@ -2371,8 +2371,6 @@ void update_glucose_data()
 
     lcd_status_indication(0, 1); // Hide activity indicator
 
-    logger.debug("LLU API fetch time: %dms", librelinkup.https_llu_api_fetch_time);
-
     // Check sensor type and create appropriate progress bars
     int sensor_type = librelinkup.check_sensor_type();
     if (sensor_type == 1)
@@ -2424,20 +2422,6 @@ void update_glucose_data()
                       librelinkup.glucose_data().glucoseMeasurement,
                       librelinkup.glucose_data().str_trendArrow.c_str(),
                       glucose_delta);
-
-        // Update all display elements
-        /*
-        static uint8_t counter = 5;
-        counter--;
-        if(counter < 4){
-            librelinkup.sensor_lifetime().sensor_valid_days = 0;
-            librelinkup.sensor_lifetime().sensor_valid_hours = 0;
-            librelinkup.sensor_lifetime().sensor_valid_minutes = 50;
-        }
-        if(counter == 0){
-            counter = 5;
-        }
-        */
 
         draw_chart_sensor_valid();
         draw_labels(true, librelinkup.glucose_data().measurement_color,
@@ -3398,7 +3382,6 @@ void loop()
         // --- Application state machine (connectivity/fetch/publish) -----------------
         app_fsm_poll(g_fsm);
 
-        
         // 1 s tick: update debug view labels if visible (and not during OTA)
         if (flag_debug_screen == true)
         {
