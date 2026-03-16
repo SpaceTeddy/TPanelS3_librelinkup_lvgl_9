@@ -2244,20 +2244,6 @@ void update_trend_message()
     char buffer[30];
     int remaining_time = 0;
 
-    // Timestamp status has priority for delayed/lost states.
-    if (librelinkup.status().timestamp_status == SENSOR_LOST)
-    {
-        librelinkup.glucose_data().str_TrendMessage = "sensor lost!";
-        logger.notice("sensor lost!");
-        return;
-    }
-    if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_OUT_OF_RANGE)
-    {
-        librelinkup.glucose_data().str_TrendMessage = "sensor delayed";
-        logger.notice("sensor delayed");
-        return;
-    }
-
     switch (librelinkup.status().sensor_state)
     {
     case SENSOR_EXPIRED:
@@ -2279,6 +2265,19 @@ void update_trend_message()
         break;
 
     case SENSOR_READY:
+        // Only for ready sensors, timestamp status decides delayed/lost overlays.
+        if (librelinkup.status().timestamp_status == SENSOR_LOST)
+        {
+            librelinkup.glucose_data().str_TrendMessage = "sensor lost!";
+            logger.notice("sensor lost!");
+            return;
+        }
+        if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_OUT_OF_RANGE)
+        {
+            librelinkup.glucose_data().str_TrendMessage = "sensor delayed";
+            logger.notice("sensor delayed");
+            return;
+        }
         librelinkup.glucose_data().str_TrendMessage = "";
         break;
     }
@@ -2394,6 +2393,18 @@ void update_glucose_data()
         librelinkup.sensor_data().sensor_non_activ_unixtime,
         librelinkup.sensor_data().sensor_runtime);
     //logger.debug("Sensor State: %d", librelinkup.status().sensor_state);
+
+    // Force warmup state during first hour after activation if LLU still reports
+    // a non-active sensor snapshot. This prevents stale timestamp "lost" overlays.
+    if (librelinkup.sensor_data().sensor_sn_non_active.length() > 0 &&
+        librelinkup.sensor_data().sensor_non_activ_unixtime > 0)
+    {
+        const time_t now = time(nullptr);
+        if ((librelinkup.sensor_data().sensor_non_activ_unixtime + librelinkup.UNIXTIME1HOUR) > now)
+        {
+            librelinkup.status().sensor_state = SENSOR_STARTING;
+        }
+    }
 
     // Validate timestamp
     librelinkup.status().timestamp_status = librelinkup.check_valid_timestamp_factory(
