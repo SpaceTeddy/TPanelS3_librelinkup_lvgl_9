@@ -2259,9 +2259,18 @@ void update_trend_message()
     case SENSOR_STARTING:
         remaining_time = librelinkup.get_remaining_warmup_time(
             librelinkup.sensor_data().sensor_non_activ_unixtime);
-        sprintf(buffer, "sensor ready in %d min", remaining_time);
-        librelinkup.glucose_data().str_TrendMessage = buffer;
-        logger.notice("Sensor in starting phase!");
+        if (remaining_time < 1)
+        {
+            // If the countdown has reached 0 min, stop showing the warmup message.
+            librelinkup.glucose_data().str_TrendMessage = "";
+            logger.notice("Sensor warmup countdown reached 0 min.");
+        }
+        else
+        {
+            sprintf(buffer, "sensor ready in %d min", remaining_time);
+            librelinkup.glucose_data().str_TrendMessage = buffer;
+            logger.notice("Sensor in starting phase!");
+        }
         break;
 
     case SENSOR_READY:
