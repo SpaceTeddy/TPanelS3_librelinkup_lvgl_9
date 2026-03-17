@@ -1325,8 +1325,8 @@ static void touch_event_cb(lv_event_t *e)
     uint8_t mode = 1; // Display mode: show value
     uint8_t color = (value >= librelinkup.glucose_data().glucosetargetHigh ||
                      value <= librelinkup.glucose_data().glucoseAlarmLow)
-                        ? LV_PALETTE_RED
-                        : LV_PALETTE_GREEN;
+                        ? 4  // GlucoseLabelColor RED
+                        : 1; // GlucoseLabelColor WHITE
     uint16_t glucose_value = value;
 
     draw_labels(mode, color, glucose_value,
@@ -1802,27 +1802,27 @@ void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
     if (mode == 0)
     {
         // Set color based on glucose level
-        if (_glucose_measurement_color == COLOR_WHITE)
+        if (_glucose_measurement_color == 1) // GlucoseLabelColor WHITE
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
-        else if (_glucose_measurement_color == COLOR_YELLOW)
+        else if (_glucose_measurement_color == 2) // GlucoseLabelColor YELLOW
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFF00),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
-        else if (_glucose_measurement_color == COLOR_ORANGE)
+        else if (_glucose_measurement_color == 3) // GlucoseLabelColor ORANGE
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFA500),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
-        else if (_glucose_measurement_color == COLOR_RED)
+        else if (_glucose_measurement_color == 4) // GlucoseLabelColor RED
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFF0000),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
-        else if (_glucose_measurement_color == COLOR_BLUE)
+        else if (_glucose_measurement_color == 5) // GlucoseLabelColor BLUE
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0x0000FF),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1840,29 +1840,35 @@ void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
     else if (mode == 1)
     {
         // Set color (same logic as mode 0)
-        if (_glucose_measurement_color == COLOR_WHITE)
+        if (_glucose_measurement_color == 1) // GlucoseLabelColor WHITE
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
-        else if (_glucose_measurement_color == COLOR_YELLOW)
+        else if (_glucose_measurement_color == 2) // GlucoseLabelColor YELLOW
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFF00),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
-        else if (_glucose_measurement_color == COLOR_ORANGE)
+        else if (_glucose_measurement_color == 3) // GlucoseLabelColor ORANGE
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFA500),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
-        else if (_glucose_measurement_color == COLOR_RED)
+        else if (_glucose_measurement_color == 4) // GlucoseLabelColor RED
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFF0000),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
-        else if (_glucose_measurement_color == COLOR_BLUE)
+        else if (_glucose_measurement_color == 5) // GlucoseLabelColor BLUE
         {
             lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0x0000FF),
+                                        LV_PART_MAIN | LV_STATE_DEFAULT);
+        }
+        else
+        {
+            // Fallback prevents stale color if an unknown code arrives.
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF),
                                         LV_PART_MAIN | LV_STATE_DEFAULT);
         }
 
@@ -2430,6 +2436,51 @@ void update_glucose_data()
 
     // Set trend message based on sensor status
     update_trend_message();
+
+    // Debug snapshot for color transition analysis (API color vs local thresholds).
+    const uint16_t mgdl = librelinkup.glucose_data().glucoseMeasurement;
+    const uint16_t low_target = librelinkup.glucose_data().glucosetargetLow;
+    const uint16_t high_target = librelinkup.glucose_data().glucosetargetHigh;
+    const uint16_t low_alarm = librelinkup.glucose_data().glucoseAlarmLow;
+    const uint16_t high_alarm = librelinkup.glucose_data().glucoseAlarmHigh;
+    const uint8_t api_color = librelinkup.glucose_data().measurement_color;
+    const bool local_marker_red = (mgdl >= high_target || mgdl <= low_alarm);
+
+    const char *api_color_name = "UNKNOWN";
+    switch (api_color)
+    {
+    case 1: // GlucoseLabelColor::COLOR_WHITE
+        api_color_name = "WHITE";
+        break;
+    case 2: // GlucoseLabelColor::COLOR_YELLOW
+        api_color_name = "YELLOW";
+        break;
+    case 3: // GlucoseLabelColor::COLOR_ORANGE
+        api_color_name = "ORANGE";
+        break;
+    case 4: // GlucoseLabelColor::COLOR_RED
+        api_color_name = "RED";
+        break;
+    case 5: // GlucoseLabelColor::COLOR_BLUE
+        api_color_name = "BLUE";
+        break;
+    default:
+        break;
+    }
+
+    logger.notice(
+        "COLORDBG mgdl=%u api_color=%u(%s) targetLow=%u targetHigh=%u alarmLow=%u alarmHigh=%u marker=%s sensor_state=%u ts_status=%u",
+        mgdl,
+        api_color,
+        api_color_name,
+        low_target,
+        high_target,
+        low_alarm,
+        high_alarm,
+        local_marker_red ? "RED" : "GREEN",
+        librelinkup.status().sensor_state,
+        librelinkup.status().timestamp_status
+    );
 
     // Check if LLU timestamp is valid and process data
     if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_VALID)

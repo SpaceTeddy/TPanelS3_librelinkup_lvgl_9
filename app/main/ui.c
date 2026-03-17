@@ -499,13 +499,13 @@ void ui_Welcome_screen_init(void)
     lv_obj_set_style_bg_color(ui_Welcome_screen, lv_color_black(), LV_PART_MAIN);
 
     ui_Label_WelcomeInfo = create_styled_label(ui_Welcome_screen, &JetBrainsMonoLight56,
-                                                COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -60);
+                                                UI_COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -60);
     if (ui_Label_WelcomeInfo != NULL) {
         lv_obj_set_style_text_align(ui_Label_WelcomeInfo, LV_TEXT_ALIGN_CENTER, 0);
     }
 
     ui_Label_WelcomeWifiInfo = create_styled_label(ui_Welcome_screen, &JetBrainsMonoLight24,
-                                                    COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 150);
+                                                    UI_COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 150);
     if (ui_Label_WelcomeWifiInfo != NULL) {
         lv_obj_set_style_text_align(ui_Label_WelcomeWifiInfo, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "");
@@ -530,7 +530,7 @@ void ui_Main_screen_init(void)
 
     // Main glucose value display
     ui_Label_GlucoseValue = create_styled_label(ui_Main_screen, &JetBrainsMonoLight100,
-                                                 COLOR_WHITE, GLUCOSE_VALUE_WIDTH, LV_ALIGN_CENTER, 
+                                                 UI_COLOR_WHITE, GLUCOSE_VALUE_WIDTH, LV_ALIGN_CENTER, 
                                                  0, GLUCOSE_VALUE_Y_OFFSET);
     if (ui_Label_GlucoseValue != NULL) {
         lv_label_set_text(ui_Label_GlucoseValue, "");
@@ -538,7 +538,7 @@ void ui_Main_screen_init(void)
 
     // Glucose delta display
     ui_Label_GlucoseDelta = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
-                                                 COLOR_WHITE, GLUCOSE_DELTA_WIDTH, LV_ALIGN_CENTER, 
+                                                 UI_COLOR_WHITE, GLUCOSE_DELTA_WIDTH, LV_ALIGN_CENTER, 
                                                  0, GLUCOSE_DELTA_Y_OFFSET);
     if (ui_Label_GlucoseDelta != NULL) {
         lv_label_set_text(ui_Label_GlucoseDelta, "");
@@ -546,7 +546,7 @@ void ui_Main_screen_init(void)
     
     // Trend arrow
     ui_Label_GlucoseTrendArrow = create_styled_label(ui_Main_screen, &JetBrainsMonoLight72,
-                                                      COLOR_WHITE, GLUCOSE_TREND_WIDTH, LV_ALIGN_CENTER, 
+                                                      UI_COLOR_WHITE, GLUCOSE_TREND_WIDTH, LV_ALIGN_CENTER, 
                                                       GLUCOSE_ARROW_X_OFFSET, GLUCOSE_ARROW_Y_OFFSET);
     if (ui_Label_GlucoseTrendArrow != NULL) {
         lv_label_set_text(ui_Label_GlucoseTrendArrow, "");
@@ -554,34 +554,34 @@ void ui_Main_screen_init(void)
 
     // Trend message
     ui_Label_GlucoseTrendMessage = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
-                                                        COLOR_RED, GLUCOSE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 55);
+                                                        UI_COLOR_RED, GLUCOSE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 55);
     if (ui_Label_GlucoseTrendMessage != NULL) {
         lv_label_set_text(ui_Label_GlucoseTrendMessage, "");
     }
 
     // API Activity indicator
     ui_Label_LiebreViewAPIActivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
-                                                          COLOR_WHITE, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
+                                                          UI_COLOR_WHITE, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
     if (ui_Label_LiebreViewAPIActivity != NULL) {
         lv_label_set_text(ui_Label_LiebreViewAPIActivity, " ");
     }
 
     // Connectivity indicator
     ui_Label_ESP32Connectivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight24,
-                                                      COLOR_GREEN, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
+                                                      UI_COLOR_GREEN, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
     if (ui_Label_ESP32Connectivity != NULL) {
         lv_label_set_text(ui_Label_ESP32Connectivity, " ");
     }
     
     // Chart limit labels
     ui_Label_Chart_GlucoseLimitHigh = create_styled_label(ui_Main_screen, &JetBrainsMonoLight16,
-                                                           COLOR_WHITE, 40, LV_ALIGN_CENTER, -175, 0);
+                                                           UI_COLOR_WHITE, 40, LV_ALIGN_CENTER, -175, 0);
     if (ui_Label_Chart_GlucoseLimitHigh != NULL) {
         lv_label_set_text(ui_Label_Chart_GlucoseLimitHigh, "");
     }
 
     ui_Label_Chart_GlucoseLimitLow = create_styled_label(ui_Main_screen, &JetBrainsMonoLight16,
-                                                          COLOR_WHITE, 40, LV_ALIGN_CENTER, -180, 95);
+                                                          UI_COLOR_WHITE, 40, LV_ALIGN_CENTER, -180, 95);
     if (ui_Label_Chart_GlucoseLimitLow != NULL) {
         lv_label_set_text(ui_Label_Chart_GlucoseLimitLow, "");
     }
@@ -659,7 +659,7 @@ void ui_Debug_screen_init(void)
     
     // Debug screen title
     ui_Label_DebugInfo = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight32,
-                                              COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 100, 30);
+                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 100, 30);
     if (ui_Label_DebugInfo != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugInfo, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugInfo, "Debug Screen");
@@ -667,7 +667,7 @@ void ui_Debug_screen_init(void)
 
     // Data refresh countdown
     ui_Label_DebugDataRefresh = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                     COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 100);
+                                                     UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 100);
     if (ui_Label_DebugDataRefresh != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugDataRefresh, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugDataRefresh, "DataRefreshIn: ");
@@ -675,7 +675,7 @@ void ui_Debug_screen_init(void)
 
     // IP address display
     ui_Label_DebugIP = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                            COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 120);
+                                            UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 120);
     if (ui_Label_DebugIP != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugIP, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugIP, "IP: ");
@@ -683,7 +683,7 @@ void ui_Debug_screen_init(void)
 
     // System time display
     ui_Label_DebugTime = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                              COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 140);
+                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 140);
     if (ui_Label_DebugTime != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugTime, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugTime, "ESP32 Time: ");
@@ -691,7 +691,7 @@ void ui_Debug_screen_init(void)
 
     // Sensor information
     ui_Label_DebugSensor = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 160);
+                                                UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 160);
     if (ui_Label_DebugSensor != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugSensor, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugSensor, "Sensor: ");
@@ -699,7 +699,7 @@ void ui_Debug_screen_init(void)
 
     // Sensor timestamp
     ui_Label_DebugSensorTimestamp = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                         COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 200);
+                                                         UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 200);
     if (ui_Label_DebugSensorTimestamp != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugSensorTimestamp, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugSensorTimestamp, "SensorTimestamp: ");
@@ -707,7 +707,7 @@ void ui_Debug_screen_init(void)
 
     // Sensor state
     ui_Label_DebugSensorState = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                     COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 220);
+                                                     UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 220);
     if (ui_Label_DebugSensorState != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugSensorState, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugSensorState, "SensorState: ");
@@ -715,7 +715,7 @@ void ui_Debug_screen_init(void)
 
     // Sensor value
     ui_Label_DebugSensorValue = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                     COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 240);
+                                                     UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 240);
     if (ui_Label_DebugSensorValue != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugSensorValue, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugSensorValue, "SensorValue: ");
@@ -723,7 +723,7 @@ void ui_Debug_screen_init(void)
 
     // Test label with trend arrows
     ui_Label_DebugTest = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight72,
-                                              COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 20, 280);
+                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 20, 280);
     if (ui_Label_DebugTest != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugTest, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugTest, "↓ ↘️ → ↗️ ↑");
@@ -747,7 +747,7 @@ void ui_Login_screen_init(void)
 
     // Login screen title
     ui_Label_LoginInfo = create_styled_label(ui_Login_screen, &JetBrainsMonoLight32,
-                                              COLOR_WHITE, LOGIN_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 120, 30);
+                                              UI_COLOR_WHITE, LOGIN_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 120, 30);
     if (ui_Label_LoginInfo != NULL) {
         lv_obj_set_style_text_align(ui_Label_LoginInfo, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_LoginInfo, "LLU Login");
@@ -800,14 +800,14 @@ void ui_FWUpdate_screen_init(void)
 
     // Update info message
     ui_Label_FWUpdateInfo = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight36,
-                                                 COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -100);
+                                                 UI_COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -100);
     if (ui_Label_FWUpdateInfo != NULL) {
         lv_label_set_text(ui_Label_FWUpdateInfo, "FW Update ...");
     }
 
     // Progress percentage display
     ui_Label_FWUpdateProgress_percent = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight72,
-                                                             COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 50);
+                                                             UI_COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 50);
     if (ui_Label_FWUpdateProgress_percent != NULL) {
         lv_label_set_text(ui_Label_FWUpdateProgress_percent, "0%");
     }

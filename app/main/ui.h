@@ -48,10 +48,10 @@ extern "C" {
 #define SENSOR_BAR_Y_OFFSET         (170)    ///< Y-offset for sensor validity bar
 
 // Colors
-#define COLOR_WHITE                 (0xFFFFFF)
-#define COLOR_RED                   (0xFF0000)
-#define COLOR_GREEN                 (0x00FF00)
-#define COLOR_BLACK                 (0x000000)
+#define UI_COLOR_WHITE                 (0xFFFFFF)
+#define UI_COLOR_RED                   (0xFF0000)
+#define UI_COLOR_GREEN                 (0x00FF00)
+#define UI_COLOR_BLACK                 (0x000000)
 
 /// Block sizes for progress bars
 #define MIN_BLOCK_SIZE              (5)      ///< Minimum block size for visual clarity
@@ -517,10 +517,10 @@ void update_chart_valid_values(ProgressBarUI *ui, int value);
  * 
  * @section color_config Color Configuration
  * The UI uses predefined colors that can be modified in ui.cpp:
- * - COLOR_WHITE (0xFFFFFF): Text and borders
- * - COLOR_RED (0xFF0000): Alerts and critical states
- * - COLOR_GREEN (0x00FF00): Normal operation indicators
- * - COLOR_BLACK (0x000000): Backgrounds
+ * - UI_COLOR_WHITE (0xFFFFFF): Text and borders
+ * - UI_COLOR_RED (0xFF0000): Alerts and critical states
+ * - UI_COLOR_GREEN (0x00FF00): Normal operation indicators
+ * - UI_COLOR_BLACK (0x000000): Backgrounds
  * 
  * @section layout_config Layout Configuration
  * Screen layout uses offset constants defined in ui.cpp:
