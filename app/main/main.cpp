@@ -1715,7 +1715,7 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
         else
         {
             // Sensor active longer than 12h - startup time handling
-            logger.debug("Draw graph startup time");
+            //logger.debug("Draw graph startup time");
 
             for (int i = 0; i < data_count; i++)
             {
@@ -1990,12 +1990,16 @@ void handle_invalid_timestamp()
                 librelinkup.glucose_data().str_trendArrow,
                 librelinkup.glucose_data().str_TrendMessage, 0);
 
-    // Keep target limit lines visible even if the sensor data timestamp is invalid.
-    draw_chart_glucose_data(0, false);
+    // Keep target limit lines and data visible even if the sensor data timestamp is invalid.
+    draw_chart_glucose_data(1, false);
     lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_5Min, LV_CHART_POINT_NONE);
     lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_alert, LV_CHART_POINT_NONE);
     lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_last, LV_CHART_POINT_NONE);
+    
+    // Hide last point marker since current measurement is not valid
     lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
+    
+    // Refresh chart to show limit lines and data points
     lv_obj_invalidate(ui_Chart_Glucose_5Min);
 
     if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_OUT_OF_RANGE)
@@ -2464,11 +2468,13 @@ void update_glucose_data()
     {
         // Invalid timestamp - handle error
         handle_invalid_timestamp();
+        /*
         draw_labels(false, librelinkup.glucose_data().measurement_color,
                     librelinkup.glucose_data().glucoseMeasurement,
                     librelinkup.glucose_data().str_trendArrow,
                     librelinkup.glucose_data().str_TrendMessage, 0);
         draw_chart_glucose_data(1,false);
+        */
     }
 }
 
