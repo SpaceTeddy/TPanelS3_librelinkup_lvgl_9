@@ -339,18 +339,16 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining);
  * based on remaining sensor lifetime.
  * 
  * @param[in] ui   Pointer to the ProgressBarUI to make visible
- * @param[in] mode Display mode (0=days, 1=hours, 2=minutes)
  * 
  * @note All bars are hidden first, then only the selected one is shown
- * @note The mode parameter is currently unused but reserved for future use
  * @warning NULL ui parameter or NULL ui->bar will cause function to return early
  * 
  * @par Example:
  * @code
- * switch_sensor_valid_progress_bar(&hourBar, 1); // Switch to hour display
+ * switch_sensor_valid_progress_bar(&hourBar); // Switch to hour display
  * @endcode
  */
-void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode);
+void switch_sensor_valid_progress_bar(ProgressBarUI *ui);
 
 /**
  * @brief Creates all sensor validity progress bar variants
@@ -471,11 +469,11 @@ void update_chart_valid_values(ProgressBarUI *ui, int value);
  * update_sensor_valid_progress_bar(&dayBar14, 7);
  * 
  * // Switch to hour display when less than 1 day
- * switch_sensor_valid_progress_bar(&hourBar, 1);
+ * switch_sensor_valid_progress_bar(&hourBar);
  * update_sensor_valid_progress_bar(&hourBar, 18);
  * 
  * // Switch to minute display in final hour
- * switch_sensor_valid_progress_bar(&minuteBar, 2);
+ * switch_sensor_valid_progress_bar(&minuteBar);
  * update_sensor_valid_progress_bar(&minuteBar, 45);
  * @endcode
  * 

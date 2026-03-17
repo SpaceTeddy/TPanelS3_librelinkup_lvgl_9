@@ -573,7 +573,7 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
                 shell.println(F("No graph data available yet. Run `llu get_graphdata` first."));
                 return;
             }
-            draw_chart_glucose_data(3, false);
+            draw_chart_glucose_data(3);
         }
         else if ((llu_argument == "get_graphdata")) {
             shell.println(F("LLU Get GraphData..."));
@@ -610,10 +610,10 @@ void lluSensorTypeCommand(uuid::console::Shell &shell, const std::vector<std::st
 
     if (sensor_type == "Libre3") {
         librelinkup.sensor_data().sensor_runtime = 14 * 86400; // 14 days
-        switch_sensor_valid_progress_bar(&dayBar14, 0);
+        switch_sensor_valid_progress_bar(&dayBar14);
     } else if ((sensor_type == "Libre3Plus")) {
         librelinkup.sensor_data().sensor_runtime = 15 * 86400; // 15 days
-        switch_sensor_valid_progress_bar(&dayBar15, 0);
+        switch_sensor_valid_progress_bar(&dayBar15);
     } else {
         shell.printfln("invalid sensor type: %s", sensor_type.c_str());
         return;

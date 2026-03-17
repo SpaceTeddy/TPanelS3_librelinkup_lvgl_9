@@ -1473,7 +1473,7 @@ void draw_chart_sensor_valid()
 
     if (expired)
     {
-        switch_sensor_valid_progress_bar(NULL, -1); // hide all bars
+        switch_sensor_valid_progress_bar(NULL); // hide all bars
         update_chart_valid_values(&dayBar14, -1);
         update_chart_valid_values(&dayBar15, -1);
         update_chart_valid_values(&hourBar, -1);
@@ -1493,18 +1493,18 @@ void draw_chart_sensor_valid()
     {
         if (librelinkup.sensor_data().sensor_runtime == 14 * 86400)
         {
-            switch_sensor_valid_progress_bar(&dayBar14, 0);
+            switch_sensor_valid_progress_bar(&dayBar14);
             update_chart_valid_values(&dayBar14, days);
         }
         else if (librelinkup.sensor_data().sensor_runtime == 15 * 86400)
         {
-            switch_sensor_valid_progress_bar(&dayBar15, 0);
+            switch_sensor_valid_progress_bar(&dayBar15);
             update_chart_valid_values(&dayBar15, days);
         }
         else
         {
             // Fallback: if runtime unknown
-            switch_sensor_valid_progress_bar(&dayBar15, 0);
+            switch_sensor_valid_progress_bar(&dayBar15);
             update_chart_valid_values(&dayBar15, days);
         }
         return;
@@ -1515,7 +1515,7 @@ void draw_chart_sensor_valid()
     // --------------------------
     if (rawHours > 0)
     {
-        switch_sensor_valid_progress_bar(&hourBar, 1);
+        switch_sensor_valid_progress_bar(&hourBar);
         update_chart_valid_values(&hourBar, hours);
         return;
     }
@@ -1525,13 +1525,13 @@ void draw_chart_sensor_valid()
     // --------------------------
     if (rawMinutes >= 0)
     {
-        switch_sensor_valid_progress_bar(&minuteBar, 2);
+        switch_sensor_valid_progress_bar(&minuteBar);
         update_chart_valid_values(&minuteBar, minutes);
         return;
     }
 
     // (optional) if everything is 0 and you prefer showing "expired":
-    // switch_sensor_valid_progress_bar(NULL, -1);
+    // switch_sensor_valid_progress_bar(NULL);
 }
 
 /**
@@ -1637,7 +1637,6 @@ void add_axis_labels()
  * - Dynamic X-axis labels
  *
  * @param[in] mode              Drawing mode (0/1/3)
- * @param[in] fiveminuteupdate  True if called from 5-minute update (currently unused)
  *
  * @note Mode 3 is most commonly used for complete display
  * @note Chart invalidation triggers LVGL redraw
@@ -1646,7 +1645,7 @@ void add_axis_labels()
  * @see highlight_last_point()
  * @see add_axis_labels()
  */
-void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
+void draw_chart_glucose_data(uint8_t mode)
 {
     if (mode == 0 || mode == 3)
     {
@@ -1661,7 +1660,6 @@ void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate)
     if (mode == 1 || mode == 3)
     {
         uint16_t glucose_value = 0;
-        static uint8_t data_count_backup = 0; // Reserved for future use
         uint8_t data_count = librelinkup.check_graphdata();
 
         // Clear all previous points
@@ -1970,7 +1968,7 @@ void handle_sensor_reconnect()
     logger.notice("Sensor reconnect!");
     librelinkup.reconnect_flag() = 0;
     glucose_delta = 0;
-    draw_chart_glucose_data(3, false);
+    draw_chart_glucose_data(3);
 }
 
 /**
@@ -1997,7 +1995,7 @@ void handle_invalid_timestamp()
                 librelinkup.glucose_data().str_TrendMessage, 0);
 
     // Keep target limit lines and data visible even if the sensor data timestamp is invalid.
-    draw_chart_glucose_data(1, false);
+    draw_chart_glucose_data(1);
     lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_5Min, LV_CHART_POINT_NONE);
     lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_alert, LV_CHART_POINT_NONE);
     lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_last, LV_CHART_POINT_NONE);
@@ -2065,24 +2063,6 @@ static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
 // Accepts either:
 //  - numeric seconds or milliseconds since epoch
 //  - ISO-8601 strings (with 'Z' or +/-hh:mm or without TZ)
-// Convert calendar date (UTC) to Unix epoch (seconds)
-// Algorithm from Howard Hinnant (civil_from_days)
-static int64_t utc_to_epoch(int Y, int M, int D, int h, int m, int s)
-{
-    if (M <= 2) {
-        Y -= 1;
-        M += 12;
-    }
-
-    const int64_t era = (Y >= 0 ? Y : Y - 399) / 400;
-    const unsigned yoe = (unsigned)(Y - era * 400);                // [0, 399]
-    const unsigned doy = (153 * (M - 3) + 2) / 5 + D - 1;          // [0, 365]
-    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;    // [0, 146096]
-
-    const int64_t days = era * 146097 + (int64_t)doe - 719468;     // days since 1970-01-01
-    return days * 86400 + h * 3600 + m * 60 + s;
-}
-
 // Parse LibreLinkUp FactoryTimestamp strictly as UTC
 static bool parse_factory_timestamp_utc(const String &s_in, int64_t &out_epoch_s)
 {
@@ -2334,7 +2314,7 @@ void update_five_minute_counter()
     {
         five_minute_chart_update_counter = 5; // Reset to 5 minutes
         logger.debug("Triggering 5-minute chart update...");
-        draw_chart_glucose_data(1, true); // Perform 5-minute update
+        draw_chart_glucose_data(1); // Perform 5-minute update
 
         if (librelinkup.status().sensor_state == SENSOR_READY)
         {
@@ -2400,11 +2380,11 @@ void update_glucose_data()
     int sensor_type = librelinkup.check_sensor_type();
     if (sensor_type == 1)
     {
-        switch_sensor_valid_progress_bar(&dayBar15, 0); // 15-day sensor
+        switch_sensor_valid_progress_bar(&dayBar15); // 15-day sensor
     }
     else if (sensor_type == -1)
     {
-        switch_sensor_valid_progress_bar(&dayBar14, 0); // 14-day sensor
+        switch_sensor_valid_progress_bar(&dayBar14); // 14-day sensor
     }
 
     // Read sensor status and timestamp
@@ -2511,7 +2491,7 @@ void update_glucose_data()
                     librelinkup.glucose_data().str_trendArrow,
                     librelinkup.glucose_data().str_TrendMessage,
                     glucose_delta);
-        draw_chart_glucose_data(3, false);
+        draw_chart_glucose_data(3);
 
         glucoseMeasurement_backup = librelinkup.glucose_data().glucoseMeasurement;
     }
@@ -2524,7 +2504,7 @@ void update_glucose_data()
                     librelinkup.glucose_data().glucoseMeasurement,
                     librelinkup.glucose_data().str_trendArrow,
                     librelinkup.glucose_data().str_TrendMessage, 0);
-        draw_chart_glucose_data(1,false);
+        draw_chart_glucose_data(1);
         */
     }
 }

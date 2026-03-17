@@ -87,9 +87,8 @@ uint8_t set_trgb_backlight_brightness(uint8_t value);
  * @brief Draws the glucose data chart.
  * 
  * @param mode Chart mode (e.g., display type).
- * @param fiveminuteupdate Set to `true` for updates every 5 minutes.
  */
-void draw_chart_glucose_data(uint8_t mode, bool fiveminuteupdate);
+void draw_chart_glucose_data(uint8_t mode);
 
 /**
  * @brief Handles cases where the timestamp is invalid.

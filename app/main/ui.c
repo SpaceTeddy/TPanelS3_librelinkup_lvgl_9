@@ -347,11 +347,10 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining_raw)
  * Used to switch between day/hour/minute views.
  * 
  * @param[in] ui   Pointer to the ProgressBarUI to make visible
- * @param[in] mode Display mode (0=days, 1=hours, 2=minutes) - currently unused
  * 
  * @note All bars are hidden first, then the selected one is shown
  */
-void switch_sensor_valid_progress_bar(ProgressBarUI *ui, int mode) 
+void switch_sensor_valid_progress_bar(ProgressBarUI *ui) 
 {
     // Hide all bars and labels with NULL checks
     if (dayBar14.bar != NULL) {
@@ -467,7 +466,7 @@ void update_chart_valid_values(ProgressBarUI *ui, int value)
     }
 
     // normal mode → show active bar
-    switch_sensor_valid_progress_bar(ui, 0);
+    switch_sensor_valid_progress_bar(ui);
 
     // redirect to correct bar update
     if (ui->bar == dayBar14.bar) {
