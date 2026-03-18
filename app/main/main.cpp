@@ -2417,51 +2417,6 @@ void update_glucose_data()
     // Set trend message based on sensor status
     update_trend_message();
 
-    // Debug snapshot for color transition analysis (API color vs local thresholds).
-    const uint16_t mgdl = librelinkup.glucose_data().glucoseMeasurement;
-    const uint16_t low_target = librelinkup.glucose_data().glucosetargetLow;
-    const uint16_t high_target = librelinkup.glucose_data().glucosetargetHigh;
-    const uint16_t low_alarm = librelinkup.glucose_data().glucoseAlarmLow;
-    const uint16_t high_alarm = librelinkup.glucose_data().glucoseAlarmHigh;
-    const uint8_t api_color = librelinkup.glucose_data().measurement_color;
-    const bool local_marker_red = (mgdl >= high_target || mgdl <= low_alarm);
-
-    const char *api_color_name = "UNKNOWN";
-    switch (api_color)
-    {
-    case 1: // GlucoseLabelColor::COLOR_WHITE
-        api_color_name = "WHITE";
-        break;
-    case 2: // GlucoseLabelColor::COLOR_YELLOW
-        api_color_name = "YELLOW";
-        break;
-    case 3: // GlucoseLabelColor::COLOR_ORANGE
-        api_color_name = "ORANGE";
-        break;
-    case 4: // GlucoseLabelColor::COLOR_RED
-        api_color_name = "RED";
-        break;
-    case 5: // GlucoseLabelColor::COLOR_BLUE
-        api_color_name = "BLUE";
-        break;
-    default:
-        break;
-    }
-
-    logger.notice(
-        "COLORDBG mgdl=%u api_color=%u(%s) targetLow=%u targetHigh=%u alarmLow=%u alarmHigh=%u marker=%s sensor_state=%u ts_status=%u",
-        mgdl,
-        api_color,
-        api_color_name,
-        low_target,
-        high_target,
-        low_alarm,
-        high_alarm,
-        local_marker_red ? "RED" : "GREEN",
-        librelinkup.status().sensor_state,
-        librelinkup.status().timestamp_status
-    );
-
     // Check if LLU timestamp is valid and process data
     if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_VALID)
     {
