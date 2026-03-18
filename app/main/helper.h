@@ -94,6 +94,31 @@ class HELPER {
         bool check_internet_status(IPAddress ip, uint16_t port);
 
         /**
+         * @brief Resolves a hostname to IPv4 with retries.
+         * @param hostname Hostname or IPv4 string.
+         * @param resolved_ip Output IPv4 address.
+         * @param max_attempts Number of DNS attempts.
+         * @param retry_delay_ms Delay between attempts in ms.
+         * @return True on success.
+         */
+        bool resolveHostnameIPv4(const String &hostname, IPAddress &resolved_ip, uint8_t max_attempts = 5, uint16_t retry_delay_ms = 400);
+
+        /**
+         * @brief Checks whether system time looks valid.
+         * @param min_valid_epoch Minimum accepted UNIX epoch.
+         * @return True if current epoch is valid.
+         */
+        bool timeLooksValid(time_t min_valid_epoch = 1704067200);
+
+        /**
+         * @brief Ensures NTP time sync with bounded wait.
+         * @param max_attempts Number of polling attempts.
+         * @param retry_delay_ms Delay between attempts in ms.
+         * @return True if time is valid after wait.
+         */
+        bool ensureTimeSynced(uint8_t max_attempts = 20, uint16_t retry_delay_ms = 500);
+
+        /**
          * @brief Retrieves the current ESP32 time and date as a string.
          * @return String representation of the current time and date.
          */

@@ -1,6 +1,7 @@
 
 #include "helper.h"
 #include <IPAddress.h>
+#include <WiFi.h>
 
 #include <librelinkup.h>
 extern LIBRELINKUP librelinkup;
@@ -149,6 +150,53 @@ bool HELPER::check_internet_status(IPAddress ip, uint16_t port)
     }
     return result;
     
+}
+
+bool HELPER::resolveHostnameIPv4(const String &hostname, IPAddress &resolved_ip, uint8_t max_attempts, uint16_t retry_delay_ms)
+{
+    IPAddress parsed_ip;
+    if (parsed_ip.fromString(hostname))
+    {
+        resolved_ip = parsed_ip;
+        return true;
+    }
+
+    if (max_attempts == 0)
+        max_attempts = 1;
+
+    for (uint8_t attempt = 1; attempt <= max_attempts; ++attempt)
+    {
+        if (WiFi.hostByName(hostname.c_str(), resolved_ip) == 1)
+            return true;
+
+        if (attempt < max_attempts)
+            delay(retry_delay_ms);
+    }
+    return false;
+}
+
+bool HELPER::timeLooksValid(time_t min_valid_epoch)
+{
+    return time(nullptr) >= min_valid_epoch;
+}
+
+bool HELPER::ensureTimeSynced(uint8_t max_attempts, uint16_t retry_delay_ms)
+{
+    if (timeLooksValid())
+        return true;
+
+    configTime(0, 0, "pool.ntp.org", "ntp.nict.jp", "time.google.com");
+
+    if (max_attempts == 0)
+        max_attempts = 1;
+
+    for (uint8_t i = 0; i < max_attempts; ++i)
+    {
+        if (timeLooksValid())
+            return true;
+        delay(retry_delay_ms);
+    }
+    return timeLooksValid();
 }
 
 //---------------------------[get local time]-----------------------------------

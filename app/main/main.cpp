@@ -2959,74 +2959,6 @@ bool wg_is_busy()
     return g_wg_busy;
 }
 
-// Resolve WireGuard endpoint to IPv4 before wg.begin().
-// This avoids transient DNS failures at boot and allows retries on each WG re-init.
-static bool resolve_wg_endpoint_ipv4(const String &endpoint, IPAddress &resolved_ip)
-{
-    IPAddress parsed_ip;
-    if (parsed_ip.fromString(endpoint))
-    {
-        resolved_ip = parsed_ip;
-        logger.debug("[setup_wg] endpoint is static IPv4: %s", resolved_ip.toString().c_str());
-        DBGprint;
-        Serial.printf("[setup_wg] endpoint is static IPv4: %s\n", resolved_ip.toString().c_str());
-        return true;
-    }
-
-    constexpr uint8_t max_attempts = 5;
-    constexpr uint16_t retry_delay_ms = 400;
-
-    for (uint8_t attempt = 1; attempt <= max_attempts; ++attempt)
-    {
-        if (WiFi.hostByName(endpoint.c_str(), resolved_ip) == 1)
-        {
-            logger.debug("[setup_wg] endpoint DNS resolved: %s -> %s",
-                          endpoint.c_str(), resolved_ip.toString().c_str());
-            DBGprint;
-            Serial.printf("[setup_wg] endpoint DNS resolved: %s -> %s\n",
-                          endpoint.c_str(), resolved_ip.toString().c_str());
-            return true;
-        }
-
-        logger.debug("[setup_wg] endpoint DNS failed (%u/%u): %s",
-                      (unsigned)attempt, (unsigned)max_attempts, endpoint.c_str());
-        DBGprint;
-        Serial.printf("[setup_wg] endpoint DNS failed (%u/%u): %s\n",
-                      (unsigned)attempt, (unsigned)max_attempts, endpoint.c_str());
-        if (attempt < max_attempts)
-            delay(retry_delay_ms);
-    }
-
-    return false;
-}
-
-static bool wg_time_looks_valid()
-{
-    // Jan 1, 2024 00:00:00 UTC
-    constexpr time_t min_valid_epoch = 1704067200;
-    return time(nullptr) >= min_valid_epoch;
-}
-
-static void ensure_time_for_wg()
-{
-    if (wg_time_looks_valid())
-        return;
-
-    logger.notice("[setup_wg] system time not valid yet, retrying NTP sync...");
-    configTime(0, 0, "pool.ntp.org", "ntp.nict.jp", "time.google.com");
-
-    constexpr uint8_t max_attempts = 20; // ~10s
-    for (uint8_t i = 0; i < max_attempts; ++i)
-    {
-        if (wg_time_looks_valid())
-            break;
-        delay(500);
-    }
-
-    logger.notice("[setup_wg] time check epoch=%ld valid=%d",
-                  (long)time(nullptr), (int)wg_time_looks_valid());
-}
-
 /**
  * @brief Setup or teardown WireGuard.
  * @param enable        true to enable/ensure WG; false to disable.
@@ -3094,16 +3026,25 @@ bool setup_wg(bool enable, bool force_reinit)
     lv_label_set_text(ui_Label_WelcomeWifiInfo, "Initializing WG interface...");
     lv_timer_handler();
 
-    ensure_time_for_wg();
+    if (!helper.timeLooksValid())
+    {
+        logger.notice("[setup_wg] system time not valid yet, retrying NTP sync...");
+        const bool synced = helper.ensureTimeSynced();
+        logger.notice("[setup_wg] time check epoch=%ld valid=%d",
+                      (long)time(nullptr), (int)synced);
+    }
 
     bool begin_ok = false;
     constexpr uint8_t wg_begin_attempts = 3;
     for (uint8_t attempt = 1; attempt <= wg_begin_attempts; ++attempt)
     {
         IPAddress endpoint_ip;
-        if (!resolve_wg_endpoint_ipv4(settings.config.wgEndpoint, endpoint_ip))
+        if (!helper.resolveHostnameIPv4(settings.config.wgEndpoint, endpoint_ip, 5, 400))
         {
             logger.notice("[setup_wg] WG endpoint DNS failed (%u/%u): %s",
+                          (unsigned)attempt, (unsigned)wg_begin_attempts, settings.config.wgEndpoint.c_str());
+            DBGprint;
+            Serial.printf("[setup_wg] endpoint DNS failed (%u/%u): %s\n",
                           (unsigned)attempt, (unsigned)wg_begin_attempts, settings.config.wgEndpoint.c_str());
             if (attempt < wg_begin_attempts)
                 delay(300);
@@ -3111,8 +3052,20 @@ bool setup_wg(bool enable, bool force_reinit)
         }
 
         const String endpoint_ip_str = endpoint_ip.toString();
+        logger.debug("[setup_wg] endpoint DNS resolved: %s -> %s",
+                     settings.config.wgEndpoint.c_str(), endpoint_ip_str.c_str());
+        DBGprint;
+        Serial.printf("[setup_wg] endpoint DNS resolved: %s -> %s\n",
+                      settings.config.wgEndpoint.c_str(), endpoint_ip_str.c_str());
         logger.notice("[setup_wg] wg.begin attempt %u/%u with endpoint=%s",
                       (unsigned)attempt, (unsigned)wg_begin_attempts, endpoint_ip_str.c_str());
+        DBGprint;
+        Serial.printf("[setup_wg] wg.begin attempt %u/%u endpoint=%s port=%u local_ip=%s\n",
+                      (unsigned)attempt,
+                      (unsigned)wg_begin_attempts,
+                      endpoint_ip_str.c_str(),
+                      (unsigned)settings.config.wgEndpointPort,
+                      local_ip.toString().c_str());
 
         begin_ok = wg.begin(
             local_ip,
@@ -3122,6 +3075,10 @@ bool setup_wg(bool enable, bool force_reinit)
             (uint16_t)settings.config.wgEndpointPort,
             settings.config.wgPresharedKey.c_str()
         );
+
+        DBGprint;
+        Serial.printf("[setup_wg] wg.begin result attempt=%u ok=%d\n",
+                      (unsigned)attempt, (int)begin_ok);
 
         if (begin_ok)
             break;
@@ -3146,15 +3103,32 @@ bool setup_wg(bool enable, bool force_reinit)
 
     // Bounded ping checks. WG handshake can take a few seconds on some networks.
     const uint32_t deadline = millis() + 7000;
+    DBGprint;
+    Serial.printf("[setup_wg] post-begin healthcheck start now=%lu deadline=%lu\n",
+                  (unsigned long)millis(), (unsigned long)deadline);
     bool ok = false;
+    uint8_t ping_attempt = 0;
     while (millis() < deadline)
     {
+        ping_attempt++;
+        DBGprint;
+        Serial.printf("[setup_wg] healthcheck attempt=%u elapsed=%lums target=192.168.0.202:1883\n",
+                      (unsigned)ping_attempt,
+                      (unsigned long)(7000 - (deadline - millis())));
         if (app_check_internet_status(IPAddress(192, 168, 0, 202), 1883) == true)
         {
             ok = true;
+            DBGprint;
+            Serial.printf("[setup_wg] healthcheck success on attempt=%u\n", (unsigned)ping_attempt);
             break;
         }
         delay(200);
+    }
+
+    if (!ok)
+    {
+        DBGprint;
+        Serial.printf("[setup_wg] healthcheck timeout after attempts=%u\n", (unsigned)ping_attempt);
     }
 
     if (ok)
