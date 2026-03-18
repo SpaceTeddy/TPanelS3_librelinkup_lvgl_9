@@ -2959,6 +2959,74 @@ bool wg_is_busy()
     return g_wg_busy;
 }
 
+// Resolve WireGuard endpoint to IPv4 before wg.begin().
+// This avoids transient DNS failures at boot and allows retries on each WG re-init.
+static bool resolve_wg_endpoint_ipv4(const String &endpoint, IPAddress &resolved_ip)
+{
+    IPAddress parsed_ip;
+    if (parsed_ip.fromString(endpoint))
+    {
+        resolved_ip = parsed_ip;
+        logger.debug("[setup_wg] endpoint is static IPv4: %s", resolved_ip.toString().c_str());
+        DBGprint;
+        Serial.printf("[setup_wg] endpoint is static IPv4: %s\n", resolved_ip.toString().c_str());
+        return true;
+    }
+
+    constexpr uint8_t max_attempts = 5;
+    constexpr uint16_t retry_delay_ms = 400;
+
+    for (uint8_t attempt = 1; attempt <= max_attempts; ++attempt)
+    {
+        if (WiFi.hostByName(endpoint.c_str(), resolved_ip) == 1)
+        {
+            logger.debug("[setup_wg] endpoint DNS resolved: %s -> %s",
+                          endpoint.c_str(), resolved_ip.toString().c_str());
+            DBGprint;
+            Serial.printf("[setup_wg] endpoint DNS resolved: %s -> %s\n",
+                          endpoint.c_str(), resolved_ip.toString().c_str());
+            return true;
+        }
+
+        logger.debug("[setup_wg] endpoint DNS failed (%u/%u): %s",
+                      (unsigned)attempt, (unsigned)max_attempts, endpoint.c_str());
+        DBGprint;
+        Serial.printf("[setup_wg] endpoint DNS failed (%u/%u): %s\n",
+                      (unsigned)attempt, (unsigned)max_attempts, endpoint.c_str());
+        if (attempt < max_attempts)
+            delay(retry_delay_ms);
+    }
+
+    return false;
+}
+
+static bool wg_time_looks_valid()
+{
+    // Jan 1, 2024 00:00:00 UTC
+    constexpr time_t min_valid_epoch = 1704067200;
+    return time(nullptr) >= min_valid_epoch;
+}
+
+static void ensure_time_for_wg()
+{
+    if (wg_time_looks_valid())
+        return;
+
+    logger.notice("[setup_wg] system time not valid yet, retrying NTP sync...");
+    configTime(0, 0, "pool.ntp.org", "ntp.nict.jp", "time.google.com");
+
+    constexpr uint8_t max_attempts = 20; // ~10s
+    for (uint8_t i = 0; i < max_attempts; ++i)
+    {
+        if (wg_time_looks_valid())
+            break;
+        delay(500);
+    }
+
+    logger.notice("[setup_wg] time check epoch=%ld valid=%d",
+                  (long)time(nullptr), (int)wg_time_looks_valid());
+}
+
 /**
  * @brief Setup or teardown WireGuard.
  * @param enable        true to enable/ensure WG; false to disable.
@@ -3026,14 +3094,42 @@ bool setup_wg(bool enable, bool force_reinit)
     lv_label_set_text(ui_Label_WelcomeWifiInfo, "Initializing WG interface...");
     lv_timer_handler();
 
-    const bool begin_ok = wg.begin(
-        local_ip,
-        settings.config.wgPrivateKey.c_str(),
-        settings.config.wgEndpoint.c_str(),
-        settings.config.wgPublicKey.c_str(),
-        (uint16_t)settings.config.wgEndpointPort,
-        settings.config.wgPresharedKey.c_str()
-    );
+    ensure_time_for_wg();
+
+    bool begin_ok = false;
+    constexpr uint8_t wg_begin_attempts = 3;
+    for (uint8_t attempt = 1; attempt <= wg_begin_attempts; ++attempt)
+    {
+        IPAddress endpoint_ip;
+        if (!resolve_wg_endpoint_ipv4(settings.config.wgEndpoint, endpoint_ip))
+        {
+            logger.notice("[setup_wg] WG endpoint DNS failed (%u/%u): %s",
+                          (unsigned)attempt, (unsigned)wg_begin_attempts, settings.config.wgEndpoint.c_str());
+            if (attempt < wg_begin_attempts)
+                delay(300);
+            continue;
+        }
+
+        const String endpoint_ip_str = endpoint_ip.toString();
+        logger.notice("[setup_wg] wg.begin attempt %u/%u with endpoint=%s",
+                      (unsigned)attempt, (unsigned)wg_begin_attempts, endpoint_ip_str.c_str());
+
+        begin_ok = wg.begin(
+            local_ip,
+            settings.config.wgPrivateKey.c_str(),
+            endpoint_ip_str.c_str(),
+            settings.config.wgPublicKey.c_str(),
+            (uint16_t)settings.config.wgEndpointPort,
+            settings.config.wgPresharedKey.c_str()
+        );
+
+        if (begin_ok)
+            break;
+
+        wg.end();
+        if (attempt < wg_begin_attempts)
+            delay(300);
+    }
 
     if (!begin_ok)
     {
@@ -3048,8 +3144,8 @@ bool setup_wg(bool enable, bool force_reinit)
         return result;
     }
 
-    // Bounded ping checks (avoid long blocking). Try short polling for up to 1500 ms.
-    const uint32_t deadline = millis() + 1500;
+    // Bounded ping checks. WG handshake can take a few seconds on some networks.
+    const uint32_t deadline = millis() + 7000;
     bool ok = false;
     while (millis() < deadline)
     {
@@ -3058,7 +3154,7 @@ bool setup_wg(bool enable, bool force_reinit)
             ok = true;
             break;
         }
-        delay(100);
+        delay(200);
     }
 
     if (ok)
