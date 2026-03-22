@@ -25,6 +25,7 @@
 
 #include <cstdarg> // for va_list, va_start, va_end
 #include <cstdio>  // for vsnprintf
+#include <cstdlib> // for strtol
 
 extern SETTINGS settings;
 extern LIBRELINKUP librelinkup;
@@ -68,10 +69,19 @@ void displayWelcomeBanner(uuid::console::Shell &shell) {
  *       exception-safe on embedded, wrap stoi in try/catch.
  */
 int parseArgument(const std::vector<std::string> &arguments, size_t index, int defaultValue /*= 0*/) {
-    if (index < arguments.size()) {
-        return std::stoi(arguments[index]);
+    if (index >= arguments.size()) {
+        return defaultValue;
     }
-    return defaultValue;
+
+    const char *raw = arguments[index].c_str();
+    char *endptr = nullptr;
+    long value = strtol(raw, &endptr, 10);
+
+    if (endptr == raw || *endptr != '\0') {
+        return defaultValue;
+    }
+
+    return static_cast<int>(value);
 }
 
 /**
@@ -120,18 +130,21 @@ void LoglevelCommand(uuid::console::Shell &shell, const std::vector<std::string>
  * Persists LibreLinkUp login credentials to the configuration file.
  */
 void LLULoginDataCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
-    if (!arguments.empty()) {
-        String LoginName = arguments[0].c_str();
-        shell.printfln("LoginName: %s", LoginName.c_str());
-        settings.config.login_email = LoginName;
-
-        String LoginPassword = arguments[1].c_str();
-        shell.printfln("LoginName: %s", LoginPassword.c_str());
-        settings.config.login_password = LoginPassword;
-        librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
-
-        settings.saveConfiguration(settings.config_filename, settings.config);
+    if (arguments.size() < 2) {
+        shell.printfln(F("Usage: llu_login_data <email> <password>"));
+        return;
     }
+
+    String login_name = arguments[0].c_str();
+    settings.config.login_email = login_name;
+
+    String login_password = arguments[1].c_str();
+    settings.config.login_password = login_password;
+    librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
+
+    settings.saveConfiguration(settings.config_filename, settings.config);
+    shell.printfln("LoginName: %s", login_name.c_str());
+    shell.println(F("LoginPassword: <hidden>"));
 }
 
 /**
@@ -146,7 +159,7 @@ void WiFiSettingCommand(uuid::console::Shell &shell,
 {
     // Mindestens SSID/BSSID muss da sein
     if (arguments.size() < 1) {
-        shell.printfln("Usage: wifi <ssid_or_bssid> [password]");
+        shell.printfln("Usage: wifi_settings <ssid_or_bssid> [password]");
         return;
     }
 
@@ -220,7 +233,7 @@ void switch_screensCommand(uuid::console::Shell &shell, const std::vector<std::s
                 lv_disp_load_scr(ui_Main_screen);
             }
         } else {
-            shell.printfln("invalid argument: %s", screen_argument);
+            shell.printfln("invalid argument: %s", screen_argument.c_str());
         }
     }
 }
@@ -295,7 +308,7 @@ void configSettingCommand(uuid::console::Shell &shell, const std::vector<std::st
                 settings.config.sleep_timer
             );
         } else {
-            shell.printfln("invalid argument: %s", config_argument);
+            shell.printfln("invalid argument: %s", config_argument.c_str());
         }
     }
 }
@@ -334,7 +347,7 @@ void otaSettingCommand(uuid::console::Shell &shell, const std::vector<std::strin
             setup_OTA(settings.config.ota_update);
             shell.println(F("OTA disabled."));
         } else {
-            shell.printfln("invalid argument: %s", ota_argument);
+            shell.printfln("invalid argument: %s", ota_argument.c_str());
         }
     }
 }
@@ -504,10 +517,27 @@ void addGlucoseValueToJsonCommand(uuid::console::Shell &shell, const std::vector
  * Deletes the given JSON file from LittleFS.
  */
 void deleteJsonFileCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
-    if (!arguments.empty()) {
-        String filename_argument = arguments[0].c_str();
-        shell.printfln(F("Filename: %s"), filename_argument.c_str());
-        hba1c.deleteJsonFile(arguments[0].c_str());
+    if (arguments.empty()) {
+        shell.printfln(F("Usage: delete_json_file <filename>"));
+        return;
+    }
+
+    String filename_argument = arguments[0].c_str();
+    filename_argument.trim();
+    if (filename_argument.startsWith("\"") && filename_argument.endsWith("\"") && filename_argument.length() >= 2) {
+        filename_argument.remove(0, 1);
+        filename_argument.remove(filename_argument.length() - 1, 1);
+    }
+
+    String path = filename_argument;
+    if (!path.startsWith("/")) {
+        path = "/" + path;
+    }
+
+    shell.printfln(F("Filename: %s"), filename_argument.c_str());
+    if (!hba1c.deleteJsonFile(path.c_str())) {
+        // Fallback for unexpected FS naming behavior
+        hba1c.deleteJsonFile(filename_argument.c_str());
     }
 }
 
@@ -519,10 +549,28 @@ void deleteJsonFileCommand(uuid::console::Shell &shell, const std::vector<std::s
  * Prints the raw file contents (no JSON parsing).
  */
 void debugRawFileContentsCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
-    if (!arguments.empty()) {
-        String filename_argument = arguments[0].c_str();
-        shell.printfln(F("Filename: %s"), filename_argument.c_str());
-        hba1c.debugRawFileContents(arguments[0].c_str());
+    if (arguments.empty()) {
+        shell.printfln(F("Usage: print_raw_json_file <filename>"));
+        return;
+    }
+
+    String filename_argument = arguments[0].c_str();
+    filename_argument.trim();
+    if (filename_argument.startsWith("\"") && filename_argument.endsWith("\"") && filename_argument.length() >= 2) {
+        filename_argument.remove(0, 1);
+        filename_argument.remove(filename_argument.length() - 1, 1);
+    }
+
+    String path = filename_argument;
+    if (!path.startsWith("/")) {
+        path = "/" + path;
+    }
+
+    shell.printfln(F("Filename: %s"), filename_argument.c_str());
+    if (LittleFS.exists(path.c_str())) {
+        hba1c.debugRawFileContents(path.c_str());
+    } else {
+        hba1c.debugRawFileContents(filename_argument.c_str());
     }
 }
 
@@ -644,9 +692,10 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
         else if ((llu_argument == "graphdata")) {
             uint8_t data_count = librelinkup.check_graphdata();
             shell.printfln(F("Historical data: [%d/%d]"), data_count, librelinkup.GRAPHDATAARRAYSIZE);
+            const int last_index = librelinkup.GRAPHDATAARRAYSIZE - 1;
             shell.printfln("Last_LCD_Position: %03d Value: %03d",
-                (librelinkup.GRAPHDATAARRAYSIZE),
-                librelinkup.sensor_history_data().graph_data[librelinkup.GRAPHDATAARRAYSIZE]
+                last_index,
+                librelinkup.sensor_history_data().graph_data[last_index]
             );
 
             int index = librelinkup.GRAPHDATAARRAYSIZE - 1;
@@ -716,7 +765,7 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
             shell.println("===========================================");
         }
         else {
-            shell.printfln("invalid argument: %s", llu_argument);
+            shell.printfln("invalid argument: %s", llu_argument.c_str());
         }
     } else {
         shell.println(F("command: llu <> <>"));
@@ -731,6 +780,11 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
  * Updates sensor runtime and UI progress bar accordingly.
  */
 void lluSensorTypeCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
+    if (arguments.empty()) {
+        shell.printfln(F("Usage: llu_sensor_type <Libre3|Libre3Plus>"));
+        return;
+    }
+
     String sensor_type = arguments[0].c_str();
 
     if (sensor_type == "Libre3") {
@@ -744,7 +798,7 @@ void lluSensorTypeCommand(uuid::console::Shell &shell, const std::vector<std::st
         return;
     }
 
-    shell.printfln(F("Sensortype: %s"), sensor_type);
+    shell.printfln(F("Sensortype: %s"), sensor_type.c_str());
 }
 
 /**
@@ -782,7 +836,7 @@ void mqttClientSettingCommand(uuid::console::Shell &shell, const std::vector<std
             mqtt_client.disconnect();
             shell.println(F("MQTT client disabled."));
         } else {
-            shell.printfln("invalid argument: %s", mqtt_argument);
+            shell.printfln("invalid argument: %s", mqtt_argument.c_str());
         }
     }
 }
@@ -807,7 +861,7 @@ void mqttMasterModeCommand(uuid::console::Shell &shell, const std::vector<std::s
             mqtt_client.unsubscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data).c_str());
             mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data).c_str());
         } else {
-            shell.printfln("invalid argument: %s", mqtt_argument);
+            shell.printfln("invalid argument: %s", mqtt_argument.c_str());
         }
     }
 }
@@ -831,7 +885,7 @@ void wgSettingCommand(uuid::console::Shell &shell, const std::vector<std::string
             setup_wg(0);
             shell.println(F("WireGuard disabled."));
         } else {
-            shell.printfln("invalid argument: %s", wireguard_argument);
+            shell.printfln("invalid argument: %s", wireguard_argument.c_str());
         }
     }
 }
@@ -865,7 +919,7 @@ void downloadRootCaToFileCommand(uuid::console::Shell &shell, const std::vector<
                 shell.println(F("Error downloading Google Trust Root R4 certificate."));
             }
         } else {
-            shell.printfln("invalid argument: %s", downloadRootCaToFile_argument);
+            shell.printfln("invalid argument: %s", downloadRootCaToFile_argument.c_str());
         }
     } else {
         shell.println(F("command: download_ca_to_file <DigiCert|Baltimore|GoogleTrust>"));
@@ -880,15 +934,18 @@ void downloadRootCaToFileCommand(uuid::console::Shell &shell, const std::vector<
  * Downloads a root certificate from an arbitrary URL and stores it on LittleFS.
  */
 void downloadRootCaFromURLToFileCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
-    if (!arguments.empty()) {
-        String https_url     = arguments[0].c_str();
-        String littlefs_path = arguments[1].c_str();
+    if (arguments.size() < 2) {
+        shell.println(F("Usage: download_ca_from_url <https_url> <littlefs_path>"));
+        return;
+    }
 
-        if (librelinkup.download_root_ca_to_file(https_url.c_str(), littlefs_path.c_str()) == 1) {
-            shell.println(F("Root certificate downloaded successfully."));
-        } else {
-            shell.println(F("Error downloading Root certificate."));
-        }
+    String https_url     = arguments[0].c_str();
+    String littlefs_path = arguments[1].c_str();
+
+    if (librelinkup.download_root_ca_to_file(https_url.c_str(), littlefs_path.c_str()) == 1) {
+        shell.println(F("Root certificate downloaded successfully."));
+    } else {
+        shell.println(F("Error downloading Root certificate."));
     }
 }
 
@@ -912,7 +969,7 @@ void setCaFromFileCommand(uuid::console::Shell &shell, const std::vector<std::st
             librelinkup.setCAfromfile(librelinkup.get_wifisecureclient(), librelinkup.path_root_ca_googler4);
             shell.println(F("Google Trust Root R4 certificate loaded from LittleFS."));
         } else {
-            shell.printfln("invalid argument: %s", setRootCaFromFile_argument);
+            shell.printfln("invalid argument: %s", setRootCaFromFile_argument.c_str());
         }
     }
 }
@@ -937,7 +994,7 @@ void showCaFromFileCommand(uuid::console::Shell &shell, const std::vector<std::s
             librelinkup.showCAfromfile(librelinkup.path_root_ca_googler4);
             shell.println(F("Google Trust Root R4 certificate."));
         } else {
-            shell.printfln("invalid argument: %s", showCaCommand_argument);
+            shell.printfln("invalid argument: %s", showCaCommand_argument.c_str());
         }
     }
 }
