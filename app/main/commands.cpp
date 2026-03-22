@@ -406,6 +406,18 @@ void printJsonFileCommand(uuid::console::Shell &shell, const std::vector<std::st
     }
 
     String filename_argument = arguments[0].c_str();
+    filename_argument.trim();
+    if (filename_argument.length() == 0) {
+        shell.printfln(F("Usage: print_json_file <filename>"));
+        return;
+    }
+
+    // Allow quoted input: print_json_file "2026-03-10.json"
+    if (filename_argument.startsWith("\"") && filename_argument.endsWith("\"") && filename_argument.length() >= 2) {
+        filename_argument.remove(0, 1);
+        filename_argument.remove(filename_argument.length() - 1, 1);
+    }
+
     String path = filename_argument;
     if (!path.startsWith("/")) {
         path = "/" + path;
@@ -414,6 +426,10 @@ void printJsonFileCommand(uuid::console::Shell &shell, const std::vector<std::st
     shell.printfln(F("Filename: %s"), filename_argument.c_str());
 
     File file = LittleFS.open(path.c_str(), "r");
+    if (!file) {
+        // Fallback: try the raw argument variant as well.
+        file = LittleFS.open(filename_argument.c_str(), "r");
+    }
     if (!file) {
         shell.printfln(F("Error: file %s not found!"), filename_argument.c_str());
         return;
