@@ -221,7 +221,7 @@ void HBA1C::listJsonFilesTelnet() {
     while (file) {
         String filename = file.name();
         if (filename.endsWith(".json")) {
-            //logger.debug("File: %s | Size: %d bytes", filename.c_str(), file.size());
+            logger.notice("File: %s | Size: %d bytes", filename.c_str(), file.size());
         }
         file = root.openNextFile();
     }
