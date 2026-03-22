@@ -361,7 +361,35 @@ void trgbBrightnessCommand(uuid::console::Shell &shell, const std::vector<std::s
  */
 void printJsonFileListCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
     shell.printfln(F("Print Json Filelist..."));
-    hba1c.listJsonFilesTelnet();
+
+    File root = LittleFS.open("/");
+    if (!root) {
+        shell.printfln(F("Error: could not open LittleFS root!"));
+        return;
+    }
+
+    shell.printfln(F("=== All stored JSON files ==="));
+
+    int total_files = 0;
+    int json_files = 0;
+    File file = root.openNextFile();
+    while (file) {
+        total_files++;
+        String filename = file.name();
+
+        if (filename.endsWith(".json")) {
+            json_files++;
+            shell.printfln("File: %s | Size: %d bytes", filename.c_str(), file.size());
+        }
+
+        if ((total_files % 20) == 0) {
+            yield();
+        }
+
+        file = root.openNextFile();
+    }
+
+    shell.printfln(F("=== Done: %d JSON files (%d total files) ==="), json_files, total_files);
 }
 
 /**
