@@ -372,11 +372,61 @@ void printJsonFileListCommand(uuid::console::Shell &shell, const std::vector<std
  * Prints the decoded JSON glucose file contents (timestamp + glucose).
  */
 void printJsonFileCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
-    if (!arguments.empty()) {
-        String filename_argument = arguments[0].c_str();
-        shell.printfln(F("Filename: %s"), filename_argument.c_str());
-        hba1c.printJsonFileTelnet(arguments[0].c_str());
+    if (arguments.empty()) {
+        shell.printfln(F("Usage: print_json_file <filename>"));
+        return;
     }
+
+    String filename_argument = arguments[0].c_str();
+    String path = filename_argument;
+    if (!path.startsWith("/")) {
+        path = "/" + path;
+    }
+
+    shell.printfln(F("Filename: %s"), filename_argument.c_str());
+
+    File file = LittleFS.open(path.c_str(), "r");
+    if (!file) {
+        shell.printfln(F("Error: file %s not found!"), filename_argument.c_str());
+        return;
+    }
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, file);
+    file.close();
+
+    if (error) {
+        shell.printfln(F("Error reading %s: %s"), filename_argument.c_str(), error.c_str());
+        return;
+    }
+
+    if (!doc.is<JsonArray>()) {
+        shell.printfln(F("Error: JSON file %s is not an array!"), filename_argument.c_str());
+        return;
+    }
+
+    JsonArray arr = doc.as<JsonArray>();
+    shell.printfln(F("=== Glucose values from %s (entries: %d) ==="), filename_argument.c_str(), arr.size());
+
+    int idx = 0;
+    for (JsonObject obj : arr) {
+        time_t timestamp = obj["timestamp"].as<time_t>();
+        uint16_t glucose = obj["glucose"].as<uint16_t>();
+
+        struct tm *timeinfo = localtime(&timestamp);
+        char timeString[20];
+        strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", timeinfo);
+
+        shell.printfln("Time: %s | Glucose: %d mg/dL", timeString, glucose);
+        idx++;
+
+        // Keep the system responsive while printing long files over telnet.
+        if ((idx % 10) == 0) {
+            yield();
+        }
+    }
+
+    shell.printfln(F("Debug: JSON output completed (%d entries)."), idx);
 }
 
 /**
