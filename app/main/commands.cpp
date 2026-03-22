@@ -588,7 +588,38 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
         }
         else if ((llu_argument == "statistics")) {
             shell.println(F("LLU print glucose statistics..."));
-            glucose_statistics();
+            //glucose_statistics();
+            uint8_t data_count = librelinkup.check_graphdata();
+
+            float mean_glucose_value_from_history = hba1c.calculateGlucoseMeanFromHistory(
+                librelinkup.sensor_history_data().graph_data, data_count);
+            float mean_glucose_value_from_json = hba1c.calculateGlucoseMeanFromJson(
+                today_json_filename);
+            float mean_glucose_weekly_value_from_json = hba1c.calculateGlucoseMeanForLast7Days();
+            float std_dev = hba1c.calculate_standard_deviation(
+                librelinkup.sensor_history_data().graph_data, data_count,
+                mean_glucose_value_from_history);
+
+            shell.println("========== Glucose Statistics =============");
+            shell.printfln("Current glucose value        : %d mg/dl",
+                        librelinkup.glucose_data().glucoseMeasurement);
+            shell.printfln("Mean of history glucose value: %.0f mg/dl",
+                        mean_glucose_value_from_history);
+            shell.printfln("Mean of daily JSON value     : %.0f mg/dl",
+                        mean_glucose_value_from_json);
+            shell.printfln("Mean of weekly glucose value : %.0f mg/dl",
+                        mean_glucose_weekly_value_from_json);
+            shell.printfln("HbA1c-Value of history data  : %.2f %%",
+                        hba1c.calculate_hba1c(mean_glucose_value_from_history));
+            shell.printfln("TIR-Value of history data    : %.2f %%",
+                        hba1c.calculate_time_in_range(
+                            librelinkup.sensor_history_data().graph_data,
+                            data_count, 70, 180));
+            shell.printfln("Std-Dev of history data      : %.2f σ", std_dev);
+            shell.printfln("Glucose variability (CV)     : %.2f %%",
+                        hba1c.calculate_coefficient_of_variation(std_dev,
+                                                                mean_glucose_value_from_history));
+            shell.println("===========================================");
         }
         else {
             shell.printfln("invalid argument: %s", llu_argument);

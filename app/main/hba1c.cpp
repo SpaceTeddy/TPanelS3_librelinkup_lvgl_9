@@ -384,6 +384,10 @@ void HBA1C::checkNewDay() {
  * @note Current implementation ignores 0 values in the sum, but still divides by size.
  */
 float HBA1C::calculateGlucoseMeanFromHistory(uint16_t values[], uint16_t size) {
+    if (values == nullptr || size == 0) {
+        return 0.0f;
+    }
+
     float sum = 0;
     for (int i = 0; i < size; i++) {
         if(values[i] != 0){
@@ -448,8 +452,15 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
 float HBA1C::calculateGlucoseMeanFromJson(const char* filename) {
     uint32_t sum = 0;
     uint32_t count = 0;
+    const char* effective_filename = filename;
+    String normalized_path;
 
-    if (strcmp(filename, "*") == 0) {
+    if (effective_filename == nullptr || effective_filename[0] == '\0') {
+        updateFilename();
+        effective_filename = today_json_filename;
+    }
+
+    if (strcmp(effective_filename, "*") == 0) {
         File root = LittleFS.open("/");
         if (!root || !root.isDirectory()) {
             logger.debug("Error: could not open root directory!");
@@ -465,16 +476,20 @@ float HBA1C::calculateGlucoseMeanFromJson(const char* filename) {
             file = root.openNextFile();
         }
     } else {
-        if (!LittleFS.exists(filename)) {
-            logger.debug("Error: file %s does not exist!", filename);
+        if (effective_filename[0] != '/') {
+            normalized_path = "/";
+            normalized_path += effective_filename;
+            effective_filename = normalized_path.c_str();
+        }
+
+        if (!LittleFS.exists(effective_filename)) {
             return 0.0;
         }
 
-        sum += processJsonFile(filename, count);
+        sum += processJsonFile(effective_filename, count);
     }
 
     if (count == 0) {
-        logger.debug("Warning: no valid glucose data found!");
         return 0.0;
     }
 
@@ -543,7 +558,6 @@ float HBA1C::calculateGlucoseMeanForLast7Days() {
     }
 
     if (count == 0) {
-        logger.debug("Warning: no glucose data found in the last 7 days!");
         return 0.0;
     }
 
@@ -570,6 +584,10 @@ float HBA1C::calculate_hba1c(float mean_glucose) {
  * @return Percentage [0..100] in range.
  */
 float HBA1C::calculate_time_in_range(uint16_t values[], uint16_t size, int min_range, int max_range) {
+    if (values == nullptr || size == 0) {
+        return 0.0f;
+    }
+
     int count = 0;
     for (int i = 0; i < size; i++) {
         if (values[i] >= min_range && values[i] <= max_range) {
@@ -587,6 +605,10 @@ float HBA1C::calculate_time_in_range(uint16_t values[], uint16_t size, int min_r
  * @return Standard deviation (mg/dL).
  */
 float HBA1C::calculate_standard_deviation(uint16_t values[], uint16_t size, float mean) {
+    if (values == nullptr || size == 0) {
+        return 0.0f;
+    }
+
     double sum = 0;
     for (int i = 0; i < size; i++) {
         sum += pow(values[i] - mean, 2);
@@ -601,5 +623,9 @@ float HBA1C::calculate_standard_deviation(uint16_t values[], uint16_t size, floa
  * @return CV in percent.
  */
 float HBA1C::calculate_coefficient_of_variation(float std_dev, float mean) {
+    if (mean == 0.0f) {
+        return 0.0f;
+    }
+
     return (std_dev / mean) * 100.0;
 }
