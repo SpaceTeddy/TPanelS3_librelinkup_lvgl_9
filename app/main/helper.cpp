@@ -201,9 +201,6 @@ bool HELPER::ensureTimeSynced(uint8_t max_attempts, uint16_t retry_delay_ms)
 
 //---------------------------[get local time]-----------------------------------
 String HELPER::get_esp_time_date(){
-    
-    uint8_t result = 0;
-
     struct tm timeinfo;
     
     char timeinfo_day[3];
@@ -237,13 +234,7 @@ String HELPER::get_esp_time_date(){
     year_localtime = atoi(timeinfo_year);
 
     strftime(timeinfo_hour,3, "%H", &timeinfo);
-    
-    if (timeinfo.tm_isdst == 1){                            // check for daylight save time
-        hour_localtime = atoi(timeinfo_hour) - 1;// + librelinkup.timezone_offset();
-    }
-    else{
-        hour_localtime = atoi(timeinfo_hour);
-    }
+    hour_localtime = atoi(timeinfo_hour);
     
     strftime(timeinfo_minute,3, "%M", &timeinfo);
     minute_localtime = atoi(timeinfo_minute);
