@@ -1455,7 +1455,8 @@ void lcd_status_indication(bool on_off, uint8_t color)
  *
  * Automatically switches between modes based on remaining time.
  *
- * @note Progress bar values are incremented by 1 for display purposes
+ * @note Remaining time is calculated directly from sensor_activation_time + sensor_runtime,
+ *       matching the webpage JavaScript calculation exactly.
  * @note Calls lv_timer_handler() to update UI immediately
  *
  * @see switch_sensor_valid_progress_bar()
@@ -1463,13 +1464,29 @@ void lcd_status_indication(bool on_off, uint8_t color)
  */
 void draw_chart_sensor_valid()
 {
-    // Rohwerte (wie berechnet)
-    int rawDays = librelinkup.sensor_lifetime().sensor_valid_days;
-    int rawHours = librelinkup.sensor_lifetime().sensor_valid_hours;
-    int rawMinutes = librelinkup.sensor_lifetime().sensor_valid_minutes;
+    // Calculate remaining sensor lifetime directly from sensor_activation_time + sensor_runtime.
+    // This matches the webpage JavaScript calculation exactly (no +1 adjustment needed).
+    const uint32_t act_ts  = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
+    const uint32_t runtime = (uint32_t)librelinkup.sensor_data().sensor_runtime;
+    const uint32_t now_ts  = (uint32_t)time(nullptr);
 
-    // Expired/invalid detection (before +1!)
-    bool expired = (rawDays < 0) || (rawHours < 0) || (rawMinutes < 0);
+    int days    = -1;
+    int hours   = -1;
+    int minutes = -1;
+    bool expired = true;
+
+    if (act_ts > 0 && runtime > 0)
+    {
+        const uint32_t end = act_ts + runtime;
+        if (end > now_ts)
+        {
+            const uint32_t rem = end - now_ts;
+            days    = (int)(rem / 86400UL);
+            hours   = (int)((rem % 86400UL) / 3600UL);
+            minutes = (int)((rem % 3600UL) / 60UL);
+            expired = false;
+        }
+    }
 
     if (expired)
     {
@@ -1481,29 +1498,24 @@ void draw_chart_sensor_valid()
         return;
     }
 
-    // Displayvalues ("+1 like App")
-    int days = rawDays + 1;
-    int hours = rawHours + 1;
-    int minutes = rawMinutes + 1;
-
     // --------------------------
     // DAYS MODE
     // --------------------------
-    if (rawDays > 0)
+    if (days > 0)
     {
-        if (librelinkup.sensor_data().sensor_runtime == 14 * 86400)
+        if (runtime == 14UL * 86400UL)
         {
             switch_sensor_valid_progress_bar(&dayBar14);
             update_chart_valid_values(&dayBar14, days);
         }
-        else if (librelinkup.sensor_data().sensor_runtime == 15 * 86400)
+        else if (runtime == 15UL * 86400UL)
         {
             switch_sensor_valid_progress_bar(&dayBar15);
             update_chart_valid_values(&dayBar15, days);
         }
         else
         {
-            // Fallback: if runtime unknown
+            // Fallback: runtime unknown
             switch_sensor_valid_progress_bar(&dayBar15);
             update_chart_valid_values(&dayBar15, days);
         }
@@ -1513,7 +1525,7 @@ void draw_chart_sensor_valid()
     // --------------------------
     // HOURS MODE
     // --------------------------
-    if (rawHours > 0)
+    if (hours > 0)
     {
         switch_sensor_valid_progress_bar(&hourBar);
         update_chart_valid_values(&hourBar, hours);
@@ -1523,15 +1535,12 @@ void draw_chart_sensor_valid()
     // --------------------------
     // MINUTES MODE
     // --------------------------
-    if (rawMinutes >= 0)
+    if (minutes >= 0)
     {
         switch_sensor_valid_progress_bar(&minuteBar);
         update_chart_valid_values(&minuteBar, minutes);
         return;
     }
-
-    // (optional) if everything is 0 and you prefer showing "expired":
-    // switch_sensor_valid_progress_bar(NULL);
 }
 
 /**
@@ -2387,11 +2396,9 @@ void update_glucose_data()
         switch_sensor_valid_progress_bar(&dayBar14); // 14-day sensor
     }
 
-    // Read sensor status and timestamp
-    // Use sensor_activation_time (when sensor became active, after warmup) as base,
-    // consistent with the web API which also starts from activation_time.
+    // Read sensor status and timestamp (sensor_non_activ_unixtime used for state detection)
     librelinkup.status().sensor_state = librelinkup.check_sensor_lifetime(
-        librelinkup.sensor_data().sensor_activation_time,
+        librelinkup.sensor_data().sensor_non_activ_unixtime,
         librelinkup.sensor_data().sensor_runtime);
     //logger.debug("Sensor State: %d", librelinkup.status().sensor_state);
 
