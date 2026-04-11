@@ -39,10 +39,11 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 /**
  * @brief Global JSON document used for parsing/serialization.
  *
- * Allocated on heap to allow larger capacity; can be moved to PSRAM if desired.
+ * Allocated in BSS segment. ArduinoJson v7 manages its internal memory pool
+ * on the heap regardless, so no heap allocation for the object itself is needed.
  * Cleared frequently to keep memory usage stable.
  */
-JsonDocument* globalJsonDoc = new JsonDocument();
+JsonDocument globalJsonDoc;
 
 /**
  * @brief Current day's JSON filename ("/YYYY-MM-DD.json").
@@ -165,10 +166,10 @@ void HBA1C::printJsonFileTelnet(const char* filename) {
         return;
     }
 
-    globalJsonDoc->clear();
+    globalJsonDoc.clear();
 
     logger.notice("Debug: reading JSON data...");
-    DeserializationError error = deserializeJson(*globalJsonDoc, file);
+    DeserializationError error = deserializeJson(globalJsonDoc, file);
     file.close();
 
     if (error) {
@@ -177,13 +178,13 @@ void HBA1C::printJsonFileTelnet(const char* filename) {
         return;
     }
 
-    if (!globalJsonDoc->is<JsonArray>()) {
+    if (!globalJsonDoc.is<JsonArray>()) {
         logger.notice("Error: JSON file %s is not an array!", filename);
         Serial.printf("Error: JSON file %s is not an array!\n\r", filename);
         return;
     }
 
-    JsonArray arr = globalJsonDoc->as<JsonArray>();
+    JsonArray arr = globalJsonDoc.as<JsonArray>();
     logger.notice("=== Glucose values from %s (entries: %d) ===", filename, arr.size());
     Serial.printf("=== Glucose values from %s (entries: %d) ===\n\r", filename, arr.size());
 
@@ -202,7 +203,7 @@ void HBA1C::printJsonFileTelnet(const char* filename) {
     }
 
     logger.notice("Debug: JSON output completed.");
-    globalJsonDoc->clear();
+    globalJsonDoc.clear();
 }
 
 /**
@@ -326,15 +327,15 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
 
     last_timestamp = timestamp;
 
-    loadJsonFromFile(today_json_filename, *globalJsonDoc);
+    loadJsonFromFile(today_json_filename, globalJsonDoc);
 
-    if (!globalJsonDoc->is<JsonArray>()) {
+    if (!globalJsonDoc.is<JsonArray>()) {
         logger.err("Error: JSON document is not an array! Creating a new array.");
-        globalJsonDoc->clear();
-        globalJsonDoc->to<JsonArray>();
+        globalJsonDoc.clear();
+        globalJsonDoc.to<JsonArray>();
     }
 
-    JsonArray arr = globalJsonDoc->as<JsonArray>();
+    JsonArray arr = globalJsonDoc.as<JsonArray>();
 
     if (arr.size() > 0) {
         JsonObject lastEntry = arr[arr.size() - 1];
@@ -352,8 +353,8 @@ void HBA1C::addGlucoseValue(time_t timestamp, uint16_t glucose) {
     obj["timestamp"] = timestamp;
     obj["glucose"]   = glucose;
 
-    saveJsonToFile(today_json_filename, *globalJsonDoc);
-    globalJsonDoc->clear();
+    saveJsonToFile(today_json_filename, globalJsonDoc);
+    globalJsonDoc.clear();
 
     //logger.debug("New value saved: %ld | Glucose: %d mg/dL in file: %s", timestamp, glucose, today_json_filename);
 }
@@ -412,8 +413,8 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
 
     //logger.debug("Loading file %s...", filename);
 
-    globalJsonDoc->clear();
-    DeserializationError error = deserializeJson(*globalJsonDoc, file);
+    globalJsonDoc.clear();
+    DeserializationError error = deserializeJson(globalJsonDoc, file);
     file.close();
 
     if (error) {
@@ -421,14 +422,14 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
         return 0;
     }
 
-    if (!globalJsonDoc->is<JsonArray>()) {
+    if (!globalJsonDoc.is<JsonArray>()) {
         logger.err("Warning: file %s does not contain a JSON array!", filename);
         return 0;
     }
 
     uint32_t local_count = 0;
     uint32_t sum = 0;
-    JsonArray arr = globalJsonDoc->as<JsonArray>();
+    JsonArray arr = globalJsonDoc.as<JsonArray>();
 
     for (JsonObject obj : arr) {
         if (obj["glucose"].is<uint16_t>()) {
@@ -440,7 +441,7 @@ uint32_t HBA1C::processJsonFile(const char* filename, uint32_t &count) {
 
     count += local_count;
     //logger.debug("Processed file %s: %d values found.", filename, local_count);
-    globalJsonDoc->clear();
+    globalJsonDoc.clear();
     return sum;
 }
 

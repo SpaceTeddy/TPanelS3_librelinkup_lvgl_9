@@ -2227,11 +2227,9 @@ void synchronize_time_offset_epoch()
  * @note Warmup countdown calculated from sensor activation time
  * @note Message stored in librelinkup.glucose_data().str_TrendMessage
  *
- * @warning Buffer size limited to 30 characters
  */
 void update_trend_message()
 {
-    char buffer[30];
     int remaining_time = 0;
 
     switch (librelinkup.status().sensor_state)
@@ -2257,8 +2255,8 @@ void update_trend_message()
         }
         else
         {
-            sprintf(buffer, "sensor ready in %d min", remaining_time);
-            librelinkup.glucose_data().str_TrendMessage = buffer;
+            librelinkup.glucose_data().str_TrendMessage =
+            String("sensor ready in ") + remaining_time + " min";
             logger.notice("Sensor in starting phase!");
         }
         break;

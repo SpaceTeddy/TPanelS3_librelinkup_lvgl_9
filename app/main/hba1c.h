@@ -24,7 +24,7 @@
  * Allocated in the corresponding .cpp file. This is shared by multiple functions and
  * cleared frequently to keep memory usage stable.
  */
-extern JsonDocument* globalJsonDoc;
+extern JsonDocument globalJsonDoc;
 
 /**
  * @brief Current daily JSON filename in the form "/YYYY-MM-DD.json".
