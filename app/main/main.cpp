@@ -2388,8 +2388,10 @@ void update_glucose_data()
     }
 
     // Read sensor status and timestamp
+    // Use sensor_activation_time (when sensor became active, after warmup) as base,
+    // consistent with the web API which also starts from activation_time.
     librelinkup.status().sensor_state = librelinkup.check_sensor_lifetime(
-        librelinkup.sensor_data().sensor_non_activ_unixtime,
+        librelinkup.sensor_data().sensor_activation_time,
         librelinkup.sensor_data().sensor_runtime);
     //logger.debug("Sensor State: %d", librelinkup.status().sensor_state);
 
