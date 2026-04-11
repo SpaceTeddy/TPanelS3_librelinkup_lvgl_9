@@ -39,13 +39,14 @@ if (warmup_min < 0) warmup_min = 0;
 const int delta = (int)glucose_delta;
     const char* trend = librelinkup.glucose_data().str_trendArrow.c_str();
 
-    // Remaining lifetime (15 days) from activation_time
-    const uint32_t activation = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
-    const uint32_t lifetime_s = 15UL * 24UL * 3600UL;
+    // Remaining lifetime from sensor_non_activ_unixtime + sensor_runtime
+    // (consistent with check_sensor_lifetime() call in main.cpp)
+    const uint32_t activation = (uint32_t)librelinkup.sensor_data().sensor_non_activ_unixtime;
+    const uint32_t lifetime_s = (uint32_t)librelinkup.sensor_data().sensor_runtime;
     const uint32_t now = (uint32_t)time(nullptr);
 
     uint32_t remaining = 0;
-    if (activation > 0 && now > activation) {
+    if (activation > 0 && lifetime_s > 0 && now > activation) {
         const uint32_t end = activation + lifetime_s;
         if (end > now) remaining = end - now;
     }
