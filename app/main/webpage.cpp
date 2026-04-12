@@ -292,7 +292,7 @@ function ensureLifeBar(count){
   }
 }
 
-function updateLifeBar(days,hours,minutes,seconds){
+function updateLifeBar(days,hours,minutes,seconds,runtimeDays){
   const bar=document.getElementById("lifeBar");
   const txt=document.getElementById("lifeText");
   if(!bar || !txt) return;
@@ -300,16 +300,17 @@ function updateLifeBar(days,hours,minutes,seconds){
   const remSec = Math.max(0, (days*86400) + (hours*3600) + (minutes*60) + seconds);
   const remHoursFloat = remSec / 3600.0;
   const remDaysFloat  = remSec / 86400.0;
+  const dayBlocks = (runtimeDays === 14 || runtimeDays === 15) ? runtimeDays : 15;
 
   let cls="ok";
   if(remDaysFloat <= 1.0) cls="bad";
   else if(remDaysFloat <= 3.0) cls="warn";
 
-  let blocks = 15;
+  let blocks = dayBlocks;
   let filled = 0;
 
   if(remHoursFloat >= 24.0){
-    blocks = 15;
+    blocks = dayBlocks;
     filled = Math.ceil(remDaysFloat);
     filled = Math.max(0, Math.min(blocks, filled));
     ensureLifeBar(blocks);
@@ -729,7 +730,13 @@ async function refresh(){
       const m = (Number.isFinite(warmupMin) && warmupMin > 0) ? warmupMin : Math.ceil((Number.isFinite(warmupSec) ? warmupSec : 0) / 60);
       updateWarmupBar(m);
     } else {
-      updateLifeBar(Number(latest.life_days), Number(latest.life_hours), Number(latest.life_minutes), Number(latest.life_seconds));
+      updateLifeBar(
+        Number(latest.life_days),
+        Number(latest.life_hours),
+        Number(latest.life_minutes),
+        Number(latest.life_seconds),
+        Number(latest.life_runtime_days)
+      );
     }
 
     document.getElementById("status").textContent =
@@ -956,6 +963,7 @@ static const char debug_html[] PROGMEM = R"rawliteral(
   <div class="card">
     <div class="k">LibreLinkUp Sensor</div>
     <div class="v" id="lluActive">--</div>
+    <div class="small" id="lluSensorType">Type: --</div>
     <div class="small" id="lluInactive">--</div>
     <div class="small" id="lluActivation">--</div>
     <div class="small" id="lluExpires">--</div>
@@ -1115,6 +1123,9 @@ document.getElementById("lluSensorState").textContent = `Sensor state: ${Number(
 const activeId = se.sensor_id || "--";
 const activeSn = se.sensor_sn || "--";
 document.getElementById("lluActive").textContent = `Active: ${activeSn} (${activeId})`;
+const dtid = Number(se.sensor_type_dtid) || 0;
+const sensorTypeName = se.sensor_type_name || "Unknown";
+document.getElementById("lluSensorType").textContent = `Type: ${sensorTypeName} (dtid: ${dtid || "--"})`;
 
 const inactId = se.sensor_id_non_active || "--";
 const inactSn = se.sensor_sn_non_active || "--";
@@ -1411,7 +1422,8 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
     se["sensor_non_activ_unixtime"] = (uint32_t)librelinkup.sensor_data().sensor_non_activ_unixtime;
     se["sensor_id"] = librelinkup.sensor_data().sensor_id;
     se["sensor_sn"] = librelinkup.sensor_data().sensor_sn;
-    se["LIBRE3PLUS_SERIAL_START"] = librelinkup.sensor_data().LIBRE3PLUS_SERIAL_START;
+    se["sensor_type_dtid"] = (uint16_t)librelinkup.sensor_data().sensor_type_dtid;
+    se["sensor_type_name"] = librelinkup.sensor_device_type_to_string(librelinkup.get_sensor_device_type());
     se["sensor_runtime"] = (uint32_t)librelinkup.sensor_data().sensor_runtime;
     se["sensor_activation_time"] = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
 
