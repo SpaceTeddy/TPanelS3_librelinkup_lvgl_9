@@ -55,7 +55,6 @@ static AsyncWebServer* g_server = nullptr;
 // Forward declarations (used by debug endpoint)
 String web_get_glucose_latest_json();
 
-
 // Local state (legacy)
 static String username;
 static String password;
