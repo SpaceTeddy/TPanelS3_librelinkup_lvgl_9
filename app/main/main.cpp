@@ -1469,7 +1469,9 @@ void draw_chart_sensor_valid()
     int rawMinutes = librelinkup.sensor_lifetime().sensor_valid_minutes;
 
     // Expired/invalid detection (before +1!)
-    bool expired = (rawDays < 0) || (rawHours < 0) || (rawMinutes < 0);
+    // Explicit state check prevents stale bars when lifetime values are not yet reset.
+    const uint8_t sensorState = librelinkup.status().sensor_state;
+    bool expired = (sensorState == SENSOR_EXPIRED) || (rawDays < 0) || (rawHours < 0) || (rawMinutes < 0);
 
     if (expired)
     {

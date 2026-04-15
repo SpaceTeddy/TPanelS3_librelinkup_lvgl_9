@@ -291,7 +291,7 @@ function ensureLifeBar(count){
   }
 }
 
-function updateLifeBar(days,hours,minutes,seconds,runtimeDays){
+function updateLifeBar(days,hours,minutes,seconds,runtimeDays,sensorState){
   const bar=document.getElementById("lifeBar");
   const txt=document.getElementById("lifeText");
   if(!bar || !txt) return;
@@ -300,6 +300,16 @@ function updateLifeBar(days,hours,minutes,seconds,runtimeDays){
   const remHoursFloat = remSec / 3600.0;
   const remDaysFloat  = remSec / 86400.0;
   const dayBlocks = (runtimeDays === 14 || runtimeDays === 15) ? runtimeDays : 15;
+
+  if (sensorState === 4) {
+    ensureLifeBar(dayBlocks);
+    txt.textContent = "Sensor expired";
+    const segs=[...bar.children];
+    for(let i=0;i<segs.length;i++){
+      segs[i].classList.remove("ok","warn","bad");
+    }
+    return;
+  }
 
   let cls="ok";
   if(remDaysFloat <= 1.0) cls="bad";
@@ -734,7 +744,8 @@ async function refresh(){
         Number(latest.life_hours),
         Number(latest.life_minutes),
         Number(latest.life_seconds),
-        Number(latest.life_runtime_days)
+        Number(latest.life_runtime_days),
+        Number(latest.sensor_state)
       );
     }
 
