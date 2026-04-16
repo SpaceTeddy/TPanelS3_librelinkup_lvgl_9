@@ -70,6 +70,14 @@ uint8_t esp_status_counter_llu_retou = 0;    ///< LibreLinkUp terms of use accep
 /// Debug print macro with timestamp and function name
 #define DBGprint Serial.printf("[%09lu ms][%s][%s] ", (unsigned long)millis(), __FILE__, __func__)
 
+// Test hook: simulate short remaining lifetime, then expired.
+#ifndef FORCE_LIFETIME_TEST_ENABLE
+#define FORCE_LIFETIME_TEST_ENABLE 0
+#endif
+#ifndef FORCE_LIFETIME_TEST_REMAINING_SEC
+#define FORCE_LIFETIME_TEST_REMAINING_SEC 120U
+#endif
+
 ///////////////////// TPanelS3 SELECTION ////////////////////
 
 #include "tpanels3.h"
@@ -1467,17 +1475,17 @@ void draw_chart_sensor_valid()
     int rawDays = librelinkup.sensor_lifetime().sensor_valid_days;
     int rawHours = librelinkup.sensor_lifetime().sensor_valid_hours;
     int rawMinutes = librelinkup.sensor_lifetime().sensor_valid_minutes;
+    const uint8_t sensorState = librelinkup.status().sensor_state;
 
     // Expired/invalid detection (before +1!)
-    bool expired = (rawDays < 0) || (rawHours < 0) || (rawMinutes < 0);
+    bool expired = (sensorState == SENSOR_EXPIRED) ||
+                   (rawDays < 0) || (rawHours < 0) || (rawMinutes < 0);
 
     if (expired)
     {
-        switch_sensor_valid_progress_bar(NULL); // hide all bars
-        update_chart_valid_values(&dayBar14, -1);
+        // Show 15-day bar in gray when expired (instead of keeping minute bar visible).
+        switch_sensor_valid_progress_bar(&dayBar15);
         update_chart_valid_values(&dayBar15, -1);
-        update_chart_valid_values(&hourBar, -1);
-        update_chart_valid_values(&minuteBar, -1);
         return;
     }
 
@@ -2386,9 +2394,36 @@ void update_glucose_data()
     }
 
     // Read sensor status and timestamp
+    uint32_t lifetime_activation = librelinkup.sensor_data().sensor_non_activ_unixtime;
+    uint32_t lifetime_runtime = librelinkup.sensor_data().sensor_runtime;
+
+#if FORCE_LIFETIME_TEST_ENABLE
+    {
+        static bool test_lifetime_initialized = false;
+        static uint32_t test_activation = 0;
+        static uint32_t test_runtime = 0;
+
+        if (!test_lifetime_initialized)
+        {
+            const time_t now = time(nullptr);
+            test_activation = (now > 3600) ? (uint32_t)(now - 3600) : 1U; // warmup already over
+            test_runtime = 3600U + (uint32_t)FORCE_LIFETIME_TEST_REMAINING_SEC; // 1h + remaining test window
+            test_lifetime_initialized = true;
+
+            logger.notice("[TEST] lifetime test started once (remaining=%lus activation=%lu runtime=%lu)",
+                          (unsigned long)FORCE_LIFETIME_TEST_REMAINING_SEC,
+                          (unsigned long)test_activation,
+                          (unsigned long)test_runtime);
+        }
+
+        lifetime_activation = test_activation;
+        lifetime_runtime = test_runtime;
+    }
+#endif
+
     librelinkup.status().sensor_state = librelinkup.check_sensor_lifetime(
-        librelinkup.sensor_data().sensor_non_activ_unixtime,
-        librelinkup.sensor_data().sensor_runtime);
+        lifetime_activation,
+        lifetime_runtime);
     //logger.debug("Sensor State: %d", librelinkup.status().sensor_state);
 
     // Force warmup state during first hour after activation if LLU still reports
