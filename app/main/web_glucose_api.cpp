@@ -46,9 +46,7 @@ const int delta = (int)glucose_delta;
     const uint32_t now = (uint32_t)time(nullptr);
 
     uint32_t remaining = 0;
-    if (sensor_state == SENSOR_EXPIRED) {
-        remaining = 0;
-    } else if (activation > 0 && now > activation) {
+    if (activation > 0 && now > activation) {
 
         const uint32_t end = activation + lifetime_s;
         if (end > now) remaining = end - now;
