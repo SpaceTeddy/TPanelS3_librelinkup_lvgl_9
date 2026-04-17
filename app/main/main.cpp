@@ -70,14 +70,6 @@ uint8_t esp_status_counter_llu_retou = 0;    ///< LibreLinkUp terms of use accep
 /// Debug print macro with timestamp and function name
 #define DBGprint Serial.printf("[%09lu ms][%s][%s] ", (unsigned long)millis(), __FILE__, __func__)
 
-// Test hook: simulate short remaining lifetime, then expired.
-#ifndef FORCE_LIFETIME_TEST_ENABLE
-#define FORCE_LIFETIME_TEST_ENABLE 0
-#endif
-#ifndef FORCE_LIFETIME_TEST_REMAINING_SEC
-#define FORCE_LIFETIME_TEST_REMAINING_SEC 120U
-#endif
-
 ///////////////////// TPanelS3 SELECTION ////////////////////
 
 #include "tpanels3.h"
@@ -2394,36 +2386,9 @@ void update_glucose_data()
     }
 
     // Read sensor status and timestamp
-    uint32_t lifetime_activation = librelinkup.sensor_data().sensor_non_activ_unixtime;
-    uint32_t lifetime_runtime = librelinkup.sensor_data().sensor_runtime;
-
-#if FORCE_LIFETIME_TEST_ENABLE
-    {
-        static bool test_lifetime_initialized = false;
-        static uint32_t test_activation = 0;
-        static uint32_t test_runtime = 0;
-
-        if (!test_lifetime_initialized)
-        {
-            const time_t now = time(nullptr);
-            test_activation = (now > 3600) ? (uint32_t)(now - 3600) : 1U; // warmup already over
-            test_runtime = 3600U + (uint32_t)FORCE_LIFETIME_TEST_REMAINING_SEC; // 1h + remaining test window
-            test_lifetime_initialized = true;
-
-            logger.notice("[TEST] lifetime test started once (remaining=%lus activation=%lu runtime=%lu)",
-                          (unsigned long)FORCE_LIFETIME_TEST_REMAINING_SEC,
-                          (unsigned long)test_activation,
-                          (unsigned long)test_runtime);
-        }
-
-        lifetime_activation = test_activation;
-        lifetime_runtime = test_runtime;
-    }
-#endif
-
     librelinkup.status().sensor_state = librelinkup.check_sensor_lifetime(
-        lifetime_activation,
-        lifetime_runtime);
+        librelinkup.sensor_data().sensor_non_activ_unixtime,
+        librelinkup.sensor_data().sensor_runtime);
     //logger.debug("Sensor State: %d", librelinkup.status().sensor_state);
 
     // Force warmup state during first hour after activation if LLU still reports
