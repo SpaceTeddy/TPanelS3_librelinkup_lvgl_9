@@ -288,6 +288,20 @@ const char index_html[] PROGMEM = R"rawliteral(
 </div>
 
 <div class="container">
+    <h2>Firmware Update</h2>
+    <p class="hint">Checks GitHub manifest for a newer firmware and installs it after confirmation.</p>
+    <div class="row" style="margin-bottom:10px;">
+        <button type="button" onclick="checkFirmwareUpdate()">Check now</button>
+        <button type="button" onclick="installFirmwareUpdate()">Install update</button>
+    </div>
+    <div class="pill">Current: <span id="fwCurrent">--</span></div>
+    <div class="pill">Latest: <span id="fwLatest">--</span></div>
+    <div class="pill">Available: <span id="fwAvailable">--</span></div>
+    <div class="pill">Status: <span id="fwStatus">--</span></div>
+    <div class="pill">Error: <span id="fwError">--</span></div>
+</div>
+
+<div class="container">
     <h2>WireGuard Configuration</h2>
     <form id="wireguardForm">
         <label for="wgPrivateKey">Private Key:</label>
@@ -349,6 +363,11 @@ const char index_html[] PROGMEM = R"rawliteral(
                 document.getElementById('brightnessValue').textContent = data.brightness;
             })
             .catch(error => console.error('Error loading status:', error));
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        refreshFirmwareUpdateStatus();
+        setInterval(refreshFirmwareUpdateStatus, 15000);
     });
 
     // --- SSID manual override: if wifiSsidManual is not empty, submit that as "networks" ---
@@ -437,6 +456,55 @@ const char index_html[] PROGMEM = R"rawliteral(
             })
             .then(data => console.log(`Brightness set to: ${data.brightness}`))
             .catch(error => console.error('Error setting brightness:', error));
+    }
+
+    function renderFwStatus(data) {
+        const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = (value === undefined || value === null || value === "") ? "--" : String(value);
+        };
+        setText("fwCurrent", data.current_version);
+        setText("fwLatest", data.latest_version);
+        setText("fwAvailable", data.update_available ? "yes" : "no");
+        setText("fwStatus", data.status);
+        setText("fwError", data.last_error);
+    }
+
+    async function refreshFirmwareUpdateStatus() {
+        try {
+            const r = await fetch('/api/fw/status', {cache: 'no-store'});
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const data = await r.json();
+            renderFwStatus(data);
+        } catch (e) {
+            console.error('Error loading firmware status:', e);
+        }
+    }
+
+    async function checkFirmwareUpdate() {
+        try {
+            const r = await fetch('/api/fw/check', {method: 'POST'});
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            await refreshFirmwareUpdateStatus();
+        } catch (e) {
+            console.error('Error requesting firmware check:', e);
+            alert('Firmware check request failed.');
+        }
+    }
+
+    async function installFirmwareUpdate() {
+        if (!confirm('Install available firmware update now? Device will reboot on success.')) return;
+        try {
+            const r = await fetch('/api/fw/install', {method: 'POST'});
+            const body = await r.json().catch(() => ({}));
+            if (!r.ok) {
+                throw new Error(body.message || `HTTP ${r.status}`);
+            }
+            await refreshFirmwareUpdateStatus();
+        } catch (e) {
+            console.error('Error requesting firmware install:', e);
+            alert(`Firmware install request failed: ${e.message || e}`);
+        }
     }
 
     function configureWireGuard() {

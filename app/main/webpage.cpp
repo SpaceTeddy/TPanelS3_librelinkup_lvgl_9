@@ -35,6 +35,8 @@
 #include "webpage.h"
 #include "settings.h"
 #include "tpanels3.h"
+#include "main.h"
+#include "http_update.h"
 
 //------------------------[ uuid logger ]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -1344,30 +1346,26 @@ window.addEventListener("load", ()=>{
 </html>
 )rawliteral";
 
-// -------------------- Debug handlers --------------------
-static void handleDebugPage(AsyncWebServerRequest *request) {
-    // same BasicAuth behavior as /configuration
+static bool ensureConfigAuth(AsyncWebServerRequest *request) {
     const String& user = settings.config.login_email;
     const String& pass = settings.config.login_password;
-
     if (user.length() != 0 && pass.length() != 0) {
         if (!request->authenticate(user.c_str(), pass.c_str())) {
-            return request->requestAuthentication();
+            request->requestAuthentication();
+            return false;
         }
     }
+    return true;
+}
+
+// -------------------- Debug handlers --------------------
+static void handleDebugPage(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
     request->send(200, "text/html; charset=utf-8", debug_html);
 }
 
 static void handleApiDebug(AsyncWebServerRequest *request) {
-    // same BasicAuth behavior as /configuration
-    const String& user = settings.config.login_email;
-    const String& pass = settings.config.login_password;
-
-    if (user.length() != 0 && pass.length() != 0) {
-        if (!request->authenticate(user.c_str(), pass.c_str())) {
-            return request->requestAuthentication();
-        }
-    }
+    if (!ensureConfigAuth(request)) return;
 
     JsonDocument doc;
 
@@ -1510,17 +1508,32 @@ static void handleApiGlucoseHistory(AsyncWebServerRequest *request) {
 
 static void handleApiConfig(AsyncWebServerRequest *request) {
     // Prefill endpoint used by config page JS. Protect it with the same BasicAuth as /configuration.
-    const String& user = settings.config.login_email;
-    const String& pass = settings.config.login_password;
-
-    // If no credentials configured, leave open (same behavior as config page).
-    if (user.length() != 0 && pass.length() != 0) {
-        if (!request->authenticate(user.c_str(), pass.c_str())) {
-            return request->requestAuthentication();
-        }
-    }
+    if (!ensureConfigAuth(request)) return;
 
     request->send(200, "application/json", web_get_config_json());
+}
+
+static void handleApiFwStatus(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+    request->send(200, "application/json; charset=utf-8", fw_update_get_status_json());
+}
+
+static void handleApiFwCheck(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+    fw_update_request_check_now();
+    request->send(202, "application/json; charset=utf-8", "{\"status\":\"scheduled\"}");
+}
+
+static void handleApiFwInstall(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+    String msg;
+    if (!fw_update_request_install(msg)) {
+        request->send(409, "application/json; charset=utf-8",
+                      String("{\"status\":\"rejected\",\"message\":\"") + msg + "\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8",
+                  String("{\"status\":\"accepted\",\"message\":\"") + msg + "\"}");
 }
 
 // -------------------- Legacy handlers used by index_html --------------------
@@ -1911,6 +1924,9 @@ server.addHandler(&g_ws_telnet);
     server.on("/api/glucose/history", HTTP_GET, handleApiGlucoseHistory);
     server.on("/api/glucose",         HTTP_GET, handleApiGlucose);
     server.on("/api/config",          HTTP_GET, handleApiConfig);
+    server.on("/api/fw/status",       HTTP_GET,  handleApiFwStatus);
+    server.on("/api/fw/check",        HTTP_POST, handleApiFwCheck);
+    server.on("/api/fw/install",      HTTP_POST, handleApiFwInstall);
 
     // Legacy config endpoints (used by index_html JS)
     server.on("/scan",               HTTP_GET,  handleScan);

@@ -185,11 +185,13 @@ const char *tz = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 ///////////////////// OTA UPDATE ////////////////////
 
 #include <ElegantOTA.h>
+#include "http_update.h"
 
 AsyncWebServer server(80); ///< Async web server for OTA and config
 
 uint32_t ota_progress_millis = 0; ///< Last OTA progress update timestamp
 bool ota_in_progress = 0;         ///< OTA update in progress flag
+
 
 ///////////////////// WIFI BACKGROUND SCAN ////////////////////
 
@@ -3329,6 +3331,7 @@ void setup_task()
         &LoopTaskhandle, // Task handle
         1                // Core 1
     );
+    fw_update_start_task(1, 1);
 }
 
 //-----------------------------------------------------------------------------
@@ -3369,6 +3372,7 @@ void setup()
     setup_librelinkup();               ///< Initialize LibreLinkUp client
 
     // --- OTA / HTTP server ---------------------------------------------------
+    fw_update_init();
     // setup_OTA(settings.config.ota_update); ///< Start/stop OTA + HTTP API (routes registered elsewhere)
     setup_OTA(settings.config.ota_update == 1 ? 1 : 0);
 
