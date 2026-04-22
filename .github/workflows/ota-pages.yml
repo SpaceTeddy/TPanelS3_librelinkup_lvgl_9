@@ -4,15 +4,21 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - "feature/**"
   workflow_dispatch:
     inputs:
       environment:
         description: "PlatformIO environment"
         required: true
         default: "main"
-      version:
-        description: "Version without v (e.g. 1.0.2)"
+      channel:
+        description: "Deploy channel (production=ota, staging=ota/staging)"
         required: true
+        default: "staging"
+      version:
+        description: "Optional firmware version (e.g. 1.0.6)"
+        required: false
 
 permissions:
   contents: read
@@ -55,17 +61,51 @@ jobs:
           fi
 
           VERSION_INPUT="${{ github.event.inputs.version }}"
+          CHANNEL_INPUT="${{ github.event.inputs.channel }}"
+
+          # Derive channel:
+          # - tags always deploy to production path (ota/)
+          # - feature branch pushes deploy to staging path (ota/staging/)
+          # - manual runs can choose via input
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            CHANNEL="production"
+          elif [ -n "$CHANNEL_INPUT" ]; then
+            CHANNEL="$CHANNEL_INPUT"
+          else
+            CHANNEL="staging"
+          fi
+
+          if [ "$CHANNEL" = "production" ]; then
+            OTA_DIR="ota"
+          else
+            OTA_DIR="ota/staging"
+          fi
+
           if [ -n "$VERSION_INPUT" ]; then
             VERSION="$VERSION_INPUT"
-            TAG="v${VERSION_INPUT}"
-          else
             TAG="${GITHUB_REF_NAME}"
-            VERSION="${TAG#v}"
+            if [ -z "$TAG" ]; then
+              TAG="manual-${VERSION_INPUT}"
+            fi
+          else
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              TAG="${GITHUB_REF_NAME}"
+              VERSION="${TAG#v}"
+            else
+              # Fallback to currently configured app version for preview builds.
+              VERSION="$(sed -n -E 's/.*APP_FIRMWARE_VERSION=\\"([^"]+)\\".*/\1/p' platformio.ini | head -n1)"
+              if [ -z "$VERSION" ]; then
+                VERSION="0.0.0-dev"
+              fi
+              TAG="${GITHUB_REF_NAME}"
+            fi
           fi
 
           echo "env_name=$ENV_NAME" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "ota_dir=$OTA_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Set APP_FIRMWARE_VERSION for build
         shell: bash
@@ -83,6 +123,7 @@ jobs:
         env:
           ENV_NAME: ${{ steps.meta.outputs.env_name }}
           VERSION: ${{ steps.meta.outputs.version }}
+          OTA_DIR: ${{ steps.meta.outputs.ota_dir }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
         run: |
@@ -92,16 +133,19 @@ jobs:
             exit 1
           fi
 
-          mkdir -p dist/ota
-          cp "$FW" dist/ota/firmware.bin
+          mkdir -p "dist/${OTA_DIR}"
+          cp "$FW" "dist/${OTA_DIR}/firmware.bin"
 
           BASE_URL="https://${OWNER}.github.io/${REPO}"
-          cat > dist/ota/manifest.json <<EOF
+          cat > "dist/${OTA_DIR}/manifest.json" <<EOF
           {
             "version": "${VERSION}",
-            "url": "${BASE_URL}/ota/firmware.bin"
+            "url": "${BASE_URL}/${OTA_DIR}/firmware.bin"
           }
           EOF
+
+          echo "manifest_url=${BASE_URL}/${OTA_DIR}/manifest.json" >> "$GITHUB_ENV"
+          echo "firmware_url=${BASE_URL}/${OTA_DIR}/firmware.bin" >> "$GITHUB_ENV"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
@@ -111,3 +155,9 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Print deployed URLs
+        run: |
+          echo "Channel: ${{ steps.meta.outputs.channel }}"
+          echo "Manifest: ${manifest_url}"
+          echo "Firmware: ${firmware_url}"
