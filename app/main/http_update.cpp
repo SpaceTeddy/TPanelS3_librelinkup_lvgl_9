@@ -9,8 +9,10 @@
 #include <freertos/task.h>
 
 #include <uuid/log.h>
+#include "ui.h"
 
 extern bool ota_in_progress;
+extern uint8_t update_ota_progress_screen(int progress);
 
 #ifndef APP_FIRMWARE_VERSION
 #define APP_FIRMWARE_VERSION "0.0.0-dev"
@@ -40,6 +42,8 @@ struct FirmwareUpdateState {
 static FirmwareUpdateState g_fw_update;
 static SemaphoreHandle_t g_fw_update_mutex = nullptr;
 static TaskHandle_t g_fw_update_task_handle = nullptr;
+static uint32_t g_fw_progress_last_log_ms = 0;
+static int g_fw_progress_last_percent = -1;
 
 static bool fw_update_lock(TickType_t wait = pdMS_TO_TICKS(1000)) {
     return (g_fw_update_mutex != nullptr) && (xSemaphoreTake(g_fw_update_mutex, wait) == pdTRUE);
@@ -85,6 +89,54 @@ static bool fw_manifest_configured() {
 static void fw_set_status_locked(const String& status, const String& err = "") {
     g_fw_update.status = status;
     g_fw_update.last_error = err;
+}
+
+static void fw_ui_start_install() {
+    ota_in_progress = true;
+    g_fw_progress_last_log_ms = 0;
+    g_fw_progress_last_percent = -1;
+
+    if (ui_FWUpdate_screen != nullptr && lv_screen_active() != ui_FWUpdate_screen) {
+        lv_disp_load_scr(ui_FWUpdate_screen);
+    }
+    if (ui_Label_FWUpdateInfo != nullptr) {
+        lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
+    }
+    update_ota_progress_screen(0);
+}
+
+static void fw_ui_progress_update(int current, int total) {
+    if (total <= 0) return;
+
+    int progress = (int)(((float)current / (float)total) * 100.0f);
+    if (progress < 0) progress = 0;
+    if (progress > 100) progress = 100;
+
+    if (progress != g_fw_progress_last_percent) {
+        g_fw_progress_last_percent = progress;
+        update_ota_progress_screen(progress);
+    }
+
+    const uint32_t now = millis();
+    if ((uint32_t)(now - g_fw_progress_last_log_ms) >= 1000) {
+        g_fw_progress_last_log_ms = now;
+        logger.notice("[FW] Download progress: %d%% (%d / %d Bytes)", progress, current, total);
+    }
+}
+
+static void fw_ui_finish_success() {
+    update_ota_progress_screen(100);
+    if (ui_Label_FWUpdateInfo != nullptr) {
+        lv_label_set_text(ui_Label_FWUpdateInfo, "FWUpdate successful!\n\nperforming Reset");
+    }
+}
+
+static void fw_ui_finish_error(const String& err) {
+    if (ui_Label_FWUpdateInfo != nullptr) {
+        String info = "FWUpdate failed:\n";
+        info += err;
+        lv_label_set_text(ui_Label_FWUpdateInfo, info.c_str());
+    }
 }
 
 static void fw_update_check_manifest_now() {
@@ -197,10 +249,23 @@ static void fw_update_install_now() {
     }
 
     logger.notice("[FW] Installing update from: %s", url.c_str());
+    fw_ui_start_install();
 
     WiFiClientSecure client;
     client.setInsecure();
 
+    httpUpdate.onStart([]() {
+        logger.notice("[FW] HTTP update stream started");
+    });
+    httpUpdate.onProgress([](int current, int total) {
+        fw_ui_progress_update(current, total);
+    });
+    httpUpdate.onEnd([]() {
+        logger.notice("[FW] HTTP update stream finished");
+    });
+    httpUpdate.onError([](int err) {
+        logger.warning("[FW] HTTP update callback error=%d", err);
+    });
     httpUpdate.rebootOnUpdate(false);
     t_httpUpdate_return ret = httpUpdate.update(client, url, String(APP_FIRMWARE_VERSION));
 
@@ -211,6 +276,7 @@ static void fw_update_install_now() {
             fw_set_status_locked("updated");
             fw_update_unlock();
         }
+        fw_ui_finish_success();
         logger.notice("[FW] Update successful, restarting...");
         delay(500);
         ESP.restart();
@@ -226,6 +292,8 @@ static void fw_update_install_now() {
         fw_set_status_locked("error", err);
         fw_update_unlock();
     }
+    ota_in_progress = false;
+    fw_ui_finish_error(err);
     logger.warning("[FW] %s", err.c_str());
 }
 
