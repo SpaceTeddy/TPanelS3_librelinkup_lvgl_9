@@ -2634,9 +2634,6 @@ void LoopTask(void *pvParameters)
 
     while (1)
     {
-        // Firmware update scheduler (runs once per second internally).
-        fw_update_poll();
-
         // ElegantOTA update handling
         ElegantOTA.loop();
 
@@ -3334,6 +3331,7 @@ void setup_task()
         &LoopTaskhandle, // Task handle
         1                // Core 1
     );
+    fw_update_start_task(1, 1);
 }
 
 //-----------------------------------------------------------------------------
@@ -3434,7 +3432,6 @@ void setup()
     {
         flag_mqtt_master_rx = false;
         update_glucose_data();          ///< First data fetch from LibreLinkUp backend
-        fw_update_mark_first_glucose_rendered(); ///< Unlock first FW-check after initial UI push attempt
         update_five_minute_counter();   ///< Prime 5-minute chart refresh counter
         update_mqtt_publish();          ///< Publish first MQTT snapshot if enabled
         update_glucose_json_logging();  ///< Persist first reading to JSON log
