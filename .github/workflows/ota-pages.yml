@@ -67,6 +67,14 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Set APP_FIRMWARE_VERSION for build
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          sed -E -i 's#-DAPP_FIRMWARE_VERSION=\\"[^"]+\\"#-DAPP_FIRMWARE_VERSION=\\"'"${VERSION}"'\\"#' platformio.ini
+          grep "APP_FIRMWARE_VERSION" platformio.ini
+
       - name: Build firmware
         run: pio run -e "${{ steps.meta.outputs.env_name }}"
 
