@@ -1,0 +1,105 @@
+name: OTA Pages Deploy
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "PlatformIO environment"
+        required: true
+        default: "main"
+      version:
+        description: "Version without v (e.g. 1.0.2)"
+        required: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Resolve build metadata
+        id: meta
+        shell: bash
+        run: |
+          ENV_NAME="${{ github.event.inputs.environment }}"
+          if [ -z "$ENV_NAME" ]; then
+            ENV_NAME="main"
+          fi
+
+          VERSION_INPUT="${{ github.event.inputs.version }}"
+          if [ -n "$VERSION_INPUT" ]; then
+            VERSION="$VERSION_INPUT"
+            TAG="v${VERSION_INPUT}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          fi
+
+          echo "env_name=$ENV_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build firmware
+        run: pio run -e "${{ steps.meta.outputs.env_name }}"
+
+      - name: Prepare OTA files
+        shell: bash
+        env:
+          ENV_NAME: ${{ steps.meta.outputs.env_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          FW=".pio/build/${ENV_NAME}/firmware.bin"
+          if [ ! -f "$FW" ]; then
+            echo "Firmware not found: $FW"
+            exit 1
+          fi
+
+          mkdir -p dist/ota
+          cp "$FW" dist/ota/firmware.bin
+
+          BASE_URL="https://${OWNER}.github.io/${REPO}"
+          cat > dist/ota/manifest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "url": "${BASE_URL}/ota/firmware.bin"
+          }
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
