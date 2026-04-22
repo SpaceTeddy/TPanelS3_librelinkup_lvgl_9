@@ -27,7 +27,7 @@ extern uint8_t update_ota_progress_screen(int progress);
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
 struct FirmwareUpdateState {
-    bool check_requested = true;
+    bool check_requested = false;
     bool install_requested = false;
     bool checking = false;
     bool installing = false;
@@ -41,9 +41,11 @@ struct FirmwareUpdateState {
 
 static FirmwareUpdateState g_fw_update;
 static SemaphoreHandle_t g_fw_update_mutex = nullptr;
-static TaskHandle_t g_fw_update_task_handle = nullptr;
+static bool g_fw_first_glucose_rendered = false;
 static uint32_t g_fw_progress_last_log_ms = 0;
 static int g_fw_progress_last_percent = -1;
+static uint32_t g_fw_poll_last_ms = 0;
+static bool g_fw_poll_started_logged = false;
 
 static bool fw_update_lock(TickType_t wait = pdMS_TO_TICKS(1000)) {
     return (g_fw_update_mutex != nullptr) && (xSemaphoreTake(g_fw_update_mutex, wait) == pdTRUE);
@@ -297,57 +299,47 @@ static void fw_update_install_now() {
     logger.warning("[FW] %s", err.c_str());
 }
 
-static void fw_update_task(void *pvParameters) {
-    (void)pvParameters;
-    logger.notice("[FW] updater task started (current=%s)", APP_FIRMWARE_VERSION);
+static void fw_update_process_tick() {
+    if (ota_in_progress) return;
 
-    while (1) {
-        if (ota_in_progress) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-        }
+    bool do_install = false;
+    bool do_check = false;
+    uint32_t last_check = 0;
 
-        bool do_install = false;
-        bool do_check = false;
-        uint32_t last_check = 0;
-
-        if (fw_update_lock()) {
-            do_install = g_fw_update.install_requested && !g_fw_update.installing;
-            if (do_install) {
-                g_fw_update.install_requested = false;
+    if (fw_update_lock()) {
+        do_install = g_fw_update.install_requested && !g_fw_update.installing;
+        if (do_install) {
+            g_fw_update.install_requested = false;
+        } else {
+            do_check = g_fw_update.check_requested && !g_fw_update.checking && !g_fw_update.installing;
+            if (do_check) {
+                g_fw_update.check_requested = false;
+                g_fw_update.checking = true;
+                fw_set_status_locked("checking");
             } else {
-                do_check = g_fw_update.check_requested && !g_fw_update.checking && !g_fw_update.installing;
-                if (do_check) {
-                    g_fw_update.check_requested = false;
-                    g_fw_update.checking = true;
-                    fw_set_status_locked("checking");
-                } else {
-                    last_check = g_fw_update.last_check_ms;
-                }
-            }
-            fw_update_unlock();
-        }
-
-        if (!do_install && !do_check) {
-            const uint32_t now = millis();
-            if ((uint32_t)(now - last_check) >= (uint32_t)FW_UPDATE_CHECK_INTERVAL_MS && fw_manifest_configured()) {
-                if (fw_update_lock()) {
-                    if (!g_fw_update.checking && !g_fw_update.installing) {
-                        g_fw_update.checking = true;
-                        g_fw_update.check_requested = false;
-                        fw_set_status_locked("checking");
-                        do_check = true;
-                    }
-                    fw_update_unlock();
-                }
+                last_check = g_fw_update.last_check_ms;
             }
         }
-
-        if (do_install) fw_update_install_now();
-        if (do_check) fw_update_check_manifest_now();
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        fw_update_unlock();
     }
+
+    if (!do_install && !do_check) {
+        const uint32_t now = millis();
+        if ((uint32_t)(now - last_check) >= (uint32_t)FW_UPDATE_CHECK_INTERVAL_MS && fw_manifest_configured()) {
+            if (fw_update_lock()) {
+                if (!g_fw_update.checking && !g_fw_update.installing) {
+                    g_fw_update.checking = true;
+                    g_fw_update.check_requested = false;
+                    fw_set_status_locked("checking");
+                    do_check = true;
+                }
+                fw_update_unlock();
+            }
+        }
+    }
+
+    if (do_install) fw_update_install_now();
+    if (do_check) fw_update_check_manifest_now();
 }
 
 void fw_update_init() {
@@ -357,18 +349,24 @@ void fw_update_init() {
 }
 
 void fw_update_start_task(BaseType_t core_id, UBaseType_t priority) {
+    (void)core_id;
+    (void)priority;
     fw_update_init();
-    if (g_fw_update_task_handle != nullptr) return;
+    // Legacy no-op: processing is handled by fw_update_poll() in LoopTask.
+}
 
-    xTaskCreatePinnedToCore(
-        fw_update_task,
-        "FirmwareUpdateTask",
-        8192,
-        nullptr,
-        priority,
-        &g_fw_update_task_handle,
-        core_id
-    );
+void fw_update_poll() {
+    fw_update_init();
+    if (!g_fw_poll_started_logged) {
+        g_fw_poll_started_logged = true;
+        logger.notice("[FW] updater poll active (current=%s)", APP_FIRMWARE_VERSION);
+    }
+
+    const uint32_t now = millis();
+    if ((uint32_t)(now - g_fw_poll_last_ms) < 1000U) return;
+    g_fw_poll_last_ms = now;
+
+    fw_update_process_tick();
 }
 
 String fw_update_get_status_json() {
@@ -422,4 +420,17 @@ bool fw_update_request_install(String& message) {
     message = "install scheduled";
     fw_update_unlock();
     return true;
+}
+
+void fw_update_mark_first_glucose_rendered() {
+    if (!fw_update_lock()) return;
+
+    if (!g_fw_first_glucose_rendered) {
+        g_fw_first_glucose_rendered = true;
+        if (!g_fw_update.checking && !g_fw_update.installing) {
+            g_fw_update.check_requested = true;
+        }
+    }
+
+    fw_update_unlock();
 }

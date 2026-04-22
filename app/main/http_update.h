@@ -10,12 +10,18 @@
 void fw_update_init();
 
 /**
- * @brief Start firmware update worker task.
+ * @brief Legacy API for old dedicated FW task mode.
  *
- * @param core_id FreeRTOS core id (default: 1)
- * @param priority FreeRTOS task priority (default: 1)
+ * FW update processing now runs via fw_update_poll() from LoopTask.
  */
 void fw_update_start_task(BaseType_t core_id = 1, UBaseType_t priority = 1);
+
+/**
+ * @brief Process one firmware update scheduler tick (non-blocking unless check/install runs).
+ *
+ * Call this regularly from an existing background loop.
+ */
+void fw_update_poll();
 
 /**
  * @brief Returns firmware update status as JSON.
@@ -34,5 +40,12 @@ void fw_update_request_check_now();
  * @return true if install request was accepted
  */
 bool fw_update_request_install(String& message);
+
+/**
+ * @brief Marks that the first valid glucose reading has been rendered on LVGL.
+ *
+ * This unlocks the automatic firmware manifest check once.
+ */
+void fw_update_mark_first_glucose_rendered();
 
 #endif // HTTP_UPDATE_MODULE_H

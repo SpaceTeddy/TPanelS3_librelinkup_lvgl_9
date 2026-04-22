@@ -11,6 +11,7 @@
 #include "settings.h"
 #include "mqtt.h"
 #include "main.h"
+#include "http_update.h"
 
 
 //------------------------[uuid logger]-----------------------------------
@@ -545,6 +546,9 @@ void app_fsm_poll(AppFsm &fsm)
     case AppState::RUN_FETCH:
     {
         update_glucose_data();
+        // Trigger FW check after first fetch cycle reached the central data-update path.
+        // This is intentionally independent from a "successful" fetch result.
+        fw_update_mark_first_glucose_rendered();
         update_five_minute_counter();
     
         if (!fsm.fetch_schedule_override)
