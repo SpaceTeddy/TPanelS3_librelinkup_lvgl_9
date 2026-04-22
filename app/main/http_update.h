@@ -10,12 +10,18 @@
 void fw_update_init();
 
 /**
- * @brief Start firmware update worker task.
+ * @brief Legacy API from task-based mode (kept for compatibility).
  *
- * @param core_id FreeRTOS core id (default: 1)
- * @param priority FreeRTOS task priority (default: 1)
+ * FW updates are now processed via fw_update_poll().
  */
 void fw_update_start_task(BaseType_t core_id = 1, UBaseType_t priority = 1);
+
+/**
+ * @brief Processes one scheduler tick of firmware updates.
+ *
+ * Call regularly from an existing loop/FSM context.
+ */
+void fw_update_poll();
 
 /**
  * @brief Returns firmware update status as JSON.

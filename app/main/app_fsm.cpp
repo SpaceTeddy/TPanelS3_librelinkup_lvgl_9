@@ -341,6 +341,8 @@ void app_fsm_notify_user_activity(AppFsm &fsm)
 // Main FSM polling function to be called regularly (e.g., from loop())
 void app_fsm_poll(AppFsm &fsm)
 {
+    fw_update_poll();
+
     if (ota_in_progress)
     {
         enter_state(fsm, AppState::OTA_MODE, "OTA ON");

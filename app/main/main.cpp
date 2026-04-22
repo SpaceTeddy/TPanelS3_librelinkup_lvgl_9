@@ -3331,7 +3331,6 @@ void setup_task()
         &LoopTaskhandle, // Task handle
         1                // Core 1
     );
-    fw_update_start_task(1, 1);
 }
 
 //-----------------------------------------------------------------------------
