@@ -97,12 +97,8 @@ jobs:
           for OTA_DIR in "ota" "ota/staging"; do
             mkdir -p "dist/${OTA_DIR}"
             cp "$FW" "dist/${OTA_DIR}/firmware.bin"
-            cat > "dist/${OTA_DIR}/manifest.json" <<EOF
-            {
-              "version": "${VERSION}",
-              "url": "${BASE_URL}/${OTA_DIR}/firmware.bin"
-            }
-            EOF
+            printf '{\n  "version": "%s",\n  "url": "%s/%s/firmware.bin"\n}\n' \
+              "$VERSION" "$BASE_URL" "$OTA_DIR" > "dist/${OTA_DIR}/manifest.json"
           done
 
           echo "manifest_url_prod=${BASE_URL}/ota/manifest.json" >> "$GITHUB_ENV"
