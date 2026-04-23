@@ -50,6 +50,8 @@ jobs:
         run: pip install --upgrade platformio
 
       - name: Build firmware
+        env:
+          FIRMWARE_VERSION: ${{ github.event.inputs.version }}
         run: pio run -e "${{ github.event.inputs.environment }}"
 
       - name: Verify firmware binary

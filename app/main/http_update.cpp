@@ -23,6 +23,9 @@ extern uint8_t update_ota_progress_screen(int progress);
 #define FW_UPDATE_CHECK_INTERVAL_MS 3600000UL
 #endif
 
+// Root CA bundle embedded from data/cert/x509_crt_bundle.bin (136 Mozilla root CAs)
+extern const uint8_t x509_crt_bundle_start[] asm("_binary_data_cert_x509_crt_bundle_bin_start");
+
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
 struct FirmwareUpdateState {
@@ -43,7 +46,6 @@ static SemaphoreHandle_t g_fw_update_mutex = nullptr;
 static uint32_t g_fw_progress_last_log_ms = 0;
 static int g_fw_progress_last_percent = -1;
 static uint32_t g_fw_poll_last_ms = 0;
-static bool g_fw_poll_started_logged = false;
 
 static bool fw_update_lock(TickType_t wait = pdMS_TO_TICKS(1000)) {
     return (g_fw_update_mutex != nullptr) && (xSemaphoreTake(g_fw_update_mutex, wait) == pdTRUE);
@@ -66,19 +68,28 @@ static int fw_parse_version_part(const String& v, int& idx) {
 }
 
 static int fw_compare_versions(const String& a, const String& b) {
-    int ia = 0, ib = 0;
-    for (int k = 0; k < 6; ++k) {
-        const int pa = fw_parse_version_part(a, ia);
-        const int pb = fw_parse_version_part(b, ib);
+    // Separate numeric version from pre-release suffix (e.g. "1.0.0-rc1" → "1.0.0" + pre)
+    const int da = a.indexOf('-'), db = b.indexOf('-');
+    const String na = (da >= 0) ? a.substring(0, da) : a;
+    const String nb = (db >= 0) ? b.substring(0, db) : b;
 
+    int ia = 0, ib = 0, result = 0;
+    for (int k = 0; k < 3; ++k) {
+        const int pa = fw_parse_version_part(na, ia);
+        const int pb = fw_parse_version_part(nb, ib);
         const int va = (pa < 0) ? 0 : pa;
         const int vb = (pb < 0) ? 0 : pb;
-        if (va < vb) return -1;
-        if (va > vb) return 1;
-
+        if (va < vb) { result = -1; break; }
+        if (va > vb) { result =  1; break; }
         if (pa < 0 && pb < 0) break;
     }
-    return 0;
+
+    // Equal numeric parts: release (no suffix) > pre-release (has suffix)
+    if (result == 0) {
+        if (da >= 0 && db < 0) return -1;
+        if (da < 0 && db >= 0) return  1;
+    }
+    return result;
 }
 
 static bool fw_manifest_configured() {
@@ -140,6 +151,12 @@ static void fw_ui_finish_error(const String& err) {
 }
 
 static void fw_update_check_manifest_now() {
+    // Advance the retry timer upfront so any failure still delays the next attempt.
+    if (fw_update_lock()) {
+        g_fw_update.last_check_ms = millis();
+        fw_update_unlock();
+    }
+
     if (!fw_manifest_configured()) {
         if (fw_update_lock()) {
             fw_set_status_locked("disabled", "FW_UPDATE_MANIFEST_URL not configured");
@@ -160,9 +177,10 @@ static void fw_update_check_manifest_now() {
     }
 
     WiFiClientSecure client;
-    client.setInsecure();
+    client.setCACertBundle(x509_crt_bundle_start);
 
     HTTPClient http;
+    http.setTimeout(10000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     if (!http.begin(client, FW_UPDATE_MANIFEST_URL)) {
         if (fw_update_lock()) {
@@ -252,7 +270,7 @@ static void fw_update_install_now() {
     fw_ui_start_install();
 
     WiFiClientSecure client;
-    client.setInsecure();
+    client.setCACertBundle(x509_crt_bundle_start);
 
     httpUpdate.onStart([]() {
         logger.notice("[FW] HTTP update stream started");
@@ -354,10 +372,10 @@ void fw_update_start_task(BaseType_t core_id, UBaseType_t priority) {
 }
 
 void fw_update_poll() {
-    fw_update_init();
-
-    if (!g_fw_poll_started_logged) {
-        g_fw_poll_started_logged = true;
+    static bool initialized = false;
+    if (!initialized) {
+        fw_update_init();
+        initialized = true;
         logger.notice("[FW] updater poll active (current=%s)", APP_FIRMWARE_VERSION);
     }
 
