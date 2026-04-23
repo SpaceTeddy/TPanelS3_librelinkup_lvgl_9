@@ -244,9 +244,9 @@ static void fw_update_check_manifest_now() {
         fw_update_unlock();
     }
     if (available) {
-        logger.notice("[FW]  %-12s ->  %-12s | latest=%-14s | took=%6lums", "checking", "avail", latest.c_str(), (unsigned long)(millis()-t0));
+        logger.debug("[FW]  %-12s ->  %-12s | latest=%-14s | took=%6lums", "checking", "avail", latest.c_str(), (unsigned long)(millis()-t0));
     } else {
-        logger.notice("[FW]  %-12s ->  %-12s | current=%-13s | took=%6lums", "checking", "up_to_date", APP_FIRMWARE_VERSION, (unsigned long)(millis()-t0));
+        logger.debug("[FW]  %-12s ->  %-12s | current=%-13s | took=%6lums", "checking", "up_to_date", APP_FIRMWARE_VERSION, (unsigned long)(millis()-t0));
     }
 }
 
@@ -280,7 +280,7 @@ static void fw_update_install_now() {
         return;
     }
 
-    logger.notice("[FW]  %-12s ->  %-12s | src=%s", "avail", "installing", url.c_str());
+    logger.debug("[FW]  %-12s ->  %-12s | src=%s", "avail", "installing", url.c_str());
     fw_ui_start_install();
 
     WiFiClientSecure client;
@@ -305,7 +305,7 @@ static void fw_update_install_now() {
             fw_update_unlock();
         }
         fw_ui_finish_success();
-        logger.notice("[FW]  %-12s ->  %-12s | took=%6lums", "installing", "updated", (unsigned long)(millis()-t0));
+        logger.debug("[FW]  %-12s ->  %-12s | took=%6lums", "installing", "updated", (unsigned long)(millis()-t0));
         delay(500);
         ESP.restart();
         return;
@@ -386,7 +386,7 @@ void fw_update_poll() {
     if (!initialized) {
         fw_update_init();
         initialized = true;
-        logger.notice("[FW]  init         | current=%s", APP_FIRMWARE_VERSION);
+        logger.debug("[FW]  init         | current=%s", APP_FIRMWARE_VERSION);
     }
 
     const uint32_t now = millis();
