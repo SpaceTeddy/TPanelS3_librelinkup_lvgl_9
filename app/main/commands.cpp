@@ -18,6 +18,7 @@
 #include <librelinkup.h>
 #include "mqtt.h"
 #include "hba1c.h"
+#include "http_update.h"
 #include "ui.h"
 #include <LittleFS.h>
 #include <lvgl.h>
@@ -1000,6 +1001,45 @@ void showCaFromFileCommand(uuid::console::Shell &shell, const std::vector<std::s
 }
 
 /**
+ * @brief Handler for command: `fw_update <check|install|status>`
+ * @param shell Shell output.
+ * @param arguments arguments[0] = "check", "install", or "status"
+ *
+ * Subcommands:
+ * - check   : Request an immediate manifest check for a newer firmware version.
+ * - install : Schedule installation of the available update (fails if none available).
+ * - status  : Print the current firmware update status as JSON.
+ */
+void fwUpdateCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
+    if (arguments.empty()) {
+        shell.println(F("Usage: fw_update <check|install|status>"));
+        return;
+    }
+
+    const String arg = arguments[0].c_str();
+
+    if (arg == "check") {
+        fw_update_request_check_now();
+        shell.printfln("FW check requested. Current status: %s", fw_update_get_status());
+
+    } else if (arg == "install") {
+        String message;
+        if (fw_update_request_install(message)) {
+            shell.printfln("FW install scheduled: %s", message.c_str());
+        } else {
+            shell.printfln("FW install rejected: %s", message.c_str());
+        }
+
+    } else if (arg == "status") {
+        shell.println(fw_update_get_status_json().c_str());
+
+    } else {
+        shell.printfln("Unknown subcommand: %s", arg.c_str());
+        shell.println(F("Usage: fw_update <check|install|status>"));
+    }
+}
+
+/**
  * @brief Register all console commands.
  * @param commands Command registry to populate.
  *
@@ -1034,4 +1074,5 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("download_ca_from_url")}, uuid::flash_string_vector{F("<https_url>"), F("<littlefs_path>")}, downloadRootCaFromURLToFileCommand);
     commands->add_command(uuid::flash_string_vector{F("set_ca_from_file")}, uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")}, setCaFromFileCommand);
     commands->add_command(uuid::flash_string_vector{F("show_ca_from_file")}, uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")}, showCaFromFileCommand);
+    commands->add_command(uuid::flash_string_vector{F("fw_update")}, uuid::flash_string_vector{F("<check|install|status>")}, fwUpdateCommand);
 }
