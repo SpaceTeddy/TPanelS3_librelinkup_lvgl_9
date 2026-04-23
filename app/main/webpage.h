@@ -124,6 +124,15 @@ const char index_html[] PROGMEM = R"rawliteral(
     text-decoration:none;
   }
 
+  button:disabled{ opacity:0.5; cursor:not-allowed; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .spinner{
+    display:inline-block; width:11px; height:11px;
+    border:2px solid currentColor; border-top-color:transparent;
+    border-radius:50%; animation:spin 0.7s linear infinite;
+    vertical-align:middle;
+  }
+
   .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   .pill{
     padding:6px 10px;
@@ -132,6 +141,9 @@ const char index_html[] PROGMEM = R"rawliteral(
     color:var(--muted);
     font-size:13px;
   }
+  .pill.s-ok  { border-color:var(--ok);   color:var(--ok);   }
+  .pill.s-warn{ border-color:var(--warn);  color:var(--warn); }
+  .pill.s-bad { border-color:var(--bad);   color:var(--bad);  }
 
   /* Slider */
   input[type="range"]{ width: 100%; }
@@ -291,8 +303,8 @@ const char index_html[] PROGMEM = R"rawliteral(
     <h2>Firmware Update</h2>
     <p class="hint">Checks GitHub manifest for a newer firmware and installs it after confirmation.</p>
     <div class="row" style="margin-bottom:10px;">
-        <button type="button" onclick="checkFirmwareUpdate()">Check now</button>
-        <button type="button" onclick="installFirmwareUpdate()">Install update</button>
+        <button type="button" id="btnCheck" onclick="checkFirmwareUpdate()">Check now</button>
+        <button type="button" id="btnInstall" onclick="installFirmwareUpdate()">Install update</button>
     </div>
     <div class="pill">Current: <span id="fwCurrent">--</span></div>
     <div class="pill">Latest: <span id="fwLatest">--</span></div>
@@ -458,6 +470,21 @@ const char index_html[] PROGMEM = R"rawliteral(
             .catch(error => console.error('Error setting brightness:', error));
     }
 
+    const FW_SPINNER = '<span class="spinner"></span> ';
+    const STATUS_CLASSES = ['s-ok','s-warn','s-bad'];
+
+    function setFwBtnsDisabled(disabled) {
+        ['btnCheck','btnInstall'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+        });
+    }
+
+    function setFwBtnLabel(id, html) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = html;
+    }
+
     function renderFwStatus(data) {
         const setText = (id, value) => {
             const el = document.getElementById(id);
@@ -468,42 +495,76 @@ const char index_html[] PROGMEM = R"rawliteral(
         setText("fwAvailable", data.update_available ? "yes" : "no");
         setText("fwStatus", data.status);
         setText("fwError", data.last_error);
+
+        // Color-code the status pill
+        const statusEl = document.getElementById("fwStatus");
+        if (statusEl) {
+            const pill = statusEl.closest('.pill');
+            if (pill) {
+                pill.classList.remove(...STATUS_CLASSES);
+                const s = data.status;
+                if (s === 'up_to_date' || s === 'updated') pill.classList.add('s-ok');
+                else if (s === 'update_available')          pill.classList.add('s-warn');
+                else if (s === 'error')                     pill.classList.add('s-bad');
+            }
+        }
+    }
+
+    async function pollFwStatus(whileStatus, intervalMs, maxMs) {
+        const deadline = Date.now() + maxMs;
+        while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, intervalMs));
+            try {
+                const r = await fetch('/api/fw/status', {cache:'no-store'});
+                if (!r.ok) break;
+                const data = await r.json();
+                renderFwStatus(data);
+                if (data.status !== whileStatus) break;
+            } catch(e) { break; }
+        }
     }
 
     async function refreshFirmwareUpdateStatus() {
         try {
             const r = await fetch('/api/fw/status', {cache: 'no-store'});
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const data = await r.json();
-            renderFwStatus(data);
+            renderFwStatus(await r.json());
         } catch (e) {
             console.error('Error loading firmware status:', e);
         }
     }
 
     async function checkFirmwareUpdate() {
+        setFwBtnsDisabled(true);
+        setFwBtnLabel('btnCheck', FW_SPINNER + 'Checking...');
         try {
             const r = await fetch('/api/fw/check', {method: 'POST'});
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            await refreshFirmwareUpdateStatus();
+            await pollFwStatus('checking', 1000, 30000);
         } catch (e) {
             console.error('Error requesting firmware check:', e);
             alert('Firmware check request failed.');
+        } finally {
+            setFwBtnsDisabled(false);
+            setFwBtnLabel('btnCheck', 'Check now');
         }
     }
 
     async function installFirmwareUpdate() {
         if (!confirm('Install available firmware update now? Device will reboot on success.')) return;
+        setFwBtnsDisabled(true);
+        setFwBtnLabel('btnInstall', FW_SPINNER + 'Installing...');
         try {
             const r = await fetch('/api/fw/install', {method: 'POST'});
             const body = await r.json().catch(() => ({}));
-            if (!r.ok) {
-                throw new Error(body.message || `HTTP ${r.status}`);
-            }
-            await refreshFirmwareUpdateStatus();
+            if (!r.ok) throw new Error(body.message || `HTTP ${r.status}`);
+            await pollFwStatus('installing', 2000, 120000);
         } catch (e) {
             console.error('Error requesting firmware install:', e);
             alert(`Firmware install request failed: ${e.message || e}`);
+        } finally {
+            setFwBtnsDisabled(false);
+            setFwBtnLabel('btnInstall', 'Install update');
         }
     }
 
