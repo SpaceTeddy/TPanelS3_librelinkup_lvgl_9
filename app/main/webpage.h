@@ -141,9 +141,6 @@ const char index_html[] PROGMEM = R"rawliteral(
     color:var(--muted);
     font-size:13px;
   }
-  .pill.s-ok  { border-color:var(--ok);   color:var(--ok);   }
-  .pill.s-warn{ border-color:var(--warn);  color:var(--warn); }
-  .pill.s-bad { border-color:var(--bad);   color:var(--bad);  }
 
   /* Slider */
   input[type="range"]{ width: 100%; }
@@ -471,7 +468,6 @@ const char index_html[] PROGMEM = R"rawliteral(
     }
 
     const FW_SPINNER = '<span class="spinner"></span> ';
-    const STATUS_CLASSES = ['s-ok','s-warn','s-bad'];
 
     function setFwBtnsDisabled(disabled) {
         ['btnCheck','btnInstall'].forEach(id => {
@@ -496,18 +492,6 @@ const char index_html[] PROGMEM = R"rawliteral(
         setText("fwStatus", data.status);
         setText("fwError", data.last_error);
 
-        // Color-code the status pill
-        const statusEl = document.getElementById("fwStatus");
-        if (statusEl) {
-            const pill = statusEl.closest('.pill');
-            if (pill) {
-                pill.classList.remove(...STATUS_CLASSES);
-                const s = data.status;
-                if (s === 'up_to_date' || s === 'updated') pill.classList.add('s-ok');
-                else if (s === 'update_available')          pill.classList.add('s-warn');
-                else if (s === 'error')                     pill.classList.add('s-bad');
-            }
-        }
     }
 
     async function pollFwStatus(whileStatus, intervalMs, maxMs) {
