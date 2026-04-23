@@ -14,23 +14,36 @@
 #include <Arduino.h>
 
 
+/**
+ * @brief Application state machine states.
+ *
+ * Sequencing: BOOT → WIFI_CONNECT → VPN_CHECK → MQTT_CONNECT → RUN_IDLE
+ * From RUN_IDLE the FSM fans out to RUN_FETCH, DISPLAY_DIM, INTERNET_CHECK,
+ * BACKOFF, OTA_MODE, FW_CHECKING, and FW_INSTALLING as needed.
+ */
 enum class AppState : uint8_t
 {
-  BOOT = 0,
-  WIFI_CONNECT,
-  VPN_CHECK,
-  MQTT_CONNECT,
-  RUN_IDLE,
-  RUN_FETCH,
-  RUN_PUBLISH,
-  DISPLAY_DIM,
-  INTERNET_CHECK,
-  BACKOFF,
-  OTA_MODE,
-  FW_CHECKING,
-  FW_INSTALLING,
+  BOOT = 0,       ///< Initial state; transitions immediately to WIFI_CONNECT.
+  WIFI_CONNECT,   ///< Waiting for WiFi association.
+  VPN_CHECK,      ///< Optional WireGuard VPN bring-up / health check.
+  MQTT_CONNECT,   ///< Connecting to the MQTT broker (if enabled).
+  RUN_IDLE,       ///< Normal operating state; orchestrates periodic tasks.
+  RUN_FETCH,      ///< Fetching glucose data from LibreLink API.
+  RUN_PUBLISH,    ///< Publishing data to MQTT.
+  DISPLAY_DIM,    ///< Non-blocking display fade-to-black on inactivity.
+  INTERNET_CHECK, ///< Periodic TCP probe to verify internet reachability.
+  BACKOFF,        ///< Exponential backoff after a recoverable failure.
+  OTA_MODE,       ///< ElegantOTA web update in progress; FSM is suspended.
+  FW_CHECKING,    ///< HTTP manifest check for a newer firmware version.
+  FW_INSTALLING,  ///< Downloading and flashing a firmware binary.
 };
 
+/**
+ * @brief Compile-time tunable timing parameters for the FSM.
+ *
+ * All values are in milliseconds unless the field name says otherwise.
+ * Assign before calling app_fsm_init() to override defaults.
+ */
 struct AppFsmConfig
 {
   uint32_t display_dim_timeout_ms = 300000;   ///< 5 min
@@ -46,6 +59,15 @@ struct AppFsmConfig
   uint32_t debug_screen_period_ms = 1000; // 1s
 };
 
+/**
+ * @brief Runtime state of the application FSM.
+ *
+ * Holds the current state, all timing bookmarks, display dimming state,
+ * MQTT counters, and failure tracking. Initialise with app_fsm_init().
+ *
+ * @note Not thread-safe. All access must come from the same task/core
+ *       that drives app_fsm_poll() (typically Arduino loop() on Core 1).
+ */
 struct AppFsm
 {
   bool fetch_schedule_override = false; ///< If true, last_fetch_ms was adjusted for the next fetch

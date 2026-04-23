@@ -1,3 +1,25 @@
+/**
+ * @file http_update.cpp
+ * @brief Poll-based over-the-air firmware update via HTTPS manifest.
+ *
+ * Fetches a JSON manifest from FW_UPDATE_MANIFEST_URL, compares the reported
+ * version against APP_FIRMWARE_VERSION using semantic versioning, and installs
+ * the binary if a newer version is found.
+ *
+ * Integration:
+ * - Call fw_update_poll() once per FSM cycle (≥ every second).
+ * - Use fw_update_op_pending() to query whether a check or install is due so
+ *   the FSM can reflect the activity in a dedicated display state.
+ * - Manual triggers: fw_update_request_check_now() / fw_update_request_install().
+ *
+ * TLS: the Mozilla root CA bundle embedded from data/cert/x509_crt_bundle.bin
+ * is used for all HTTPS connections (setCACertBundle).
+ *
+ * Threading: all state is protected by a FreeRTOS mutex (g_fw_update_mutex).
+ * fw_update_poll() and the public API are safe to call from a single task.
+ * LVGL calls are made from the same task context and require lv_timer_handler()
+ * to be driven externally (update_ota_progress_screen handles this).
+ */
 #include "http_update.h"
 
 #include <ArduinoJson.h>
@@ -20,7 +42,7 @@ extern uint8_t update_ota_progress_screen(int progress);
 #define FW_UPDATE_MANIFEST_URL ""
 #endif
 #ifndef FW_UPDATE_CHECK_INTERVAL_MS
-#define FW_UPDATE_CHECK_INTERVAL_MS 3600000UL
+#define FW_UPDATE_CHECK_INTERVAL_MS 600000 // 10 minutes
 #endif
 
 // Root CA bundle embedded from data/cert/x509_crt_bundle.bin (136 Mozilla root CAs)
@@ -28,6 +50,12 @@ extern const uint8_t x509_crt_bundle_start[] asm("_binary_data_cert_x509_crt_bun
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
+/**
+ * @brief Internal state for the firmware update state machine.
+ *
+ * All fields are protected by g_fw_update_mutex. Write only while holding
+ * the lock; read the stable public snapshot via fw_update_get_status_json().
+ */
 struct FirmwareUpdateState {
     bool check_requested = true;
     bool install_requested = false;
@@ -47,14 +75,22 @@ static uint32_t g_fw_progress_last_log_ms = 0;
 static int g_fw_progress_last_percent = -1;
 static uint32_t g_fw_poll_last_ms = 0;
 
+/** @brief Acquire g_fw_update_mutex. @return true on success. */
 static bool fw_update_lock(TickType_t wait = pdMS_TO_TICKS(1000)) {
     return (g_fw_update_mutex != nullptr) && (xSemaphoreTake(g_fw_update_mutex, wait) == pdTRUE);
 }
 
+/** @brief Release g_fw_update_mutex. */
 static void fw_update_unlock() {
     if (g_fw_update_mutex != nullptr) xSemaphoreGive(g_fw_update_mutex);
 }
 
+/**
+ * @brief Parse the next integer token from a version string.
+ * @param v   Version string (e.g. "1.2.3").
+ * @param idx Read/write cursor into @p v; advanced past the token on return.
+ * @return Parsed integer, or -1 if no digit was found at or after @p idx.
+ */
 static int fw_parse_version_part(const String& v, int& idx) {
     const int n = v.length();
     while (idx < n && !isDigit(v[idx])) idx++;
@@ -67,6 +103,15 @@ static int fw_parse_version_part(const String& v, int& idx) {
     return out;
 }
 
+/**
+ * @brief Compare two semantic version strings.
+ *
+ * Handles pre-release suffixes: "1.0.0-rc1" < "1.0.0" (release wins).
+ *
+ * @param a First version string (e.g. "1.2.3" or "1.2.3-rc1").
+ * @param b Second version string.
+ * @return -1 if a < b, 0 if equal, 1 if a > b.
+ */
 static int fw_compare_versions(const String& a, const String& b) {
     // Separate numeric version from pre-release suffix (e.g. "1.0.0-rc1" → "1.0.0" + pre)
     const int da = a.indexOf('-'), db = b.indexOf('-');
@@ -92,16 +137,28 @@ static int fw_compare_versions(const String& a, const String& b) {
     return result;
 }
 
+/** @brief Return true if FW_UPDATE_MANIFEST_URL is set to a non-empty string. */
 static bool fw_manifest_configured() {
     const char* url = FW_UPDATE_MANIFEST_URL;
     return (url != nullptr) && (strlen(url) > 0);
 }
 
+/**
+ * @brief Update status and last_error fields. Must be called while holding the mutex.
+ * @param status New status string (e.g. "idle", "checking", "error").
+ * @param err    Optional error detail; defaults to empty (clears previous error).
+ */
 static void fw_set_status_locked(const String& status, const String& err = "") {
     g_fw_update.status = status;
     g_fw_update.last_error = err;
 }
 
+/**
+ * @brief Switch to the FW update screen and reset progress state.
+ *
+ * Sets ota_in_progress, loads ui_FWUpdate_screen, and resets the progress
+ * tracking variables so the first callback starts from 0%.
+ */
 static void fw_ui_start_install() {
     ota_in_progress = true;
     g_fw_progress_last_log_ms = 0;
@@ -116,6 +173,15 @@ static void fw_ui_start_install() {
     update_ota_progress_screen(0);
 }
 
+/**
+ * @brief httpUpdate progress callback — updates the on-screen progress bar.
+ *
+ * Calls update_ota_progress_screen() only when the percentage changes, and
+ * logs to the serial/telnet logger at most once per second to avoid flood.
+ *
+ * @param current Bytes received so far.
+ * @param total   Total bytes to receive.
+ */
 static void fw_ui_progress_update(int current, int total) {
     if (total <= 0) return;
 
@@ -135,6 +201,12 @@ static void fw_ui_progress_update(int current, int total) {
     }
 }
 
+/**
+ * @brief Update the UI to show a successful firmware installation.
+ *
+ * Sets progress to 100% and displays the success message. Called immediately
+ * before ESP.restart() so the user sees the final state briefly.
+ */
 static void fw_ui_finish_success() {
     update_ota_progress_screen(100);
     if (ui_Label_FWUpdateInfo != nullptr) {
@@ -142,6 +214,10 @@ static void fw_ui_finish_success() {
     }
 }
 
+/**
+ * @brief Update the UI to show a firmware installation failure.
+ * @param err Human-readable error description shown on-screen.
+ */
 static void fw_ui_finish_error(const String& err) {
     if (ui_Label_FWUpdateInfo != nullptr) {
         String info = "FWUpdate failed:\n";
@@ -150,6 +226,17 @@ static void fw_ui_finish_error(const String& err) {
     }
 }
 
+/**
+ * @brief Blocking manifest check — download, parse, and compare versions.
+ *
+ * Advances last_check_ms before the request so a failed attempt still
+ * delays the next automatic retry by FW_UPDATE_CHECK_INTERVAL_MS.
+ * On success, updates g_fw_update with the latest version, binary URL,
+ * and sets status to "update_available" or "up_to_date".
+ * On any failure, sets status to "error" with a descriptive message.
+ *
+ * @note Blocking — holds the calling task for the HTTP round-trip (up to 10 s).
+ */
 static void fw_update_check_manifest_now() {
     // Advance the retry timer upfront so any failure still delays the next attempt.
     if (fw_update_lock()) {
@@ -250,6 +337,17 @@ static void fw_update_check_manifest_now() {
     }
 }
 
+/**
+ * @brief Blocking firmware installation — downloads and flashes the binary.
+ *
+ * Uses ESP Arduino httpUpdate with the Mozilla root CA bundle for TLS.
+ * Progress is reported via fw_ui_progress_update(). On success the device
+ * restarts automatically (ESP.restart). On failure ota_in_progress is
+ * cleared so normal operation can resume.
+ *
+ * @note Blocking — holds the calling task for the full binary download and
+ *       flash write (can take 30–120 s depending on binary size and network).
+ */
 static void fw_update_install_now() {
     const uint32_t t0 = millis();
     String url;
@@ -325,6 +423,13 @@ static void fw_update_install_now() {
     logger.warning("[FW]  %-12s ->  %-12s | %-22s | took=%6lums", "installing", "error", err.c_str(), (unsigned long)(millis()-t0));
 }
 
+/**
+ * @brief Single scheduler tick — decide whether to check or install.
+ *
+ * Priority: install > explicit check request > periodic interval check.
+ * Returns immediately if an ElegantOTA update is already in progress
+ * (ota_in_progress is set).
+ */
 static void fw_update_process_tick() {
     if (ota_in_progress) return;
 
@@ -368,12 +473,24 @@ static void fw_update_process_tick() {
     if (do_check) fw_update_check_manifest_now();
 }
 
+/**
+ * @brief Create the update mutex. Safe to call multiple times (idempotent).
+ */
 void fw_update_init() {
     if (g_fw_update_mutex == nullptr) {
         g_fw_update_mutex = xSemaphoreCreateMutex();
     }
 }
 
+/**
+ * @brief Legacy entry point kept for API compatibility.
+ *
+ * Previously spawned a FreeRTOS task; firmware updates are now driven by
+ * fw_update_poll() inside the FSM loop. Parameters are ignored.
+ *
+ * @param core_id  Ignored.
+ * @param priority Ignored.
+ */
 void fw_update_start_task(BaseType_t core_id, UBaseType_t priority) {
     (void)core_id;
     (void)priority;
@@ -381,6 +498,12 @@ void fw_update_start_task(BaseType_t core_id, UBaseType_t priority) {
     // No-op: FW updates are processed by fw_update_poll() in FSM context.
 }
 
+/**
+ * @brief Drive the firmware update state machine — call once per FSM cycle.
+ *
+ * Initializes on first call and then forwards to fw_update_process_tick()
+ * at most once per second (rate-limited by g_fw_poll_last_ms).
+ */
 void fw_update_poll() {
     static bool initialized = false;
     if (!initialized) {
@@ -396,6 +519,15 @@ void fw_update_poll() {
     fw_update_process_tick();
 }
 
+/**
+ * @brief Serialize the current firmware update state to a JSON string.
+ *
+ * Fields: current_version, latest_version, update_available, checking,
+ * installing, last_check_ms, status, last_error, manifest_configured.
+ * Returns a minimal error JSON if the mutex cannot be acquired.
+ *
+ * @return Serialized JSON string.
+ */
 String fw_update_get_status_json() {
     JsonDocument d;
     if (fw_update_lock()) {
@@ -420,10 +552,25 @@ String fw_update_get_status_json() {
     return out;
 }
 
+/**
+ * @brief Return the current status string (e.g. "idle", "checking", "error").
+ *
+ * @note Returns a pointer into an Arduino String — valid only until the next
+ *       write to g_fw_update.status. Copy if you need to hold it.
+ * @return Null-terminated status string.
+ */
 const char* fw_update_get_status() {
     return g_fw_update.status.c_str();
 }
 
+/**
+ * @brief Query whether a firmware operation is due on the next poll tick.
+ *
+ * Used by the FSM to decide whether to enter FW_CHECKING / FW_INSTALLING
+ * display states before calling fw_update_poll().
+ *
+ * @return 0 = nothing pending, 1 = version check due, 2 = install due.
+ */
 int fw_update_op_pending() {
     if ((uint32_t)(millis() - g_fw_poll_last_ms) < 1000U) return 0;
     if (!fw_manifest_configured()) return 0;
@@ -438,12 +585,23 @@ int fw_update_op_pending() {
     return install ? 2 : (check ? 1 : 0);
 }
 
+/**
+ * @brief Request an immediate manifest check on the next fw_update_poll() tick.
+ */
 void fw_update_request_check_now() {
     if (!fw_update_lock()) return;
     g_fw_update.check_requested = true;
     fw_update_unlock();
 }
 
+/**
+ * @brief Schedule a firmware installation on the next fw_update_poll() tick.
+ *
+ * Fails if an install is already running or no update is available.
+ *
+ * @param[out] message Human-readable result string (success or failure reason).
+ * @return true if the install was scheduled, false otherwise.
+ */
 bool fw_update_request_install(String& message) {
     if (!fw_update_lock()) {
         message = "lock timeout";

@@ -1,4 +1,16 @@
-
+/**
+ * @file helper.cpp
+ * @brief General-purpose utility functions for the TPanelS3 firmware.
+ *
+ * Covers:
+ * - IP address and hostname resolution
+ * - Date/time formatting and conversion (Unix epoch ↔ string, local time)
+ * - NTP synchronisation helper
+ * - Internet connectivity check (TCP probe)
+ * - Flash memory ID generation
+ * - LittleFS file printing
+ * - ArduinoJson document buffer inspection
+ */
 #include "helper.h"
 #include <IPAddress.h>
 #include <WiFi.h>
@@ -10,7 +22,11 @@ extern LIBRELINKUP librelinkup;
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 //------------------------------------------------------------------------
 
-//----------------------[Parse IP-Address from String]--------------------
+/**
+ * @brief Parse a dotted-decimal IPv4 string into an IPAddress.
+ * @param ipStr IPv4 string, e.g. "192.168.1.1".
+ * @return Parsed IPAddress; returns 0.0.0.0 on malformed input.
+ */
 IPAddress HELPER::parseIPAddress(const String &ipStr) {
     uint8_t octets[4] = {0}; // Array for 4 Oktetten IP
     int idx = 0;
@@ -31,7 +47,10 @@ IPAddress HELPER::parseIPAddress(const String &ipStr) {
     return IPAddress(octets[0], octets[1], octets[2], octets[3]);
 }
 
-//------------------------ [Prints the content of a file to the Serial]------------
+/**
+ * @brief Print the raw contents of a LittleFS file to Serial.
+ * @param filename Path to the file (e.g. "/settings.json").
+ */
 void HELPER::printFile(const char *filename) {
   // Open file for reading
 
@@ -50,7 +69,11 @@ void HELPER::printFile(const char *filename) {
   file.close();
 }
 
-//------------------------ [Prints Local time]----------------------------
+/**
+ * @brief Print the current local time to Serial.
+ * @param mode 0 = full date+time string ("Monday, January 06 2025 14:30:00"),
+ *             1 = extracts HH/MM/SS into local buffers (no Serial output).
+ */
 void HELPER::printLocalTime(bool mode){
     struct tm timeinfo;
     if(!getLocalTime(&timeinfo)){
@@ -75,22 +98,38 @@ void HELPER::printLocalTime(bool mode){
     }
 }
 
-//------------------------------------[covert to millis]----------------------------
+/**
+ * @brief Convert hours, minutes, and seconds to milliseconds.
+ * @param hours   Hours component.
+ * @param minutes Minutes component.
+ * @param seconds Seconds component.
+ * @return Total duration in milliseconds as uint32_t.
+ */
 uint32_t HELPER::convertToMillis(uint8_t hours, uint8_t minutes, uint8_t seconds) {
     return (hours * 3600UL + minutes * 60UL + seconds) * 1000UL;
 }
 
-// Returns signed seconds: local_epoch - server_epoch
+/**
+ * @brief Calculate the signed drift between local and server clocks.
+ * @param server_epoch Unix timestamp from the remote server.
+ * @param local_epoch  Unix timestamp from the local RTC/NTP clock.
+ * @return Drift in seconds (local − server). Returns 0 if either argument is 0.
+ */
 int32_t HELPER::syncWithServerEpoch(time_t server_epoch, time_t local_epoch)
 {
     if (server_epoch == 0 || local_epoch == 0) return 0;
     return (int32_t)difftime(local_epoch, server_epoch);
 }
 
-//------------------------[get flash ID functions]--------------------------------
-/* String timecode = "12/15/2024 4:52:16 PM";
-    long unixtime = convertToUnixTime(timecode);
-*/
+/**
+ * @brief Convert a LibreLink-style date/time string to a Unix timestamp.
+ *
+ * Expected format: "MM/DD/YYYY H:MM:SS AM|PM" (e.g. "12/15/2024 4:52:16 PM").
+ * Uses mktime() with the local timezone set on the device.
+ *
+ * @param datetime Input date/time string.
+ * @return Unix timestamp (seconds since epoch), or -1 on parse error.
+ */
 long HELPER::convertStrToUnixTime(const String& datetime) {
     struct tm timeinfo = {0};
 
@@ -121,16 +160,27 @@ long HELPER::convertStrToUnixTime(const String& datetime) {
     return mktime(&timeinfo);
 }
 
-
-// Function to convert Unix timestamp to "HH:MM"
-// format_time(labels[i], sizeof(labels[i]), timecode_array[i]);
+/**
+ * @brief Format a Unix timestamp as a "HH:MM" string in local time.
+ *
+ * Uses 24-hour format; locale is forced to "C" to prevent AM/PM output.
+ *
+ * @param buffer      Output buffer.
+ * @param buffer_size Size of @p buffer in bytes (minimum 6).
+ * @param timestamp   Unix epoch seconds to format.
+ */
 void HELPER::format_time(char *buffer, size_t buffer_size, time_t timestamp) {
     setlocale(LC_TIME, "C"); // Prevent AM/PM and enforce 24h format
     struct tm *tm_info = localtime(&timestamp); // Use local time
     strftime(buffer, buffer_size, "%H:%M", tm_info);
 }
-//-----------------------[check internet connection with Ping]-------------------
-// Returns true if the ESP32 can connect to the specified IP and port, otherwise false
+
+/**
+ * @brief Probe internet reachability by opening a TCP connection.
+ * @param ip   IP address to connect to (e.g. a known DNS resolver).
+ * @param port TCP port (e.g. 53 for DNS, 80 for HTTP).
+ * @return true if the TCP handshake succeeds within 1000 ms, false otherwise.
+ */
 bool HELPER::check_internet_status(IPAddress ip, uint16_t port)
 {
 
@@ -152,6 +202,19 @@ bool HELPER::check_internet_status(IPAddress ip, uint16_t port)
     
 }
 
+/**
+ * @brief Resolve a hostname to an IPv4 address, with retries.
+ *
+ * If @p hostname is already a dotted-decimal address, it is parsed directly
+ * without a DNS lookup. Otherwise WiFi.hostByName() is tried up to
+ * @p max_attempts times with @p retry_delay_ms between attempts.
+ *
+ * @param hostname       Hostname or dotted-decimal IPv4 string.
+ * @param resolved_ip    Output: resolved IP address on success.
+ * @param max_attempts   Maximum DNS attempts (clamped to at least 1).
+ * @param retry_delay_ms Delay in ms between failed attempts.
+ * @return true if resolution succeeded, false otherwise.
+ */
 bool HELPER::resolveHostnameIPv4(const String &hostname, IPAddress &resolved_ip, uint8_t max_attempts, uint16_t retry_delay_ms)
 {
     IPAddress parsed_ip;
@@ -175,11 +238,27 @@ bool HELPER::resolveHostnameIPv4(const String &hostname, IPAddress &resolved_ip,
     return false;
 }
 
+/**
+ * @brief Check whether the system clock appears to be set to a plausible value.
+ * @param min_valid_epoch Minimum acceptable Unix timestamp (default: year 2024).
+ * @return true if time(nullptr) >= @p min_valid_epoch.
+ */
 bool HELPER::timeLooksValid(time_t min_valid_epoch)
 {
     return time(nullptr) >= min_valid_epoch;
 }
 
+/**
+ * @brief Ensure the system clock is NTP-synchronised, triggering a sync if needed.
+ *
+ * Returns immediately if timeLooksValid() is already true. Otherwise calls
+ * configTime() against pool.ntp.org, ntp.nict.jp, and time.google.com, then
+ * polls up to @p max_attempts times.
+ *
+ * @param max_attempts   Maximum polling attempts after configTime() (min 1).
+ * @param retry_delay_ms Delay in ms between polls.
+ * @return true if the clock is valid after the function returns.
+ */
 bool HELPER::ensureTimeSynced(uint8_t max_attempts, uint16_t retry_delay_ms)
 {
     if (timeLooksValid())
@@ -199,7 +278,11 @@ bool HELPER::ensureTimeSynced(uint8_t max_attempts, uint16_t retry_delay_ms)
     return timeLooksValid();
 }
 
-//---------------------------[get local time]-----------------------------------
+/**
+ * @brief Return the current local date and time as a formatted string.
+ * @return String in the format "DD.MM.YYYY HH:MM:SS", or "null" if the
+ *         system clock is not yet available.
+ */
 String HELPER::get_esp_time_date(){
     struct tm timeinfo;
     
@@ -257,7 +340,14 @@ String HELPER::get_esp_time_date(){
    return esp32_time_date;
 }
 
-//------------------------[get flash ID functions]--------------------------------
+/**
+ * @brief Derive a short, unique device identifier from the ESP32 eFuse MAC.
+ *
+ * Folds the 48-bit MAC into a 32-bit value via XOR and formats it as an
+ * 8-character uppercase hex string (e.g. "A3F2C1B0").
+ *
+ * @return 8-character hex string.
+ */
 String HELPER::get_flashmemory_id() {
     uint64_t chipid = ESP.getEfuseMac();   // 48-Bit MAC
 
@@ -269,7 +359,16 @@ String HELPER::get_flashmemory_id() {
     return String(buf);
 }
 
-//------------------------[get json memory data]--------------------------------
+/**
+ * @brief Inspect the memory usage of an ArduinoJson document.
+ *
+ * ArduinoJson v7 no longer exposes memoryUsage()/capacity() directly.
+ * This wrapper returns doc->size() as usedCapacity and uses overflowed()
+ * as a binary overflow indicator (totalCapacity == 1 means overflow occurred).
+ *
+ * @param doc Pointer to the JsonDocument to inspect; nullptr is handled safely.
+ * @return Json_Buffer_Info with usedCapacity and totalCapacity fields.
+ */
 Json_Buffer_Info HELPER::getBufferSize(JsonDocument* doc) {
     Json_Buffer_Info info = {0, 0};  // Default values
     if (doc == nullptr) {

@@ -1,6 +1,10 @@
 /**
  * @file app_fsm.cpp
  * @brief Implementation of the application state machine.
+ *
+ * All static helpers are internal to this translation unit.
+ * The public API (app_fsm_init, app_fsm_poll, app_fsm_notify_*) is declared
+ * in app_fsm.h and intended to be called from Arduino loop().
  */
 
 #include "app_fsm.h"
@@ -49,6 +53,7 @@ extern void app_recover_offline();
 extern void ledcWrite(uint8_t channel, uint32_t duty);
 
 //------------------------[FSM implementation]-----------------------------------
+/** @brief Clamp @p v to [@p lo, @p hi]. */
 static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
 {
     if (v < lo)
@@ -58,7 +63,15 @@ static uint32_t clamp_u32(uint32_t v, uint32_t lo, uint32_t hi)
     return v;
 }
 
-// Exponential backoff with jitter: base * 2^exp + random(0..1000)
+/**
+ * @brief Compute the next exponential backoff duration with jitter.
+ *
+ * Formula: clamp(base * 2^failures + random(0..1000), min, max).
+ * The exponent is capped at 10 to prevent overflow (max multiplier = 1024).
+ *
+ * @param fsm FSM instance whose consecutive_failures and cfg are read.
+ * @return Backoff duration in milliseconds.
+ */
 static uint32_t compute_backoff_ms(const AppFsm &fsm)
 {
     const uint32_t base = fsm.cfg.backoff_min_ms;
@@ -70,8 +83,11 @@ static uint32_t compute_backoff_ms(const AppFsm &fsm)
     return clamp_u32(with_jitter, fsm.cfg.backoff_min_ms, fsm.cfg.backoff_max_ms);
 }
 
-// State transition helper
-// Helper to convert state enum to string for logging/debug UI
+/**
+ * @brief Return a human-readable name for an AppState value.
+ * @param s State to convert.
+ * @return Null-terminated string literal (e.g. "RUN_IDLE"). Never nullptr.
+ */
 static const char* app_state_to_string(AppState s)
 {
     switch (s)
@@ -93,13 +109,17 @@ static const char* app_state_to_string(AppState s)
     }
 }
 
-// Helper to convert state enum to string for logging/debug UI
+/** @brief Return @p r if non-empty, otherwise "-". Safe to pass nullptr. */
 static const char* safe_reason(const char* r)
 {
     return (r && r[0]) ? r : "-";
 }
 
-// Helper to compute remaining backoff time in seconds for logging/debug UI
+/**
+ * @brief Return the remaining backoff time in whole seconds.
+ * @param fsm FSM instance to inspect.
+ * @return Seconds until backoff expires, or 0 if not in BACKOFF state.
+ */
 static uint32_t backoff_remaining_s(const AppFsm &fsm)
 {
     if (fsm.state != AppState::BACKOFF)
@@ -112,7 +132,17 @@ static uint32_t backoff_remaining_s(const AppFsm &fsm)
     return (fsm.backoff_until_ms - now) / 1000U;
 }
 
-// State transition helper (logs old->new + reason + runtime + failures + backoff)
+/**
+ * @brief Transition the FSM to @p new_state and log the change.
+ *
+ * No-op if @p new_state equals the current state (prevents log spam).
+ * Records the transition reason, increments the state counter, and resets
+ * the state-entry timestamp.
+ *
+ * @param fsm       FSM instance to update.
+ * @param new_state Target state.
+ * @param reason    Short human-readable reason string for the log (may be nullptr).
+ */
 static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nullptr)
 {
     if (fsm.state == new_state)
@@ -137,23 +167,30 @@ static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nu
     );
 }
 
-// Helper functions for state actions and conditions
+/** @brief Return true if WiFi is currently associated (WL_CONNECTED). */
 static bool wifi_ok()
 {
     return WiFi.status() == WL_CONNECTED;
 }
 
+/** @brief Return true if MQTT is configured and enabled in settings. */
 static bool mqtt_enabled()
 {
     return (settings.config.mqtt_mode == 1) && (mqtt.mqtt_enable == 1);
 }
 
+/** @brief Return true if the PubSubClient is currently connected to the broker. */
 static bool mqtt_ok()
 {
     return mqtt_client.connected();
 }
 
-// Subscribe to MQTT topics based on the current configuration
+/**
+ * @brief Subscribe to all MQTT topics required by the current operating mode.
+ *
+ * Always subscribes to the device's own command topic. In client mode
+ * (mqtt_master_mode == 0) also subscribes to the master's data topic.
+ */
 static void mqtt_subscribe_topics()
 {
     mqtt_client.subscribe((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic).c_str());
@@ -263,7 +300,14 @@ static bool mqtt_connect_step(AppFsm &fsm, uint32_t timeout_ms)
     return setup_mqtt();
 }
 
-// Exponential backoff with jitter: base * 2^exp + random(0..1000)
+/**
+ * @brief Return true if a master-mode glucose fetch is due.
+ *
+ * Only relevant when mqtt_master_mode is active; checks whether
+ * fetch_period_ms has elapsed since the last successful fetch.
+ *
+ * @param fsm FSM instance to inspect.
+ */
 static bool should_fetch_master(const AppFsm &fsm)
 {
     if (!settings.config.mqtt_master_mode)
@@ -271,7 +315,13 @@ static bool should_fetch_master(const AppFsm &fsm)
     return (millis() - fsm.last_fetch_ms) >= fsm.cfg.fetch_period_ms;
 }
 
-// Display dimming logic
+/**
+ * @brief Return true if the display should start dimming due to inactivity.
+ *
+ * False if dimming is already active or the inactivity timeout has not elapsed.
+ *
+ * @param fsm FSM instance to inspect.
+ */
 static bool should_dim_display(const AppFsm &fsm)
 {
     if (fsm.display_dim_active)
@@ -279,7 +329,14 @@ static bool should_dim_display(const AppFsm &fsm)
     return (millis() - fsm.last_user_activity_ms) >= fsm.cfg.display_dim_timeout_ms;
 }
 
-// Display dimming step
+/**
+ * @brief Decrement backlight brightness by one step if the step interval has elapsed.
+ *
+ * Rate-limited by cfg.display_dim_step_ms (default 30 ms). Stops at 0.
+ * Writes directly to the LEDC channel via ledcWrite().
+ *
+ * @param fsm FSM instance; brightness and step timestamp are updated in-place.
+ */
 static void display_dim_step(AppFsm &fsm)
 {
     const uint32_t step_ms = (fsm.cfg.display_dim_step_ms == 0) ? 30u : fsm.cfg.display_dim_step_ms;
@@ -293,7 +350,13 @@ static void display_dim_step(AppFsm &fsm)
     ledcWrite(0, settings.config.brightness);
 }
 
-// WireGuard check logic
+/**
+ * @brief Return true if a periodic WireGuard health check is due.
+ *
+ * Always false when wg_mode != 1 (WireGuard disabled).
+ *
+ * @param fsm FSM instance to inspect.
+ */
 static bool should_wg_check(const AppFsm &fsm)
 {
     if (settings.config.wg_mode != 1)
@@ -301,7 +364,15 @@ static bool should_wg_check(const AppFsm &fsm)
     return (millis() - fsm.last_wg_check_ms) >= fsm.cfg.wg_check_period_ms;
 }
 
-// Internet health check logic
+/**
+ * @brief Reset the FSM to its initial state and start from BOOT.
+ *
+ * Zeroes all counters and timestamps, restores brightness tracking, and
+ * immediately transitions to AppState::BOOT. Safe to call more than once
+ * (e.g. after an OTA update completes).
+ *
+ * @param fsm FSM instance to initialise.
+ */
 void app_fsm_init(AppFsm &fsm)
 {
     fsm = AppFsm{};
@@ -316,13 +387,29 @@ void app_fsm_init(AppFsm &fsm)
     enter_state(fsm, AppState::BOOT, "OTA OFF");
 }
 
-// External triggers
+/**
+ * @brief Signal that a master MQTT data payload has arrived.
+ *
+ * Sets the mqtt_master_rx_pending flag which causes RUN_IDLE to transition
+ * to RUN_FETCH on the next poll cycle (client mode only).
+ * Safe to call from the PubSubClient callback context.
+ *
+ * @param fsm FSM instance to notify.
+ */
 void app_fsm_notify_mqtt_master_rx(AppFsm &fsm)
 {
     fsm.mqtt_master_rx_pending = true;
 }
 
-// Call this on any user activity that should wake the display (e.g., touch, button press, etc.)
+/**
+ * @brief Notify the FSM of user activity (touch, button, etc.).
+ *
+ * Resets the inactivity timer. If the display is currently dimmed, restores
+ * brightness to its pre-dim value (minimum 50) and transitions back to
+ * RUN_IDLE.
+ *
+ * @param fsm FSM instance to notify.
+ */
 void app_fsm_notify_user_activity(AppFsm &fsm)
 {
     fsm.last_user_activity_ms = millis();
@@ -340,7 +427,19 @@ void app_fsm_notify_user_activity(AppFsm &fsm)
     }
 }
 
-// Main FSM polling function to be called regularly (e.g., from loop())
+/**
+ * @brief Main FSM tick — call once per Arduino loop() iteration.
+ *
+ * Execution order per tick:
+ *  1. Firmware update check (fw_update_op_pending / fw_update_poll).
+ *  2. ElegantOTA guard — park in OTA_MODE while ota_in_progress is set.
+ *  3. MQTT keepalive (mqtt_client.loop()).
+ *  4. 1-second housekeeping tick.
+ *  5. BACKOFF expiry check.
+ *  6. Main state switch (BOOT → WIFI_CONNECT → … → RUN_IDLE → …).
+ *
+ * @param fsm FSM instance to advance.
+ */
 void app_fsm_poll(AppFsm &fsm)
 {
     const int fw_pending = fw_update_op_pending();
