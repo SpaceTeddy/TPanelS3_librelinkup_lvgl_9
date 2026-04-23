@@ -41,4 +41,15 @@ void fw_update_request_check_now();
  */
 bool fw_update_request_install(String& message);
 
+/**
+ * @brief Returns the current status string (e.g. "idle", "up_to_date", "error").
+ */
+const char* fw_update_get_status();
+
+/**
+ * @brief Returns the pending operation type for FSM integration.
+ * @return 0=none, 1=check due, 2=install due
+ */
+int fw_update_op_pending();
+
 #endif // HTTP_UPDATE_MODULE_H

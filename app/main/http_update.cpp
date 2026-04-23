@@ -131,7 +131,7 @@ static void fw_ui_progress_update(int current, int total) {
     const uint32_t now = millis();
     if ((uint32_t)(now - g_fw_progress_last_log_ms) >= 1000) {
         g_fw_progress_last_log_ms = now;
-        logger.notice("[FW] Download progress: %d%% (%d / %d Bytes)", progress, current, total);
+        logger.notice("[FW]  installing    | progress=%3d%% (%7d / %7d B)", progress, current, total);
     }
 }
 
@@ -176,6 +176,8 @@ static void fw_update_check_manifest_now() {
         return;
     }
 
+    const uint32_t t0 = millis();
+
     WiFiClientSecure client;
     client.setCACertBundle(x509_crt_bundle_start);
 
@@ -188,6 +190,7 @@ static void fw_update_check_manifest_now() {
             g_fw_update.checking = false;
             fw_update_unlock();
         }
+        logger.warning("[FW]  %-12s ->  %-12s | %-22s | took=%6lums", "checking", "error", "manifest begin failed", (unsigned long)(millis()-t0));
         return;
     }
 
@@ -200,6 +203,7 @@ static void fw_update_check_manifest_now() {
             g_fw_update.checking = false;
             fw_update_unlock();
         }
+        logger.warning("[FW]  %-12s ->  %-12s | %-22s | took=%6lums", "checking", "error", err.c_str(), (unsigned long)(millis()-t0));
         return;
     }
 
@@ -212,6 +216,7 @@ static void fw_update_check_manifest_now() {
             g_fw_update.checking = false;
             fw_update_unlock();
         }
+        logger.warning("[FW]  %-12s ->  %-12s | json: %-16s | took=%6lums", "checking", "error", e.c_str(), (unsigned long)(millis()-t0));
         return;
     }
 
@@ -223,6 +228,7 @@ static void fw_update_check_manifest_now() {
             g_fw_update.checking = false;
             fw_update_unlock();
         }
+        logger.warning("[FW]  %-12s ->  %-12s | %-22s | took=%6lums", "checking", "error", "missing version/url", (unsigned long)(millis()-t0));
         return;
     }
 
@@ -237,9 +243,15 @@ static void fw_update_check_manifest_now() {
         g_fw_update.checking = false;
         fw_update_unlock();
     }
+    if (available) {
+        logger.notice("[FW]  %-12s ->  %-12s | latest=%-14s | took=%6lums", "checking", "avail", latest.c_str(), (unsigned long)(millis()-t0));
+    } else {
+        logger.notice("[FW]  %-12s ->  %-12s | current=%-13s | took=%6lums", "checking", "up_to_date", APP_FIRMWARE_VERSION, (unsigned long)(millis()-t0));
+    }
 }
 
 static void fw_update_install_now() {
+    const uint32_t t0 = millis();
     String url;
     if (fw_update_lock()) {
         url = g_fw_update.binary_url;
@@ -254,6 +266,7 @@ static void fw_update_install_now() {
             fw_set_status_locked("error", "no binary url");
             fw_update_unlock();
         }
+        logger.warning("[FW]  %-12s ->  %-12s | %-22s | took=%6lums", "avail", "error", "no binary url", (unsigned long)(millis()-t0));
         return;
     }
 
@@ -263,26 +276,23 @@ static void fw_update_install_now() {
             fw_set_status_locked("error", "WiFi not connected");
             fw_update_unlock();
         }
+        logger.warning("[FW]  %-12s ->  %-12s | %-22s | took=%6lums", "avail", "error", "WiFi not connected", (unsigned long)(millis()-t0));
         return;
     }
 
-    logger.notice("[FW] Installing update from: %s", url.c_str());
+    logger.notice("[FW]  %-12s ->  %-12s | src=%s", "avail", "installing", url.c_str());
     fw_ui_start_install();
 
     WiFiClientSecure client;
     client.setCACertBundle(x509_crt_bundle_start);
 
-    httpUpdate.onStart([]() {
-        logger.notice("[FW] HTTP update stream started");
-    });
+    httpUpdate.onStart([]() {});
     httpUpdate.onProgress([](int current, int total) {
         fw_ui_progress_update(current, total);
     });
-    httpUpdate.onEnd([]() {
-        logger.notice("[FW] HTTP update stream finished");
-    });
+    httpUpdate.onEnd([]() {});
     httpUpdate.onError([](int err) {
-        logger.warning("[FW] HTTP update callback error=%d", err);
+        logger.warning("[FW]  %-12s | callback error=%d", "installing", err);
     });
     httpUpdate.rebootOnUpdate(false);
     t_httpUpdate_return ret = httpUpdate.update(client, url, String(APP_FIRMWARE_VERSION));
@@ -295,7 +305,7 @@ static void fw_update_install_now() {
             fw_update_unlock();
         }
         fw_ui_finish_success();
-        logger.notice("[FW] Update successful, restarting...");
+        logger.notice("[FW]  %-12s ->  %-12s | took=%6lums", "installing", "updated", (unsigned long)(millis()-t0));
         delay(500);
         ESP.restart();
         return;
@@ -312,7 +322,7 @@ static void fw_update_install_now() {
     }
     ota_in_progress = false;
     fw_ui_finish_error(err);
-    logger.warning("[FW] %s", err.c_str());
+    logger.warning("[FW]  %-12s ->  %-12s | %-22s | took=%6lums", "installing", "error", err.c_str(), (unsigned long)(millis()-t0));
 }
 
 static void fw_update_process_tick() {
@@ -376,7 +386,7 @@ void fw_update_poll() {
     if (!initialized) {
         fw_update_init();
         initialized = true;
-        logger.notice("[FW] updater poll active (current=%s)", APP_FIRMWARE_VERSION);
+        logger.notice("[FW]  init         | current=%s", APP_FIRMWARE_VERSION);
     }
 
     const uint32_t now = millis();
@@ -408,6 +418,24 @@ String fw_update_get_status_json() {
     String out;
     serializeJson(d, out);
     return out;
+}
+
+const char* fw_update_get_status() {
+    return g_fw_update.status.c_str();
+}
+
+int fw_update_op_pending() {
+    if ((uint32_t)(millis() - g_fw_poll_last_ms) < 1000U) return 0;
+    if (!fw_manifest_configured()) return 0;
+    if (!fw_update_lock()) return 0;
+
+    const bool install = g_fw_update.install_requested && !g_fw_update.installing;
+    const bool check   = !install && !g_fw_update.checking && !g_fw_update.installing &&
+        (g_fw_update.check_requested ||
+         (uint32_t)(millis() - g_fw_update.last_check_ms) >= (uint32_t)FW_UPDATE_CHECK_INTERVAL_MS);
+
+    fw_update_unlock();
+    return install ? 2 : (check ? 1 : 0);
 }
 
 void fw_update_request_check_now() {

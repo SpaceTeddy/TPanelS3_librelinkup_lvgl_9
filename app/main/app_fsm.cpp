@@ -87,6 +87,8 @@ static const char* app_state_to_string(AppState s)
     case AppState::INTERNET_CHECK:  return "INTERNET_CHECK";
     case AppState::BACKOFF:         return "BACKOFF";
     case AppState::OTA_MODE:        return "OTA_MODE";
+    case AppState::FW_CHECKING:     return "FW_CHECKING";
+    case AppState::FW_INSTALLING:   return "FW_INSTALLING";
     default:                        return "UNKNOWN";
     }
 }
@@ -341,7 +343,16 @@ void app_fsm_notify_user_activity(AppFsm &fsm)
 // Main FSM polling function to be called regularly (e.g., from loop())
 void app_fsm_poll(AppFsm &fsm)
 {
+    const int fw_pending = fw_update_op_pending();
+    const AppState pre_fw_state = fsm.state;
+
+    if      (fw_pending == 1) enter_state(fsm, AppState::FW_CHECKING,   "FW CHECK");
+    else if (fw_pending == 2) enter_state(fsm, AppState::FW_INSTALLING, "FW INSTALL");
+
     fw_update_poll();
+
+    if (fw_pending > 0)
+        enter_state(fsm, pre_fw_state, fw_update_get_status());
 
     if (ota_in_progress)
     {

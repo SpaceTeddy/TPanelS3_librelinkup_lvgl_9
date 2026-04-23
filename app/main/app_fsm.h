@@ -27,6 +27,8 @@ enum class AppState : uint8_t
   INTERNET_CHECK,
   BACKOFF,
   OTA_MODE,
+  FW_CHECKING,
+  FW_INSTALLING,
 };
 
 struct AppFsmConfig
