@@ -83,7 +83,7 @@ TPanelS3 tpanels3; ///< TPanelS3 hardware interface instance
 ///////////////////// FREERTOS TASK HANDLES ////////////////////
 
 TaskHandle_t wifiScanHandle = NULL; ///< WiFi network scan background task
-TaskHandle_t LoopTaskhandle = NULL; ///< Main loop task handle
+TaskHandle_t LoopTaskHandle = NULL; ///< Main loop task handle
 TaskHandle_t LvglTaskHandle = NULL; ///< LVGL tick task handle
 
 ///////////////////// JSON PARSER ////////////////////
@@ -159,7 +159,7 @@ uint16_t glucoseMeasurement_backup = 0; ///< Previous glucose measurement
 ///////////////////// UI COMPONENTS ////////////////////
 
 #include "ui.h"
-
+#include "ui_display.h"
 
 ///////////////////// TIME ZONE CONFIGURATION ////////////////////
 
@@ -172,8 +172,6 @@ const char *tz = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 #include <ElegantOTA.h>
 #include "http_update.h"
 #include "ota_handler.h"
-#include "mqtt_handler.h"
-#include "ui_display.h"
 
 AsyncWebServer server(80); ///< Async web server for OTA and config
 
@@ -269,6 +267,7 @@ void app_recover_offline()
 ///////////////////// MQTT CLIENT ////////////////////
 
 #include "mqtt.h"
+#include "mqtt_handler.h"
 
 MQTT mqtt; ///< MQTT configuration and helper class
 
@@ -2072,7 +2071,7 @@ void setup_task()
         16384,           // Stack size: 64KB = 16384 words
         NULL,            // Parameter
         1,               // Priority
-        &LoopTaskhandle, // Task handle
+        &LoopTaskHandle, // Task handle
         1                // Core 1
     );
 }
