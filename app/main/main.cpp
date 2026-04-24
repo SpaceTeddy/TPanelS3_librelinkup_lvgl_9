@@ -56,7 +56,7 @@ SETTINGS settings; ///< Settings manager instance
 bool flag_mqtt_master_rx = true; // for first run
 bool flag_debug_screen = true;   // Debug flag to trigger debug screen on first loop iteration
 
-static AppFsm g_fsm; ///< Application state machine (polled from loop())
+AppFsm g_fsm; ///< Application state machine (polled from loop())
 
 /// @name System Status Counters
 /// @{
@@ -160,21 +160,6 @@ uint16_t glucoseMeasurement_backup = 0; ///< Previous glucose measurement
 
 #include "ui.h"
 
-/**
- * @brief Updates OTA progress display
- *
- * @param[in] progress Update progress percentage (0-100)
- * @return Always returns 1
- */
-uint8_t update_ota_progress_screen(int progress)
-{
-    char progress_text[10];
-    snprintf(progress_text, sizeof(progress_text), "%d%%", progress);
-    lv_label_set_text(ui_Label_FWUpdateProgress_percent, progress_text);
-    lv_timer_handler();
-    delay(5);
-    return 1;
-}
 
 ///////////////////// TIME ZONE CONFIGURATION ////////////////////
 
@@ -186,75 +171,17 @@ const char *tz = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 
 #include <ElegantOTA.h>
 #include "http_update.h"
+#include "ota_handler.h"
+#include "mqtt_handler.h"
 
 AsyncWebServer server(80); ///< Async web server for OTA and config
 
-uint32_t ota_progress_millis = 0; ///< Last OTA progress update timestamp
-bool ota_in_progress = 0;         ///< OTA update in progress flag
+bool ota_in_progress = 0; ///< OTA update in progress flag
 
 
 ///////////////////// WIFI BACKGROUND SCAN ////////////////////
 
 TaskHandle_t scanTaskHandle; ///< WiFi scan task handle
-String availableNetworks;    ///< JSON string of available networks
-
-/**
- * @brief Background WiFi network scanner task
- *
- * Periodically scans for available WiFi networks and stores results
- * as JSON string for web interface display. Pauses during OTA updates.
- *
- * @param[in] parameter Task parameter (unused)
- */
-// globals:
-static volatile bool g_scan_in_progress = false;
-
-void scanWiFiTask(void *parameter)
-{
-    (void)parameter;
-
-    for (;;)
-    {
-        if (ota_in_progress)
-        {
-            vTaskDelay(pdMS_TO_TICKS(250));
-            continue;
-        }
-
-        g_scan_in_progress = true;
-        int n = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/false);
-
-        // Build JSON with less fragmentation
-        String json;
-        json.reserve(256);
-        json = "[";
-
-        bool first = true;
-        for (int i = 0; i < n; ++i)
-        {
-            String ssid = WiFi.SSID(i);
-            if (ssid.length() == 0)
-                continue;
-
-            if (!first)
-                json += ",";
-            first = false;
-
-            json += "{\"ssid\":\"";
-            json += ssid;
-            json += "\",\"rssi\":";
-            json += String(WiFi.RSSI(i));
-            json += "}";
-        }
-        json += "]";
-
-        availableNetworks = json;
-        WiFi.scanDelete();
-        g_scan_in_progress = false;
-
-        vTaskDelay(pdMS_TO_TICKS(36000)); // 36s
-    }
-}
 
 ///////////////////// WEB INTERFACE ////////////////////
 
@@ -268,86 +195,6 @@ void scanWiFiTask(void *parameter)
  * Called when OTA update begins. Pauses background tasks and
  * sets OTA progress flag.
  */
-void onOTAStart()
-{
-    Serial.println("OTA update started!");
-    logger.notice("OTA Update Progress has started");
-
-    // wait for scan to finish (max ~2s), no suspend
-    uint32_t t0 = millis();
-    while (g_scan_in_progress && (millis() - t0) < 2000)
-    {
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-
-    ota_in_progress = 1;
-
-    if (lv_screen_active() != ui_FWUpdate_screen)
-    {
-        lv_disp_load_scr(ui_FWUpdate_screen);
-        lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
-        lv_timer_handler();
-    }
-}
-
-/**
- * @brief OTA update progress callback
- *
- * Called periodically during OTA update with progress information.
- * Updates progress display every 1000ms.
- *
- * @param[in] current Bytes received so far
- * @param[in] final   Total bytes to receive
- */
-void onOTAProgress(size_t current, size_t final)
-{
-    // Log every 1000 milliseconds
-    if (millis() - ota_progress_millis > 1000)
-    {
-        ota_progress_millis = millis();
-
-        // Calculate progress percentage
-        float progress = ((float)current / (float) final) * 100.0;
-
-        if (ota_in_progress == 1)
-        {
-            update_ota_progress_screen(progress);
-            logger.notice("FWUpdate Progress: %.2f%% (%d / %d Bytes)", progress, current, final);
-        }
-    }
-}
-
-/**
- * @brief OTA update completion callback
- *
- * Called when OTA update finishes (success or failure).
- * On success, displays completion message and triggers reboot.
- * On failure, returns to main screen.
- *
- * @param[in] success True if update succeeded, false otherwise
- */
-void onOTAEnd(bool success)
-{
-    vTaskResume(LvglTaskHandle);
-    if (success == 0)
-    {
-        // Update failed - return to main screen
-        lv_disp_load_scr(ui_Main_screen);
-        lv_timer_handler();
-        delay(5);
-        ota_in_progress = 0;
-    }
-    else if (success == 1)
-    {
-        // Update successful - show completion message
-        ota_in_progress = 0;
-        lv_label_set_text(ui_Label_FWUpdateProgress_percent, "100%");
-        lv_label_set_text(ui_Label_FWUpdateInfo, "FWUpdate successful!\n\nperforming Reset");
-        lv_task_handler();
-        delay(5);
-        delay(250);
-    }
-}
 
 ///////////////////// SOFTWARE TIMERS ////////////////////
 
@@ -427,13 +274,6 @@ MQTT mqtt; ///< MQTT configuration and helper class
 WiFiClient mqttClient;                ///< WiFi client for MQTT connection
 PubSubClient mqtt_client(mqttClient); ///< MQTT client instance
 
-JsonDocument json_mqtt; ///< JSON document for MQTT messages
-
-// RAW dedup / retained handling
-static bool    g_allow_retained_once = true;    // nach (Re)Connect einmal erlauben
-static bool    g_allow_raw_first = true;    // nach (Re)connect einmal raw erlauben (retained)
-static int64_t g_last_raw_meas_epoch = -1;  // letzte akzeptierte Messzeit (epoch seconds)
-
 ///////////////////// HELPER FUNCTIONS ////////////////////
 
 /**
@@ -489,281 +329,6 @@ void esp_status()
                       WiFi.localIP().toString(), WiFi.gatewayIP().toString(),
                       WiFi.subnetMask().toString(), WiFi.dnsIP().toString());
     }
-}
-
-///////////////////// BACKLIGHT CONTROL ////////////////////
-
-///////////////////// MQTT FUNCTIONS ////////////////////
-
-/**
- * @brief Publishes current glucose data and system status to MQTT broker
- *
- * Publishes two messages:
- * 1. Glucose data (measurement, trend, system config)
- * 2. Network status (IP, SSID, RSSI)
- */
-void mqtt_publish()
-{
-
-    // Publish glucose and system data
-    json_mqtt["glucoseMeasurement"] = librelinkup.glucose_data().glucoseMeasurement;
-    json_mqtt["trendArrow"] = librelinkup.glucose_data().trendArrow;
-    json_mqtt["brightness"] = settings.config.brightness;
-    json_mqtt["mqtt_mode"] = settings.config.mqtt_mode;
-    json_mqtt["ota_server"] = settings.config.ota_update;
-    json_mqtt["wireguard_mode"] = settings.config.wg_mode;
-
-    serializeJson(json_mqtt, mqtt.mqtt_buffer);
-    json_mqtt.clear();
-    mqtt_client.publish((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_client_data).c_str(),
-                        mqtt.mqtt_buffer,
-                        false);
-
-    // Publish LibreLinkup Raw JSON data for graphing
-    if (settings.config.mqtt_master_mode == true)
-    {
-        // In master mode, do not publish raw data
-        const String &payload = librelinkup.get_last_graph_json();
-        const String topic = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
-        /*
-        logger.debug("raw len=%u topic=%s", (unsigned)payload.length(), topic.c_str());
-        logger.debug("mqtt connected=%d buffer=%u",
-                    mqtt_client.connected(),
-                    mqtt_client.getBufferSize());   // if your PubSubClient version supports this
-        */
-        bool ok = mqtt_client.publish(topic.c_str(),
-                                      (const uint8_t *)payload.c_str(),
-                                      payload.length(),
-                                      true); // retain nach Wunsch
-
-        // logger.debug("raw publish ok=%d state=%d", ok, mqtt_client.state());
-    }
-
-    // Publish network status
-    json_mqtt["IP"] = WiFi.localIP().toString();
-    if (settings.config.wg_mode == 1)
-    {
-        json_mqtt["IP_WG"] = local_ip.toString();
-    }
-    else if (settings.config.wg_mode == 0)
-    {
-        json_mqtt["IP_WG"] = "not connected";
-    }
-    json_mqtt["SSID"] = WiFi.SSID();
-    json_mqtt["RSSI"] = WiFi.RSSI();
-
-    serializeJson(json_mqtt, mqtt.mqtt_buffer);
-
-    Json_Buffer_Info buffer_info;
-    buffer_info = helper.getBufferSize(&json_mqtt);
-
-    json_mqtt.clear();
-    mqtt_client.publish((mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_client_network).c_str(),
-                        mqtt.mqtt_buffer,
-                        false);
-}
-
-/**
- * @brief Updates MQTT broker if MQTT mode is enabled
- */
-void update_mqtt_publish()
-{
-    if (settings.config.mqtt_mode == 1)
-    {
-        mqtt_publish();
-    }
-}
-
-/**
- * @brief MQTT message received callback
- *
- * Handles incoming MQTT commands from broker.
- * Supported commands:
- * - "reset": Restart ESP32
- * - "brightness": Set LCD brightness
- * - "ota_server_mode": Enable/disable OTA server
- * - "wg_mode": Enable/disable WireGuard VPN
- * - "mqtt_mode": Enable/disable MQTT publishing
- *
- * @param[in] topic   MQTT topic of received message
- * @param[in] payload Message payload
- * @param[in] length  Payload length
- */
-void mqtt_callback(char *topic, byte *payload, unsigned int length)
-{
-
-    if (ota_in_progress == true)
-    {
-        return; // <<< ignor all
-    }
-
-    String t(topic);
-
-    // ---------- TOPICS ----------
-    String topic_raw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
-    String topic_cmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
-
-    logger.notice("MQTT RX topic=%s len=%u", t.c_str(), (unsigned)length);
-
-    // =========================================================
-    // 1) RAW DATA vom MASTER (Client-Mode)
-    // =========================================================
-
-    if (t == topic_raw && settings.config.mqtt_master_mode == false)
-    {
-        logger.notice("MQTT raw data received");
-
-        bool ok = librelinkup.ingest_graph_json(payload, length);
-        if (!ok) {
-            logger.notice("MQTT raw ingest failed");
-            return;
-        }
-
-        // --- dedup via measurement timestamp ---------------------------------
-        // Use the measurement timestamp parsed from the incoming JSON.
-        // (This is what you already convert later in update_glucose_data())
-        const String &ts = librelinkup.glucose_data().str_measurement_timestamp;
-
-        int64_t meas_epoch = (int64_t)helper.convertStrToUnixTime(ts);
-
-        // If parsing fails, be conservative: ignore (prevents random double triggers)
-        if (meas_epoch <= 0) {
-            logger.notice("MQTT raw ignored: invalid meas timestamp '%s'", ts.c_str());
-            return;
-        }
-
-        // 1) allow exactly one RAW message after (re)connect (retained)
-        if (g_allow_raw_first) {
-            g_allow_raw_first = false;
-            g_last_raw_meas_epoch = meas_epoch;
-
-            logger.notice("MQTT raw accepted (first/retained) meas_epoch=%lld", (long long)meas_epoch);
-
-            flag_mqtt_master_rx = true;
-            app_fsm_notify_mqtt_master_rx(g_fsm);
-            return;
-        }
-
-        // 2) afterwards accept only *strictly newer* measurement times
-        /*
-        if (g_last_raw_meas_epoch >= 0 && meas_epoch <= g_last_raw_meas_epoch) {
-            logger.notice("MQTT raw ignored (duplicate/old) meas_epoch=%lld last=%lld",
-                        (long long)meas_epoch, (long long)g_last_raw_meas_epoch);
-            return;
-        }*/
-
-        g_last_raw_meas_epoch = meas_epoch;
-
-        logger.notice("MQTT raw accepted (new) meas_epoch=%lld", (long long)meas_epoch);
-
-        flag_mqtt_master_rx = true; // kept for backward compatibility
-        app_fsm_notify_mqtt_master_rx(g_fsm);
-        return; // <<< GANZ WICHTIG
-    }
-
-    // =========================================================
-    // 2) COMMANDS (dein bestehender Code)
-    // =========================================================
-    if (t == topic_cmd)
-    {
-
-        mqtt.mqtt_incomming_cmd = "";
-
-        // Payload → String
-        for (unsigned int i = 0; i < length; i++)
-        {
-            mqtt.mqtt_incomming_cmd += (char)payload[i];
-        }
-
-        DeserializationError error = deserializeJson(json_mqtt, mqtt.mqtt_incomming_cmd);
-        if (error)
-        {
-            logger.notice("CMD deserialize failed: %s", error.f_str());
-            mqtt.mqtt_incomming_cmd = "";
-            return;
-        }
-
-        const char *cmd = json_mqtt["cmd"];
-        float parameter1 = json_mqtt["parameter1"];
-        float parameter2 = json_mqtt["parameter2"];
-
-        logger.notice("CMD=%s p1=%.2f p2=%.2f", cmd, parameter1, parameter2);
-
-        bool cmd_ok = false;
-
-        // ---------- COMMAND HANDLING ----------
-        if (strcmp(cmd, "reset") == 0)
-        {
-            cmd_ok = true;
-            ESP.restart();
-        }
-
-        else if (strcmp(cmd, "brightness") == 0)
-        {
-            settings.config.brightness = tpanels3.set_backlight_brightness(parameter1);
-            config_sleep_timer_backup = millis();
-            app_fsm_notify_user_activity(g_fsm); // Notify FSM of user activity for potential state changes
-            cmd_ok = true;
-        }
-
-        else if (strcmp(cmd, "ota_server_mode") == 0)
-        {
-            if (parameter1 == 1)
-            {
-                settings.config.ota_update = 1;
-                server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-                          { request->send(200, "text/plain", "ESP32 LibreLinkup Client"); });
-                ElegantOTA.begin(&server);
-                server.begin();
-                cmd_ok = true;
-            }
-            else
-            {
-                settings.config.ota_update = 0;
-                server.end();
-                cmd_ok = true;
-            }
-        }
-
-        else if (strcmp(cmd, "wg_mode") == 0)
-        {
-            settings.config.wg_mode = (parameter1 == 1);
-            setup_wg(settings.config.wg_mode);
-            cmd_ok = true;
-        }
-
-        else if (strcmp(cmd, "mqtt_mode") == 0)
-        {
-            settings.config.mqtt_mode = (parameter1 == 1);
-            cmd_ok = true;
-        }
-
-        // ---------- ACK ----------
-        json_mqtt.clear();
-        json_mqtt["cmd"] = cmd;
-        json_mqtt["parameter1"] = parameter1;
-        json_mqtt["parameter2"] = parameter2;
-        json_mqtt["cmd_ok"] = cmd_ok;
-
-        serializeJson(json_mqtt, mqtt.mqtt_buffer);
-        json_mqtt.clear();
-
-        mqtt_client.publish(
-            (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_rec_toppic).c_str(),
-            mqtt.mqtt_buffer);
-
-        mqtt.mqtt_incomming_cmd = "";
-
-        // optional: Status-Update nach Command
-        mqtt_publish();
-
-        return;
-    }
-
-    // =========================================================
-    // 3) UNBEKANNTE TOPICS
-    // =========================================================
-    logger.debug("MQTT topic ignored");
 }
 
 ///////////////////// LVGL FUNCTIONS ////////////////////
@@ -2803,7 +2368,7 @@ void setup_load_system_config()
 
 // app/main/main.cpp
 
-static bool g_ap_mode = false; // optional: for UI/logik
+bool g_ap_mode = false; // non-static: accessed from ota_handler.cpp
 
 void setup_wifi()
 {
@@ -3162,132 +2727,6 @@ void setup_librelinkup()
     librelinkup.begin(2);
 }
 
-/**
- * @brief Initializes MQTT client connection
- *
- * Configures MQTT broker connection:
- * - Sets server and port
- * - Registers callback function
- * - Sets buffer size to 512 bytes
- * - Creates unique client name from chip ID
- * - Connects and subscribes to command topic
- *
- * @note Client name format: /CHIPID
- * @note Subscribes to: /librelinkup/CHIPID/cmd
- * @note Buffer size: 512 bytes
- *
- * @see mqtt_callback()
- */
-bool setup_mqtt()
-{
-    mqtt_client.setServer(mqtt.mqtt_server, mqtt.mqtt_port);
-    mqtt_client.setCallback(mqtt_callback);
-    mqtt_client.setBufferSize(16384);                    // 16KB buffer size
-    mqtt_client.setSocketTimeout(3);                     // seconds (prevents long blocking connect)
-    mqtt_client.setKeepAlive(30);                        // seconds
-
-    mqtt.mqtt_client_name = helper.get_flashmemory_id(); // e.g. "4B431EEB"
-    const String clientId = mqtt.mqtt_client_name;
-
-    if (mqtt_client.connected())
-        return true;
-
-    logger.notice("MQTT: connecting... clientId=%s target=%s:%u",
-                  clientId.c_str(), mqtt.mqtt_server, (unsigned)mqtt.mqtt_port);
-
-    const bool ok = mqtt_client.connect(clientId.c_str(), mqtt.mqtt_user, mqtt.mqtt_password);
-    logger.debug("MQTT connect ok=%d state=%d", (int)ok, mqtt_client.state());
-
-    if (!ok || !mqtt_client.connected())
-    {
-        logger.debug("MQTT: connect failed, state=%d", mqtt_client.state());
-        return false;
-    }
-
-    logger.notice("MQTT: connected");
-    g_allow_retained_once = true;
-
-    const String subCmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
-    const String subRaw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
-
-    mqtt_client.unsubscribe(subCmd.c_str());
-    mqtt_client.unsubscribe(subRaw.c_str());
-
-    const bool s1 = mqtt_client.subscribe(subCmd.c_str());
-    bool s2 = true;
-
-    if (settings.config.mqtt_master_mode == false)
-    {
-        s2 = mqtt_client.subscribe(subRaw.c_str());
-        logger.notice("MQTT subscribe raw: %s ok=%d", subRaw.c_str(), (int)s2);
-    }
-
-    logger.notice("MQTT subscribe cmd: %s ok=%d", subCmd.c_str(), (int)s1);
-
-    return (s1 && s2);
-}
-
-/**
- * @brief Initializes OTA update server
- *
- * @param[in] mode True to start server, false to stop
- *
- * When enabled:
- * - Creates WiFi scan background task (Core 1)
- * - Registers web routes
- * - Starts ElegantOTA service
- * - Configures OTA callbacks
- * - Starts HTTP server on port 80
- *
- * @note WiFi scan task: 4KB stack, priority 1, Core 1
- * @note HTTP server accessible on port 80
- * @note Web routes defined in register_webpage_routes()
- *
- * @see scanWiFiTask()
- * @see onOTAStart()
- * @see onOTAProgress()
- * @see onOTAEnd()
- */
-void setup_OTA(bool mode)
-{
-
-    if (mode == 1)
-    {
-
-        if (g_ap_mode == false)
-        {
-            // Create WiFi scan background task
-            xTaskCreatePinnedToCore(
-                scanWiFiTask,     // Function
-                "WiFi Scan Task", // Task name
-                4096,             // Stack size
-                NULL,             // Parameter
-                1,                // Task priority
-                &wifiScanHandle,  // Task handle
-                1                 // Core 1
-            );
-        }
-
-        // Register web routes
-        register_webpage_routes(server);
-
-        // Start ElegantOTA
-        ElegantOTA.begin(&server);
-        ElegantOTA.onStart(onOTAStart);
-        ElegantOTA.onProgress(onOTAProgress);
-        ElegantOTA.onEnd(onOTAEnd);
-
-        server.begin();
-        DBGprint;
-        Serial.println("HTTP server started");
-    }
-    else
-    {
-        // server.end();
-        // DBGprint;
-        // Serial.println("HTTP server stopped");
-    }
-}
 
 /**
  * @brief Initializes UUID console system
