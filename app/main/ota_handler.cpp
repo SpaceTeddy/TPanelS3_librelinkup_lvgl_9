@@ -1,3 +1,17 @@
+/**
+ * @file ota_handler.cpp
+ * @brief OTA (Over-the-Air) firmware update support.
+ *
+ * Implements the ElegantOTA lifecycle callbacks (start, progress, end),
+ * a FreeRTOS background task for periodic WiFi network scanning, and
+ * the LVGL-based progress screen update helper.  The main entry point
+ * setup_OTA() registers webpage routes, initialises ElegantOTA, and
+ * starts the async web server.
+ *
+ * @author Chris
+ * @license GPL 3.0
+ */
+
 #include "ota_handler.h"
 
 #include <Arduino.h>
@@ -57,6 +71,24 @@ void scanWiFiTask(void *parameter)
 
         vTaskDelay(pdMS_TO_TICKS(36000));
     }
+}
+
+void setup_OTA(bool mode)
+{
+    if (!mode) return;
+
+    if (!g_ap_mode)
+    {
+        xTaskCreatePinnedToCore(scanWiFiTask, "WiFi Scan Task", 4096, NULL, 1, &wifiScanHandle, 1);
+    }
+
+    register_webpage_routes(server);
+    ElegantOTA.begin(&server);
+    ElegantOTA.onStart(onOTAStart);
+    ElegantOTA.onProgress(onOTAProgress);
+    ElegantOTA.onEnd(onOTAEnd);
+    server.begin();
+    Serial.println("HTTP server started");
 }
 
 uint8_t update_ota_progress_screen(int progress)
@@ -120,22 +152,4 @@ void onOTAEnd(bool success)
         lv_task_handler();
         delay(255);
     }
-}
-
-void setup_OTA(bool mode)
-{
-    if (!mode) return;
-
-    if (!g_ap_mode)
-    {
-        xTaskCreatePinnedToCore(scanWiFiTask, "WiFi Scan Task", 4096, NULL, 1, &wifiScanHandle, 1);
-    }
-
-    register_webpage_routes(server);
-    ElegantOTA.begin(&server);
-    ElegantOTA.onStart(onOTAStart);
-    ElegantOTA.onProgress(onOTAProgress);
-    ElegantOTA.onEnd(onOTAEnd);
-    server.begin();
-    Serial.println("HTTP server started");
 }

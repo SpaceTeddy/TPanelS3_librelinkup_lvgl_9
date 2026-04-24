@@ -1,3 +1,16 @@
+/**
+ * @file ota_handler.h
+ * @brief OTA (Over-the-Air) firmware update support.
+ *
+ * Declares the ElegantOTA callback hooks, the LVGL progress screen
+ * update helper, the background WiFi network scan task, and the
+ * top-level setup function that registers all routes and starts the
+ * async web server.
+ *
+ * @author Chris
+ * @license GPL 3.0
+ */
+
 #pragma once
 
 #include <Arduino.h>

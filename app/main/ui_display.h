@@ -1,3 +1,16 @@
+/**
+ * @file ui_display.h
+ * @brief LVGL display rendering — chart, labels, and debug screen.
+ *
+ * Declares functions for drawing the glucose chart, updating value and
+ * trend labels, rendering the sensor validity progress bar, formatting
+ * axis labels, driving the LCD status indicator, and refreshing the
+ * debug information screen.
+ *
+ * @author Chris
+ * @license GPL 3.0
+ */
+
 #pragma once
 
 #include <Arduino.h>

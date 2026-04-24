@@ -1,3 +1,20 @@
+/**
+ * @file ui_display.cpp
+ * @brief LVGL display rendering — chart, labels, and debug screen.
+ *
+ * Implements all visual output functions:
+ * - Glucose chart drawing with mode selection (limits / data / both)
+ * - Last-point highlight marker with range-based colour coding
+ * - Sensor validity progress bar (days / hours / minutes)
+ * - X-axis time label formatting and placement
+ * - Glucose value, trend arrow, and delta label updates
+ * - LCD API activity indicator (coloured asterisk)
+ * - Debug information screen refresh
+ *
+ * @author Chris
+ * @license GPL 3.0
+ */
+
 #include "ui_display.h"
 
 #include <Arduino.h>

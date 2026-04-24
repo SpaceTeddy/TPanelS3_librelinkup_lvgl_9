@@ -1,3 +1,19 @@
+/**
+ * @file mqtt_handler.cpp
+ * @brief MQTT client setup, publishing, and command handling.
+ *
+ * Implements connection management, topic subscription, JSON publishing
+ * of device state and glucose data, and processing of incoming MQTT
+ * commands (brightness, OTA server mode, WireGuard, MQTT mode, reset).
+ *
+ * In master mode the device publishes the full graph JSON to a shared
+ * retained topic; in client mode it subscribes to that topic and ingests
+ * the data directly without calling the LibreLinkUp API.
+ *
+ * @author Chris
+ * @license GPL 3.0
+ */
+
 #include "mqtt_handler.h"
 
 #include <Arduino.h>
