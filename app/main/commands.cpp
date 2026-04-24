@@ -20,6 +20,7 @@
 #include "hba1c.h"
 #include "http_update.h"
 #include "ui.h"
+#include "ui_display.h"
 #include <LittleFS.h>
 #include <lvgl.h>
 #include "tpanels3.h"

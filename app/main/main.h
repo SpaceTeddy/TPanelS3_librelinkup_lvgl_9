@@ -84,13 +84,6 @@ uint8_t set_trgb_backlight_brightness(uint8_t value);
 
 
 /**
- * @brief Draws the glucose data chart.
- * 
- * @param mode Chart mode (e.g., display type).
- */
-void draw_chart_glucose_data(uint8_t mode);
-
-/**
  * @brief Handles cases where the timestamp is invalid.
  */
 void handle_invalid_timestamp();
@@ -139,18 +132,6 @@ void update_glucose_json_logging();
  * @brief Calculates and logs glucose statistics.
  */
 void glucose_statistics();
-
-/**
- * @brief Draws labels for glucose data on the display.
- * 
- * @param mode Display mode for the labels.
- * @param _glucose_measurement_color Color of the glucose measurement label.
- * @param _glucose_value Current glucose value to display.
- * @param _trendarrow Trend arrow indicating glucose trend direction.
- * @param _trendmessage Message describing the glucose trend.
- * @param delta Change in glucose value since the last measurement.
- */
-void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color, uint16_t _glucose_value, String _trendarrow, String _trendmessage, int16_t delta);
 
 /**
  * @brief Checks the internet connection status.
