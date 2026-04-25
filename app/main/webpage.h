@@ -502,6 +502,9 @@ const char index_html[] PROGMEM = R"rawliteral(
                     opt.textContent = n.ssid + ' (' + n.rssi + ' dBm)';
                     sel.appendChild(opt);
                 });
+                // Pre-fill SSID field with first result so Add works without manual change
+                const ssidField = document.getElementById('wifiAddSsid');
+                if (ssidField && data.length) ssidField.value = data[0].ssid;
                 return;
             } catch(e) {
                 sel.innerHTML = '<option>Scan failed</option>';
