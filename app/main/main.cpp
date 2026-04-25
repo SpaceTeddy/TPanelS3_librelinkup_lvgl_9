@@ -221,6 +221,9 @@ WiFiMulti wifiMulti; ///< WiFi multi-connection manager
 /// WiFi connection timeout in milliseconds
 const uint32_t connectTimeoutMs = 5000;
 
+/// SSID of the network that last failed the internet check; skipped on next reconnect.
+static String g_wifi_skip_ssid;
+
 ///////////////////// INTERNET CONNECTIVITY ////////////////////
 
 
@@ -254,13 +257,13 @@ int app_check_internet_status(IPAddress ip, uint16_t port)
 void app_recover_offline()
 {
     DBGprint;
-    Serial.println("Client offline -> disconnect, wifiMulti will pick next best network");
-    logger.notice("Client offline -> forcing wifiMulti reconnect");
     esp_status_counter_wifi_restart++;
 
-    // Disconnect only — do NOT call WiFi.reconnect() here.
-    // The FSM's WIFI_CONNECT state will call setup_wifi() -> wifiMulti.run(),
-    // which scans all configured networks and picks the best available one.
+    // Remember the failing network so setup_wifi() skips it on the next attempt.
+    g_wifi_skip_ssid = WiFi.SSID();
+    logger.notice("Client offline on '%s' -> will try other networks first",
+                  g_wifi_skip_ssid.c_str());
+
     WiFi.disconnect(false);
     delay(500);
 }
@@ -1687,14 +1690,40 @@ void setup_wifi()
     WiFi.setTxPower(WIFI_POWER_11dBm);
     WiFi.setSleep(false);
 
-    // Add all configured networks; fall back to legacy fields if list is empty
-    if (!settings.config.wifi_networks.empty()) {
-        for (const auto& net : settings.config.wifi_networks)
-            wifiMulti.addAP(net.ssid.c_str(), net.password.c_str());
+    // Rebuild wifiMulti from scratch each call so we can skip the failing network.
+    wifiMulti = WiFiMulti();
+
+    auto add_networks = [&](bool skip_bad) {
+        int added = 0;
+        if (!settings.config.wifi_networks.empty()) {
+            for (const auto& net : settings.config.wifi_networks) {
+                if (skip_bad && net.ssid == g_wifi_skip_ssid) continue;
+                wifiMulti.addAP(net.ssid.c_str(), net.password.c_str());
+                added++;
+            }
+        } else {
+            if (!skip_bad || settings.config.wifi_bssid != g_wifi_skip_ssid) {
+                wifiMulti.addAP(settings.config.wifi_bssid.c_str(),
+                                settings.config.wifi_password.c_str());
+                added++;
+            }
+        }
+        return added;
+    };
+
+    // First try without the bad network; if nothing else is configured, use all.
+    if (g_wifi_skip_ssid.length() > 0) {
+        logger.notice("WiFi: skipping '%s' (no internet last time), trying others first",
+                      g_wifi_skip_ssid.c_str());
+        if (add_networks(true) == 0) {
+            logger.notice("WiFi: no alternative network available, retrying '%s'",
+                          g_wifi_skip_ssid.c_str());
+            add_networks(false);
+        }
     } else {
-        wifiMulti.addAP(settings.config.wifi_bssid.c_str(),
-                        settings.config.wifi_password.c_str());
+        add_networks(false);
     }
+    g_wifi_skip_ssid = ""; // clear after building the list
 
     DBGprint;
     Serial.println(F("connecting to Wifi..."));
