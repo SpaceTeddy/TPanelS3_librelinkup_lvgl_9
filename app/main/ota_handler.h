@@ -15,9 +15,7 @@
 
 #include <Arduino.h>
 
-extern String availableNetworks;
-
-void scanWiFiTask(void *parameter);
+String wifi_scan_now();
 uint8_t update_ota_progress_screen(int progress);
 void onOTAStart();
 void onOTAProgress(size_t current, size_t final);

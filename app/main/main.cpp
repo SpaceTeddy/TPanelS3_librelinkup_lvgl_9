@@ -82,7 +82,6 @@ TPanelS3 tpanels3; ///< TPanelS3 hardware interface instance
 
 ///////////////////// FREERTOS TASK HANDLES ////////////////////
 
-TaskHandle_t wifiScanHandle = NULL; ///< WiFi network scan background task
 TaskHandle_t LoopTaskHandle = NULL; ///< Main loop task handle
 TaskHandle_t LvglTaskHandle = NULL; ///< LVGL tick task handle
 

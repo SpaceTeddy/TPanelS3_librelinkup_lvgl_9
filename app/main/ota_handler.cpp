@@ -28,59 +28,45 @@
 extern bool              ota_in_progress;
 extern bool              g_ap_mode;
 extern TaskHandle_t      LvglTaskHandle;
-extern TaskHandle_t      wifiScanHandle;
 extern AsyncWebServer    server;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
-String availableNetworks;
-
 static volatile bool g_scan_in_progress = false;
 static uint32_t      ota_progress_millis = 0;
 
-void scanWiFiTask(void *parameter)
+String wifi_scan_now()
 {
-    (void)parameter;
-    for (;;)
+    if (ota_in_progress) return "[]";
+
+    g_scan_in_progress = true;
+    int n = WiFi.scanNetworks(false, false);
+
+    String json;
+    json.reserve(256);
+    json = "[";
+    bool first = true;
+    for (int i = 0; i < n; ++i)
     {
-        if (ota_in_progress) { vTaskDelay(pdMS_TO_TICKS(250)); continue; }
-
-        g_scan_in_progress = true;
-        int n = WiFi.scanNetworks(false, false);
-
-        String json;
-        json.reserve(256);
-        json = "[";
-        bool first = true;
-        for (int i = 0; i < n; ++i)
-        {
-            String ssid = WiFi.SSID(i);
-            if (ssid.length() == 0) continue;
-            if (!first) json += ",";
-            first = false;
-            json += "{\"ssid\":\"";
-            json += ssid;
-            json += "\",\"rssi\":";
-            json += String(WiFi.RSSI(i));
-            json += "}";
-        }
-        json += "]";
-        availableNetworks = json;
-        WiFi.scanDelete();
-        g_scan_in_progress = false;
-
-        vTaskDelay(pdMS_TO_TICKS(36000));
+        String ssid = WiFi.SSID(i);
+        if (ssid.length() == 0) continue;
+        if (!first) json += ",";
+        first = false;
+        json += "{\"ssid\":\"";
+        json += ssid;
+        json += "\",\"rssi\":";
+        json += String(WiFi.RSSI(i));
+        json += "}";
     }
+    json += "]";
+    WiFi.scanDelete();
+    g_scan_in_progress = false;
+    return json;
 }
 
 void setup_OTA(bool mode)
 {
     if (!mode) return;
-
-    if (!g_ap_mode)
-    {
-        xTaskCreatePinnedToCore(scanWiFiTask, "WiFi Scan Task", 4096, NULL, 1, &wifiScanHandle, 1);
-    }
 
     register_webpage_routes(server);
     ElegantOTA.begin(&server);
