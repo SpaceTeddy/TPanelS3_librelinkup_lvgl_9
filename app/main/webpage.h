@@ -245,15 +245,17 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     <div id="wifiNetworksList" style="margin-bottom:12px;"></div>
 
-    <div class="row" style="margin-bottom:10px;">
-        <button type="button" onclick="scanWifiForAdd()">Scan</button>
-        <select id="wifiScanSelect" style="flex:1;"></select>
-        <button type="button" onclick="addScannedNetwork()">+ Add scanned</button>
-    </div>
-    <div class="row" style="margin-bottom:10px;">
-        <input type="text" id="wifiAddSsid" placeholder="SSID (manual)" style="flex:1;">
-        <input type="password" id="wifiAddPassword" placeholder="Password" style="flex:1;">
-        <button type="button" onclick="addManualNetwork()">+ Add manual</button>
+    <div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px;">
+        <label style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;">Add network</label>
+        <div class="row" style="margin-top:8px;margin-bottom:8px;">
+            <input type="text" id="wifiAddSsid" placeholder="SSID" style="flex:1;">
+            <button type="button" onclick="scanWifiForAdd()">Scan</button>
+            <select id="wifiScanSelect" style="flex:1;" onchange="document.getElementById('wifiAddSsid').value=this.value"></select>
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+            <input type="password" id="wifiAddPassword" placeholder="Password (leave empty for open networks)" style="flex:1;">
+        </div>
+        <button type="button" onclick="addManualNetwork()">+ Add</button>
     </div>
     <div class="row">
         <button type="button" id="btnSaveWifi" onclick="saveWifiNetworks()">Save &amp; Reboot</button>
