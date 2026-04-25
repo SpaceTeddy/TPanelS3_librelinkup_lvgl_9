@@ -13,6 +13,8 @@
 #include <vector>
 #include "commands.h"
 
+#define WIFI_NETWORKS_MAX 5
+
 /**
  * @class SETTINGS
  * @brief Manages configuration settings for the ESP32 device.
@@ -38,16 +40,26 @@ class SETTINGS {
         const char* apPassword = "12345678";
 
         /**
+         * @struct WifiNetwork
+         * @brief A single WiFi credential entry (SSID + password).
+         */
+        struct WifiNetwork {
+            String ssid = "";
+            String password = "";
+        };
+
+        /**
          * @struct Config
          * @brief Structure to hold configuration settings.
-         * 
+         *
          * This structure contains user credentials, network settings, and device configuration parameters.
          */
         struct Config {
             String login_email = "";          /**< User's login email */
             String login_password = "";       /**< User's login password */
-            String wifi_bssid = "";           /**< Wi-Fi BSSID (MAC address of the access point) */
-            String wifi_password = "";        /**< Wi-Fi password */
+            String wifi_bssid = "";           /**< Wi-Fi BSSID (legacy, kept for migration) */
+            String wifi_password = "";        /**< Wi-Fi password (legacy, kept for migration) */
+            std::vector<WifiNetwork> wifi_networks; /**< List of known WiFi networks (max WIFI_NETWORKS_MAX) */
             int timezone = 0;                 /**< Timezone offset in hours */
             uint8_t ota_update = 1;           /**< Flag to enable/disable OTA updates (1 = enabled, 0 = disabled) */
             uint8_t wg_mode = 0;              /**< Flag to enable/disable WireGuard VPN (1 = enabled, 0 = disabled) */
@@ -72,6 +84,7 @@ class SETTINGS {
             String wgAllowedIPs = "";         /**< WireGuard allowed IPs */
 
             uint64_t sleep_timer = 3600000;   /**< Sleep timer in milliseconds (default: 1 hour) */
+            uint8_t ha_discovery = 1;         /**< Publish Home Assistant MQTT auto-discovery (1=on, 0=off) */
         };
 
         /**

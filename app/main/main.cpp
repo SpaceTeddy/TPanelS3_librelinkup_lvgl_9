@@ -1686,8 +1686,14 @@ void setup_wifi()
     WiFi.setTxPower(WIFI_POWER_11dBm);
     WiFi.setSleep(false);
 
-    wifiMulti.addAP(settings.config.wifi_bssid.c_str(),
-                    settings.config.wifi_password.c_str());
+    // Add all configured networks; fall back to legacy fields if list is empty
+    if (!settings.config.wifi_networks.empty()) {
+        for (const auto& net : settings.config.wifi_networks)
+            wifiMulti.addAP(net.ssid.c_str(), net.password.c_str());
+    } else {
+        wifiMulti.addAP(settings.config.wifi_bssid.c_str(),
+                        settings.config.wifi_password.c_str());
+    }
 
     DBGprint;
     Serial.println(F("connecting to Wifi..."));

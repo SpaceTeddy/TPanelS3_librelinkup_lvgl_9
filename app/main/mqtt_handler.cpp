@@ -51,6 +51,53 @@ static bool         g_allow_retained_once  = true;
 static bool         g_allow_raw_first      = true;
 static int64_t      g_last_raw_meas_epoch  = -1;
 
+void mqtt_publish_ha_discovery()
+{
+    if (!settings.config.ha_discovery) return;
+    if (!mqtt_client.connected()) return;
+
+    const String& dev_id   = mqtt.mqtt_client_name;   // unique per device
+    const String  dev_name = "LibreLinkUp " + dev_id;
+    const String  data_topic    = mqtt.mqtt_base + "/" + dev_id + mqtt.mqtt_client_data;
+    const String  network_topic = mqtt.mqtt_base + "/" + dev_id + mqtt.mqtt_client_network;
+    const String  ha_base       = "homeassistant/sensor/" + dev_id;
+
+    // Shared device block (built once, reused in all three payloads)
+    auto publish_entity = [&](const String& object_id,
+                               const String& name,
+                               const String& state_topic,
+                               const String& value_template,
+                               const String& unit,
+                               const String& device_class,
+                               const String& state_class) {
+        JsonDocument doc;
+        doc["name"]           = name;
+        doc["unique_id"]      = dev_id + "_" + object_id;
+        doc["state_topic"]    = state_topic;
+        doc["value_template"] = value_template;
+        if (unit.length())         doc["unit_of_measurement"] = unit;
+        if (device_class.length()) doc["device_class"]        = device_class;
+        if (state_class.length())  doc["state_class"]         = state_class;
+
+        JsonObject device = doc["device"].to<JsonObject>();
+        device["identifiers"][0] = dev_id;
+        device["name"]           = dev_name;
+        device["manufacturer"]   = "Custom ESP32";
+        device["model"]          = "T-Panel S3";
+
+        String payload;
+        serializeJson(doc, payload);
+        const String config_topic = ha_base + "_" + object_id + "/config";
+        mqtt_client.publish(config_topic.c_str(),
+                            (const uint8_t*)payload.c_str(), payload.length(), true);
+        logger.notice("HA discovery: %s", config_topic.c_str());
+    };
+
+    publish_entity("glucose",  "Glucose",     data_topic,    "{{ value_json.glucoseMeasurement }}", "mg/dL", "",               "measurement");
+    publish_entity("trend",    "Trend",        data_topic,    "{{ value_json.trendArrow }}",         "",      "",               "");
+    publish_entity("rssi",     "WiFi RSSI",    network_topic, "{{ value_json.RSSI }}",               "dBm",   "signal_strength", "measurement");
+}
+
 void mqtt_publish()
 {
     json_mqtt["glucoseMeasurement"] = librelinkup.glucose_data().glucoseMeasurement;
@@ -249,6 +296,7 @@ bool setup_mqtt()
     logger.notice("MQTT: connected");
     g_allow_retained_once = true;
     g_allow_raw_first     = true;
+    mqtt_publish_ha_discovery();
 
     const String subCmd = mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_toppic;
     const String subRaw = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id   + mqtt.mqtt_client_data;

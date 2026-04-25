@@ -240,23 +240,25 @@ const char index_html[] PROGMEM = R"rawliteral(
 </div>
 
 <div class="container">
-    <h2>WiFi Scan</h2>
-    <button onclick="scanWifi()">Scan WiFi Networks</button>
-    <ul id="wifi-list"></ul>
+    <h2>WiFi Networks</h2>
+    <p>Up to 5 networks. The device tries all of them on connect.</p>
 
-    <h2>Connect to WiFi</h2>
-    <form id="wifiConnectForm" action="/connect" method="post">
-        <label for="networks">Select Network:</label>
-        <select id="networks" name="networks"></select>
+    <div id="wifiNetworksList" style="margin-bottom:12px;"></div>
 
-        <label for="wifiSsidManual">SSID (manual override, optional):</label>
-        <input type="text" id="wifiSsidManual" placeholder="Type SSID here to override selection">
-        <div class="hint">Wenn dieses Feld gefuellt ist, wird es statt der Auswahl verwendet.</div>
-
-        <label for="wifiPassword">Password:</label>
-        <input type="password" id="wifiPassword" name="wifiPassword">
-        <input type="submit" value="Connect">
-    </form>
+    <div class="row" style="margin-bottom:10px;">
+        <button type="button" onclick="scanWifiForAdd()">Scan</button>
+        <select id="wifiScanSelect" style="flex:1;"></select>
+        <button type="button" onclick="addScannedNetwork()">+ Add scanned</button>
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="wifiAddSsid" placeholder="SSID (manual)" style="flex:1;">
+        <input type="password" id="wifiAddPassword" placeholder="Password" style="flex:1;">
+        <button type="button" onclick="addManualNetwork()">+ Add manual</button>
+    </div>
+    <div class="row">
+        <button type="button" id="btnSaveWifi" onclick="saveWifiNetworks()">Save &amp; Reboot</button>
+        <span id="wifiSaveStatus" class="pill"></span>
+    </div>
 </div>
 
 <div class="container">
@@ -286,6 +288,13 @@ const char index_html[] PROGMEM = R"rawliteral(
         <span class="switch-label">MQTT Master Mode</span>
         <label class="switch">
             <input type="checkbox" id="mqttMasterToggle" onchange="toggleFeature('mqtt_master_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <div class="switch-container">
+        <span class="switch-label">Home Assistant Discovery</span>
+        <label class="switch">
+            <input type="checkbox" id="haDiscoveryToggle" onchange="toggleFeature('ha_discovery', this.checked)">
             <span class="slider"></span>
         </label>
     </div>
@@ -419,28 +428,103 @@ const char index_html[] PROGMEM = R"rawliteral(
         document.getElementById('body').classList.toggle('dark-mode', isEnabled);
     }
 
-    function scanWifi() {
-        fetch('/scan')
-            .then(response => response.json())
-            .then(data => {
-                let wifiList = document.getElementById('wifi-list');
-                let networkSelect = document.getElementById('networks');
-                wifiList.innerHTML = '';
-                networkSelect.innerHTML = '';
+    // ---- Multi-WiFi management ----
+    let wifiNetworks = []; // [{ssid, password}]
 
-                data.forEach(network => {
-                    let li = document.createElement('li');
-                    li.textContent = `SSID: ${network.ssid}, Signal: ${network.rssi}`;
-                    wifiList.appendChild(li);
-
-                    let option = document.createElement('option');
-                    option.value = network.ssid;
-                    option.textContent = network.ssid;
-                    networkSelect.appendChild(option);
-                });
-            })
-            .catch(error => console.error('Error scanning WiFi:', error));
+    function renderWifiList() {
+        const container = document.getElementById('wifiNetworksList');
+        if (!container) return;
+        if (wifiNetworks.length === 0) {
+            container.innerHTML = '<p style="color:var(--muted);font-size:13px;">No networks saved yet.</p>';
+            return;
+        }
+        container.innerHTML = wifiNetworks.map((n, i) =>
+            `<div class="row" style="margin-bottom:6px;">
+               <span style="flex:1;">${escHtml(n.ssid)}</span>
+               <span style="color:var(--muted);font-size:13px;flex:1;">${n.password.length > 0 ? '••••••••' : '(open)'}</span>
+               <button type="button" onclick="removeNetwork(${i})">Remove</button>
+             </div>`
+        ).join('');
     }
+
+    function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function removeNetwork(i) {
+        wifiNetworks.splice(i, 1);
+        renderWifiList();
+    }
+
+    function addNetwork(ssid, password) {
+        ssid = (ssid || '').trim();
+        if (!ssid) { alert('SSID darf nicht leer sein.'); return; }
+        if (wifiNetworks.length >= 5) { alert('Maximal 5 Netzwerke möglich.'); return; }
+        if (wifiNetworks.find(n => n.ssid === ssid)) { alert('Dieses Netzwerk ist bereits in der Liste.'); return; }
+        wifiNetworks.push({ ssid, password: password || '' });
+        renderWifiList();
+    }
+
+    function addManualNetwork() {
+        const ssid = (document.getElementById('wifiAddSsid').value || '').trim();
+        const pw   = document.getElementById('wifiAddPassword').value || '';
+        addNetwork(ssid, pw);
+        document.getElementById('wifiAddSsid').value = '';
+        document.getElementById('wifiAddPassword').value = '';
+    }
+
+    function addScannedNetwork() {
+        const sel = document.getElementById('wifiScanSelect');
+        if (!sel || !sel.value) { alert('Bitte zuerst scannen und ein Netzwerk auswählen.'); return; }
+        const pw = document.getElementById('wifiAddPassword').value || '';
+        addNetwork(sel.value, pw);
+        document.getElementById('wifiAddPassword').value = '';
+    }
+
+    async function scanWifiForAdd() {
+        const sel = document.getElementById('wifiScanSelect');
+        if (!sel) return;
+        sel.innerHTML = '<option>Scanning…</option>';
+        try {
+            const data = await fetch('/scan').then(r => r.json());
+            sel.innerHTML = '';
+            data.forEach(n => {
+                const opt = document.createElement('option');
+                opt.value = n.ssid;
+                opt.textContent = `${n.ssid} (${n.rssi} dBm)`;
+                sel.appendChild(opt);
+            });
+        } catch(e) {
+            sel.innerHTML = '<option>Scan failed</option>';
+        }
+    }
+
+    async function saveWifiNetworks() {
+        const btn = document.getElementById('btnSaveWifi');
+        const status = document.getElementById('wifiSaveStatus');
+        if (btn) btn.disabled = true;
+        if (status) status.textContent = 'Saving…';
+        try {
+            const r = await fetch('/configureWiFiNetworks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ networks: wifiNetworks })
+            });
+            const data = await r.json();
+            if (r.ok) {
+                if (status) status.textContent = `Saved ${data.count} network(s). Rebooting…`;
+                setTimeout(() => { window.location.reload(); }, 3000);
+            } else {
+                if (status) status.textContent = 'Error: ' + (data.error || r.status);
+            }
+        } catch(e) {
+            if (status) status.textContent = 'Request failed.';
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    function scanWifi() { scanWifiForAdd(); } // legacy alias
 
     function toggleFeature(feature, isEnabled) {
         fetch(`/toggle?feature=${feature}&status=${isEnabled ? 1 : 0}`, { method: 'POST' })
@@ -641,9 +725,13 @@ const char index_html[] PROGMEM = R"rawliteral(
       setVal("username", cfg.login_email);
       setVal("password", cfg.login_password);
 
-      // WiFi: user requested wifi_bssid -> SSID/manual field
-      setVal("wifiSsidManual", cfg.wifi_bssid);
-      setVal("wifiPassword", cfg.wifi_password);
+      // Multi-WiFi: populate from wifi_networks array (or migrate legacy)
+      if (Array.isArray(cfg.wifi_networks) && cfg.wifi_networks.length > 0) {
+        wifiNetworks = cfg.wifi_networks.map(n => ({ ssid: n.ssid || '', password: n.password || '' }));
+      } else if (cfg.wifi_bssid) {
+        wifiNetworks = [{ ssid: cfg.wifi_bssid, password: cfg.wifi_password || '' }];
+      }
+      renderWifiList();
 
       // MQTT
       setVal("mqttServer", cfg.mqttServer);
@@ -665,6 +753,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       setCheck("wireguardToggle", cfg.wg_mode);
       setCheck("mqttToggle", cfg.mqtt_mode);
       setCheck("mqttMasterToggle", cfg.mqtt_master_mode);
+      setCheck("haDiscoveryToggle", cfg.ha_discovery !== undefined ? cfg.ha_discovery : 1);
 
       const bs = document.getElementById("brightnessSlider");
       const bv = document.getElementById("brightnessValue");
@@ -675,7 +764,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     }catch(e){}
   }
 
-  document.addEventListener("DOMContentLoaded", prefill);
+  document.addEventListener("DOMContentLoaded", () => { prefill(); renderWifiList(); });
 })();
 </script>
 

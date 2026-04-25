@@ -1615,6 +1615,9 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
     } else if (feature == "mqtt_master_mode") {
         settings.config.mqtt_master_mode = status;
         logger.notice("mqtt_master_mode: %d", settings.config.mqtt_master_mode);
+    } else if (feature == "ha_discovery") {
+        settings.config.ha_discovery = status;
+        logger.notice("ha_discovery: %d", settings.config.ha_discovery);
     } else {
         request->send(400, "application/json", "{\"error\": \"Unknown feature\"}");
         return;
@@ -1673,6 +1676,39 @@ static void handleConfigureWireGuard(AsyncWebServerRequest *request) {
     settings.saveConfiguration(settings.config_filename, settings.config);
 
     request->send(200, "application/json", "{\"status\": \"WireGuard configuration saved\"}");
+}
+
+static void handleConfigureWiFiNetworks(AsyncWebServerRequest *request) {
+    if (!request->hasParam("plain", true)) {
+        request->send(400, "application/json", "{\"error\":\"No body\"}");
+        return;
+    }
+    const String& body = request->getParam("plain", true)->value();
+
+    JsonDocument doc;
+    if (deserializeJson(doc, body) || !doc["networks"].is<JsonArray>()) {
+        request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        return;
+    }
+
+    settings.config.wifi_networks.clear();
+    for (JsonObject net : doc["networks"].as<JsonArray>()) {
+        if (settings.config.wifi_networks.size() >= WIFI_NETWORKS_MAX) break;
+        SETTINGS::WifiNetwork n;
+        n.ssid     = net["ssid"].as<String>();
+        n.password = net["password"].as<String>();
+        if (n.ssid.length() > 0)
+            settings.config.wifi_networks.push_back(n);
+    }
+    // Keep legacy fields in sync
+    if (!settings.config.wifi_networks.empty()) {
+        settings.config.wifi_bssid    = settings.config.wifi_networks[0].ssid;
+        settings.config.wifi_password = settings.config.wifi_networks[0].password;
+    }
+
+    settings.saveConfiguration(settings.config_filename, settings.config);
+    request->send(200, "application/json", "{\"status\":\"saved\",\"count\":" +
+                  String(settings.config.wifi_networks.size()) + "}");
 }
 
 static void handleConfigureMQTT(AsyncWebServerRequest *request) {
@@ -1935,6 +1971,7 @@ server.addHandler(&g_ws_telnet);
     server.on("/status",             HTTP_GET,  handleStatus);
     server.on("/toggle",             HTTP_POST, handleToggleFeature);
     server.on("/setBrightness",      HTTP_POST, handleSetBrightness);
-    server.on("/configureWireGuard", HTTP_POST, handleConfigureWireGuard);
-    server.on("/configureMQTT",      HTTP_POST, handleConfigureMQTT);
+    server.on("/configureWireGuard",   HTTP_POST, handleConfigureWireGuard);
+    server.on("/configureMQTT",        HTTP_POST, handleConfigureMQTT);
+    server.on("/configureWiFiNetworks", HTTP_POST, handleConfigureWiFiNetworks);
 }

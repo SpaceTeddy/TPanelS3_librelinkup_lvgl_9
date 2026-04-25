@@ -49,6 +49,15 @@ String web_get_config_json() {
   // WiFi / system
   out += "\"wifi_bssid\":\"" + json_escape(settings.config.wifi_bssid) + "\",";
   out += "\"wifi_password\":\"" + json_escape(settings.config.wifi_password) + "\",";
+
+  // Multi-WiFi networks array
+  out += "\"wifi_networks\":[";
+  for (size_t i = 0; i < settings.config.wifi_networks.size(); i++) {
+    if (i > 0) out += ",";
+    out += "{\"ssid\":\"" + json_escape(settings.config.wifi_networks[i].ssid) + "\",";
+    out += "\"password\":\"" + json_escape(settings.config.wifi_networks[i].password) + "\"}";
+  }
+  out += "],";
   out += "\"timezone\":" + String(settings.config.timezone) + ",";
   out += "\"ota_update\":" + String((int)settings.config.ota_update) + ",";
   out += "\"wg_mode\":" + String((int)settings.config.wg_mode) + ",";
@@ -72,7 +81,8 @@ String web_get_config_json() {
   out += "\"wgEndpointPort\":" + String((unsigned long)settings.config.wgEndpointPort) + ",";
   out += "\"wgAllowedIPs\":\"" + json_escape(settings.config.wgAllowedIPs) + "\",";
 
-  out += "\"sleep_timer\":" + String((unsigned long long)settings.config.sleep_timer);
+  out += "\"sleep_timer\":" + String((unsigned long long)settings.config.sleep_timer) + ",";
+  out += "\"ha_discovery\":" + String((int)settings.config.ha_discovery);
 
   out += "}";
   return out;

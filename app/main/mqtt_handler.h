@@ -19,3 +19,7 @@ void mqtt_publish();
 void update_mqtt_publish();
 void mqtt_callback(char *topic, byte *payload, unsigned int length);
 bool setup_mqtt();
+
+/** Publish Home Assistant MQTT auto-discovery payloads (retained).
+ *  Skipped when settings.config.ha_discovery == 0. */
+void mqtt_publish_ha_discovery();

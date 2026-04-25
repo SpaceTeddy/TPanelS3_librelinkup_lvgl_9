@@ -64,7 +64,28 @@ void SETTINGS::loadConfiguration(const char* filename, Config &config) {
     config.wgEndpointPort   = doc["wgEndpointPort"];
     config.wgAllowedIPs     = doc["wgAllowedIPs"].as<String>();
     config.sleep_timer      = doc["sleep_timer"];
-    
+    config.ha_discovery     = doc["ha_discovery"] | (uint8_t)1;
+
+    // Load wifi_networks array; migrate legacy fields if missing
+    config.wifi_networks.clear();
+    if (doc["wifi_networks"].is<JsonArray>()) {
+        for (JsonObject net : doc["wifi_networks"].as<JsonArray>()) {
+            if (config.wifi_networks.size() >= WIFI_NETWORKS_MAX) break;
+            SETTINGS::WifiNetwork n;
+            n.ssid     = net["ssid"].as<String>();
+            n.password = net["password"].as<String>();
+            if (n.ssid.length() > 0)
+                config.wifi_networks.push_back(n);
+        }
+    }
+    // Migration: if no wifi_networks entry yet, carry over legacy fields
+    if (config.wifi_networks.empty() && config.wifi_bssid.length() > 0) {
+        SETTINGS::WifiNetwork n;
+        n.ssid     = config.wifi_bssid;
+        n.password = config.wifi_password;
+        config.wifi_networks.push_back(n);
+    }
+
     file.close();
     doc.clear();
     
@@ -165,6 +186,19 @@ void SETTINGS::saveConfiguration(const char *filename, Config &config) {
     doc["wgEndpointPort"]   = config.wgEndpointPort;
     doc["wgAllowedIPs"]     = config.wgAllowedIPs.c_str();
     doc["sleep_timer"]      = config.sleep_timer;
+    doc["ha_discovery"]     = config.ha_discovery;
+
+    // Save wifi_networks array; keep legacy fields in sync with first entry
+    JsonArray nets = doc["wifi_networks"].to<JsonArray>();
+    for (const auto& n : config.wifi_networks) {
+        JsonObject o = nets.add<JsonObject>();
+        o["ssid"]     = n.ssid.c_str();
+        o["password"] = n.password.c_str();
+    }
+    if (!config.wifi_networks.empty()) {
+        doc["wifi_bssid"]    = config.wifi_networks[0].ssid.c_str();
+        doc["wifi_password"] = config.wifi_networks[0].password.c_str();
+    }
 
     // Serialize JSON to file
     if (serializeJson(doc, file) == 0) {
