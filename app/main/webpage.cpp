@@ -1678,16 +1678,20 @@ static void handleConfigureWireGuard(AsyncWebServerRequest *request) {
     request->send(200, "application/json", "{\"status\": \"WireGuard configuration saved\"}");
 }
 
-static void handleConfigureWiFiNetworks(AsyncWebServerRequest *request) {
-    if (!request->hasParam("plain", true)) {
-        request->send(400, "application/json", "{\"error\":\"No body\"}");
-        return;
-    }
-    const String& body = request->getParam("plain", true)->value();
+static String g_wifi_networks_body;
+
+static void handleConfigureWiFiNetworksBody(AsyncWebServerRequest *request,
+                                             uint8_t *data, size_t len,
+                                             size_t index, size_t total)
+{
+    if (index == 0) { g_wifi_networks_body = ""; g_wifi_networks_body.reserve(total); }
+    for (size_t i = 0; i < len; i++) g_wifi_networks_body += (char)data[i];
+    if (index + len < total) return;
 
     JsonDocument doc;
-    if (deserializeJson(doc, body) || !doc["networks"].is<JsonArray>()) {
+    if (deserializeJson(doc, g_wifi_networks_body) || !doc["networks"].is<JsonArray>()) {
         request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        g_wifi_networks_body = "";
         return;
     }
 
@@ -1700,15 +1704,17 @@ static void handleConfigureWiFiNetworks(AsyncWebServerRequest *request) {
         if (n.ssid.length() > 0)
             settings.config.wifi_networks.push_back(n);
     }
-    // Keep legacy fields in sync
     if (!settings.config.wifi_networks.empty()) {
         settings.config.wifi_bssid    = settings.config.wifi_networks[0].ssid;
         settings.config.wifi_password = settings.config.wifi_networks[0].password;
     }
 
     settings.saveConfiguration(settings.config_filename, settings.config);
+    g_wifi_networks_body = "";
+
     request->send(200, "application/json", "{\"status\":\"saved\",\"count\":" +
                   String(settings.config.wifi_networks.size()) + "}");
+    ESP.restart();
 }
 
 static void handleConfigureMQTT(AsyncWebServerRequest *request) {
@@ -1973,5 +1979,8 @@ server.addHandler(&g_ws_telnet);
     server.on("/setBrightness",      HTTP_POST, handleSetBrightness);
     server.on("/configureWireGuard",   HTTP_POST, handleConfigureWireGuard);
     server.on("/configureMQTT",        HTTP_POST, handleConfigureMQTT);
-    server.on("/configureWiFiNetworks", HTTP_POST, handleConfigureWiFiNetworks);
+    server.on("/configureWiFiNetworks", HTTP_POST,
+              [](AsyncWebServerRequest *request) {},
+              NULL,
+              handleConfigureWiFiNetworksBody);
 }

@@ -515,7 +515,6 @@ const char index_html[] PROGMEM = R"rawliteral(
             const data = await r.json();
             if (r.ok) {
                 if (status) status.textContent = `Saved ${data.count} network(s). Rebooting…`;
-                setTimeout(() => { window.location.reload(); }, 3000);
             } else {
                 if (status) status.textContent = 'Error: ' + (data.error || r.status);
             }
