@@ -441,7 +441,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         container.innerHTML = wifiNetworks.map((n, i) =>
             `<div class="row" style="margin-bottom:6px;">
                <span style="flex:1;">${escHtml(n.ssid)}</span>
-               <span style="color:var(--muted);font-size:13px;flex:1;">${n.password.length > 0 ? '••••••••' : '(open)'}</span>
+               <span style="color:var(--muted);font-size:13px;flex:1;">${n.password.length > 0 ? '********' : '(open)'}</span>
                <button type="button" onclick="removeNetwork(${i})">Remove</button>
              </div>`
         ).join('');
