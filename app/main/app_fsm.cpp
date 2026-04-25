@@ -48,6 +48,8 @@ extern void handle_internet_disconnection();
 // Internet health check (implemented in main.cpp)
 extern int app_check_internet_status(IPAddress ip, uint16_t port);
 extern void app_recover_offline();
+extern void start_ap_mode();
+extern bool g_force_ap_mode;
 
 // Backlight PWM
 extern void ledcWrite(uint8_t channel, uint32_t duty);
@@ -214,6 +216,11 @@ static bool ensure_wifi_connected(uint32_t timeout_ms)
 {
     if (wifi_ok())
         return true;
+
+    // AP mode is active — don't tear it down by calling setup_wifi().
+    // The user must reconfigure via 192.168.4.1 and the device will reboot.
+    if (g_force_ap_mode)
+        return false;
 
     setup_wifi();
 

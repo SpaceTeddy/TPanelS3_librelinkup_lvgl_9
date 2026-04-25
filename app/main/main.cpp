@@ -249,6 +249,8 @@ int app_check_internet_status(IPAddress ip, uint16_t port)
     return helper.check_internet_status(ip, port);
 }
 
+void start_ap_mode(); // defined later in this file
+
 /**
  * @brief Attempts to recover from internet disconnection by restarting WiFi
  *
@@ -259,13 +261,9 @@ void app_recover_offline()
     DBGprint;
     esp_status_counter_wifi_restart++;
 
-    // Remember the failing network so setup_wifi() skips it on the next attempt.
-    g_wifi_skip_ssid = WiFi.SSID();
-    logger.notice("Client offline on '%s' -> will try other networks first",
-                  g_wifi_skip_ssid.c_str());
-
-    WiFi.disconnect(false);
-    delay(500);
+    logger.notice("Client offline on '%s' -> starting AP mode for reconfiguration",
+                  WiFi.SSID().c_str());
+    start_ap_mode();
 }
 
 ///////////////////// MQTT CLIENT ////////////////////
@@ -1676,7 +1674,44 @@ void setup_load_system_config()
 
 // app/main/main.cpp
 
-bool g_ap_mode = false; // non-static: accessed from ota_handler.cpp
+bool g_ap_mode = false;       // non-static: accessed from ota_handler.cpp
+bool g_force_ap_mode = false; // set when internet check fails → stay in AP
+
+/**
+ * @brief Switches the device to AP-only mode so the user can reach the config page.
+ *
+ * Called when an internet check fails and no fallback network is available.
+ * Sets g_ap_mode and g_force_ap_mode so that ensure_wifi_connected() stops
+ * calling setup_wifi() and the FSM keeps cycling in BACKOFF while the AP lives.
+ */
+void start_ap_mode()
+{
+    g_ap_mode        = true;
+    g_force_ap_mode  = true;
+
+    WiFi.disconnect(true, true);
+    delay(100);
+    WiFi.mode(WIFI_AP);
+
+    IPAddress ip(192, 168, 4, 1), gw(192, 168, 4, 1), sn(255, 255, 255, 0);
+    WiFi.softAPConfig(ip, gw, sn);
+    WiFi.softAP(settings.apSSID, settings.apPassword);
+    const IPAddress ap_ip = WiFi.softAPIP();
+
+    DBGprint;
+    Serial.println("Access Point started, AP:");
+    Serial.println(settings.apSSID);
+    Serial.print("AP IP: ");
+    Serial.println(ap_ip);
+
+    String msg = "Wifi AP " + ap_ip.toString();
+    lv_label_set_text(ui_Label_WelcomeWifiInfo, msg.c_str());
+    lv_timer_handler();
+    delay(300);
+
+    // Rebind telnet server on the new AP interface so it's reachable at 192.168.4.1
+    telnet.start();
+}
 
 void setup_wifi()
 {
@@ -1764,32 +1799,7 @@ void setup_wifi()
     }
 
     // --- AP ONLY fallback -------------------------------------------------
-    g_ap_mode = true;
-
-    // Stop STA cleanly, then AP-only
-    WiFi.disconnect(true, true);
-    delay(100);
-    WiFi.mode(WIFI_AP);
-
-    // Optional: force AP IP (default is 192.168.4.1)
-    IPAddress ip(192, 168, 4, 1), gw(192, 168, 4, 1), sn(255, 255, 255, 0);
-    WiFi.softAPConfig(ip, gw, sn);
-
-    WiFi.softAP(settings.apSSID, settings.apPassword);
-    const IPAddress ap_ip = WiFi.softAPIP();
-
-    DBGprint;
-    Serial.println("Access Point started, AP:");
-    DBGprint;
-    Serial.println(settings.apSSID);
-    DBGprint;
-    Serial.print("AP IP: ");
-    Serial.println(ap_ip);
-
-    String msg = "Wifi AP " + ap_ip.toString();
-    lv_label_set_text(ui_Label_WelcomeWifiInfo, msg.c_str());
-    lv_timer_handler();
-    delay(300);
+    start_ap_mode();
 }
 
 /**

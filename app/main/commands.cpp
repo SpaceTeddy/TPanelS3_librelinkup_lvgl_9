@@ -39,7 +39,10 @@ extern HBA1C hba1c;
 extern HELPER helper;
 extern uint16_t telnet_port;
 
-extern int app_check_internet_status(IPAddress ip, uint16_t port);
+extern int  app_check_internet_status(IPAddress ip, uint16_t port);
+extern void start_ap_mode();
+extern void setup_wifi();
+extern bool g_force_ap_mode;
 
 //------------------------[uuid logger]-----------------------------------
 /** @brief Module logger instance. */
@@ -182,6 +185,34 @@ void WiFiSettingCommand(uuid::console::Shell &shell,
 
     settings.saveConfiguration(settings.config_filename, settings.config);
     setup_wifi();
+}
+
+/**
+ * @brief Handler for command: `wifi <ap|connect>`
+ * @param shell Shell output.
+ * @param arguments arguments[0]=ap|connect
+ *
+ * `wifi ap`      — immediately start AP mode (192.168.4.1).
+ * `wifi connect` — clear g_force_ap_mode and reconnect to saved networks.
+ */
+void wifiModeCommand(uuid::console::Shell &shell,
+                     const std::vector<std::string> &arguments)
+{
+    if (arguments.empty()) {
+        shell.printfln(F("Usage: wifi <ap|connect>"));
+        return;
+    }
+    String sub = arguments[0].c_str();
+    if (sub == "ap") {
+        shell.printfln(F("Switching to AP mode (192.168.4.1)..."));
+        start_ap_mode();
+    } else if (sub == "connect") {
+        shell.printfln(F("Clearing AP mode flag, reconnecting..."));
+        g_force_ap_mode = false;
+        setup_wifi();
+    } else {
+        shell.printfln(F("Usage: wifi <ap|connect>"));
+    }
 }
 
 /**
@@ -1055,6 +1086,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("log_level")}, uuid::flash_string_vector{F("<OFF|INFO|NOTICE|DEBUG|ALL>")}, LoglevelCommand);
     commands->add_command(uuid::flash_string_vector{F("config")}, uuid::flash_string_vector{F("<load|save>")}, configSettingCommand);
     commands->add_command(uuid::flash_string_vector{F("wifi_settings")}, uuid::flash_string_vector{F("<bssid>"), F("<password>")}, WiFiSettingCommand);
+    commands->add_command(uuid::flash_string_vector{F("wifi")}, uuid::flash_string_vector{F("<ap|connect>")}, wifiModeCommand);
     commands->add_command(uuid::flash_string_vector{F("timezone")}, uuid::flash_string_vector{F("<+/-hours>")}, timezoneCommand);
     commands->add_command(uuid::flash_string_vector{F("ota")}, uuid::flash_string_vector{F("<enable|disable>")}, otaSettingCommand);
     commands->add_command(uuid::flash_string_vector{F("trgb_brightness")}, uuid::flash_string_vector{F("<0-256>")}, trgbBrightnessCommand);
