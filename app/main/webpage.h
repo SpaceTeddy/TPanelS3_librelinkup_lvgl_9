@@ -486,26 +486,36 @@ const char index_html[] PROGMEM = R"rawliteral(
     async function scanWifiForAdd() {
         const sel = document.getElementById('wifiScanSelect');
         if (!sel) return;
-        sel.innerHTML = '<option>Scanning…</option>';
-        try {
-            const data = await fetch('/scan').then(r => r.json());
-            sel.innerHTML = '';
-            data.forEach(n => {
-                const opt = document.createElement('option');
-                opt.value = n.ssid;
-                opt.textContent = `${n.ssid} (${n.rssi} dBm)`;
-                sel.appendChild(opt);
-            });
-        } catch(e) {
-            sel.innerHTML = '<option>Scan failed</option>';
+        sel.innerHTML = '<option>Scanning...</option>';
+        for (let attempt = 0; attempt < 12; attempt++) {
+            try {
+                const data = await fetch('/scan', {cache:'no-store'}).then(r => r.json());
+                if (data.scanning) {
+                    await new Promise(r => setTimeout(r, 1500));
+                    continue;
+                }
+                sel.innerHTML = '';
+                if (!data.length) { sel.innerHTML = '<option>No networks found</option>'; return; }
+                data.forEach(n => {
+                    const opt = document.createElement('option');
+                    opt.value = n.ssid;
+                    opt.textContent = n.ssid + ' (' + n.rssi + ' dBm)';
+                    sel.appendChild(opt);
+                });
+                return;
+            } catch(e) {
+                sel.innerHTML = '<option>Scan failed</option>';
+                return;
+            }
         }
+        sel.innerHTML = '<option>Scan timeout</option>';
     }
 
     async function saveWifiNetworks() {
         const btn = document.getElementById('btnSaveWifi');
         const status = document.getElementById('wifiSaveStatus');
         if (btn) btn.disabled = true;
-        if (status) status.textContent = 'Saving…';
+        if (status) status.textContent = 'Saving...';
         try {
             const r = await fetch('/configureWiFiNetworks', {
                 method: 'POST',
@@ -514,7 +524,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             });
             const data = await r.json();
             if (r.ok) {
-                if (status) status.textContent = `Saved ${data.count} network(s). Rebooting…`;
+                if (status) status.textContent = 'Saved ' + data.count + ' network(s). Rebooting...';
             } else {
                 if (status) status.textContent = 'Error: ' + (data.error || r.status);
             }

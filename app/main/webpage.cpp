@@ -44,7 +44,6 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
 extern SETTINGS settings;
 extern TPanelS3 tpanels3;
-#include "ota_handler.h"
 
 extern LIBRELINKUP librelinkup;
 
@@ -1554,7 +1553,30 @@ static void handleLogin(AsyncWebServerRequest *request) {
 }
 
 static void handleScan(AsyncWebServerRequest *request) {
-    request->send(200, "application/json", wifi_scan_now());
+    int16_t n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_RUNNING) {
+        request->send(200, "application/json", "{\"scanning\":true}");
+        return;
+    }
+    if (n < 0) {
+        // No scan running — start one async and tell client to retry
+        WiFi.scanNetworks(true);
+        request->send(200, "application/json", "{\"scanning\":true}");
+        return;
+    }
+    // Scan complete — return results
+    String json = "[";
+    bool first = true;
+    for (int i = 0; i < n; ++i) {
+        String ssid = WiFi.SSID(i);
+        if (ssid.length() == 0) continue;
+        if (!first) json += ",";
+        first = false;
+        json += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+    }
+    json += "]";
+    WiFi.scanDelete();
+    request->send(200, "application/json", json);
 }
 
 static void handleConnect(AsyncWebServerRequest *request) {

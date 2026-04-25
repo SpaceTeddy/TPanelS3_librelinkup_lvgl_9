@@ -15,7 +15,6 @@
 
 #include <Arduino.h>
 
-String wifi_scan_now();
 uint8_t update_ota_progress_screen(int progress);
 void onOTAStart();
 void onOTAProgress(size_t current, size_t final);

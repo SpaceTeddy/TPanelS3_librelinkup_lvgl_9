@@ -32,37 +32,7 @@ extern AsyncWebServer    server;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
-static volatile bool g_scan_in_progress = false;
-static uint32_t      ota_progress_millis = 0;
-
-String wifi_scan_now()
-{
-    if (ota_in_progress) return "[]";
-
-    g_scan_in_progress = true;
-    int n = WiFi.scanNetworks(false, false);
-
-    String json;
-    json.reserve(256);
-    json = "[";
-    bool first = true;
-    for (int i = 0; i < n; ++i)
-    {
-        String ssid = WiFi.SSID(i);
-        if (ssid.length() == 0) continue;
-        if (!first) json += ",";
-        first = false;
-        json += "{\"ssid\":\"";
-        json += ssid;
-        json += "\",\"rssi\":";
-        json += String(WiFi.RSSI(i));
-        json += "}";
-    }
-    json += "]";
-    WiFi.scanDelete();
-    g_scan_in_progress = false;
-    return json;
-}
+static uint32_t ota_progress_millis = 0;
 
 void setup_OTA(bool mode)
 {
