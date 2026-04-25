@@ -254,13 +254,15 @@ int app_check_internet_status(IPAddress ip, uint16_t port)
 void app_recover_offline()
 {
     DBGprint;
-    Serial.println("Client offline -> reconnect to WiFi");
-    logger.notice("Client offline -> reconnect to WiFi");
+    Serial.println("Client offline -> disconnect, wifiMulti will pick next best network");
+    logger.notice("Client offline -> forcing wifiMulti reconnect");
     esp_status_counter_wifi_restart++;
 
-    WiFi.disconnect();
-    delay(2000);
-    WiFi.reconnect();
+    // Disconnect only — do NOT call WiFi.reconnect() here.
+    // The FSM's WIFI_CONNECT state will call setup_wifi() -> wifiMulti.run(),
+    // which scans all configured networks and picks the best available one.
+    WiFi.disconnect(false);
+    delay(500);
 }
 
 ///////////////////// MQTT CLIENT ////////////////////
