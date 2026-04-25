@@ -62,10 +62,6 @@ void onOTAStart()
     Serial.println("OTA update started!");
     logger.notice("OTA Update Progress has started");
 
-    const uint32_t t0 = millis();
-    while (g_scan_in_progress && (millis() - t0) < 2000)
-        vTaskDelay(pdMS_TO_TICKS(50));
-
     ota_in_progress = 1;
 
     if (lv_screen_active() != ui_FWUpdate_screen)
