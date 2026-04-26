@@ -37,6 +37,7 @@
 #include "tpanels3.h"
 #include "main.h"
 #include "http_update.h"
+#include "mqtt_handler.h"
 
 //------------------------[ uuid logger ]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -1594,7 +1595,7 @@ static void handleConnect(AsyncWebServerRequest *request) {
 }
 
 static void handleStatus(AsyncWebServerRequest *request) {
-    settings.loadConfiguration("/config.json", settings.config);
+    settings.loadConfiguration(settings.config_filename, settings.config);
 
     JsonDocument json_config;
     json_config["ota_update"] = settings.config.ota_update;
@@ -1637,9 +1638,11 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
     } else if (feature == "mqtt_master_mode") {
         settings.config.mqtt_master_mode = status;
         logger.notice("mqtt_master_mode: %d", settings.config.mqtt_master_mode);
+        mqtt_publish_ha_discovery();
     } else if (feature == "ha_discovery") {
         settings.config.ha_discovery = status;
         logger.notice("ha_discovery: %d", settings.config.ha_discovery);
+        mqtt_publish_ha_discovery();
     } else {
         request->send(400, "application/json", "{\"error\": \"Unknown feature\"}");
         return;

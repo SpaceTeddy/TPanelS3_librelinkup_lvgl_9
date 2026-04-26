@@ -4,7 +4,8 @@
  *
  * Implements connection management, topic subscription, JSON publishing
  * of device state and glucose data, and processing of incoming MQTT
- * commands (brightness, OTA server mode, WireGuard, MQTT mode, reset).
+ * commands (brightness, OTA server mode, WireGuard, MQTT mode,
+ * MQTT master mode, reset).
  *
  * In master mode the device publishes the full graph JSON to a shared
  * retained topic; in client mode it subscribes to that topic and ingests
@@ -61,7 +62,6 @@ struct HaSensor {
     const char *unit;
     const char *dev_class;
     const char *state_class;
-    bool        master_only;  // only published from the master device
 };
 
 struct HaSwitch {
@@ -75,13 +75,15 @@ struct HaSwitch {
 // ── HA discovery: entity tables ─────────────────────────────────────────────
 
 static const HaSensor k_ha_sensors[] = {
-    { "glucose",        "Glucose",          false, "{{ value_json.glucoseMeasurement }}", "mg/dL", "",               "measurement", true  },
-    { "trend",          "Trendarrow",       false, "{{ value_json.trendArrow }}",          "",      "",               "",            true  },
-    { "rssi",           "WiFi RSSI",        true,  "{{ value_json.RSSI }}",                "dBm",   "signal_strength", "measurement", true  },
-    { "lcd_brightness", "LCD Brightness",   false, "{{ value_json.brightness }}",          "",      "",               "measurement", false },
-    { "ota_state",      "OTA Server State", false, "{{ value_json.ota_server }}",          "",      "",               "",            false },
-    { "wg_state",       "WireGuard State",  false, "{{ value_json.wireguard_mode }}",      "",      "",               "",            false },
-    { "mqtt_state",     "MQTT State",       false, "{{ value_json.mqtt_mode }}",           "",      "",               "",            false },
+    { "glucose",          "Glucose",          false, "{{ value_json.glucoseMeasurement }}", "mg/dL", "",               "measurement" },
+    { "trend",            "Trendarrow",       false, "{{ value_json.trendStr | default(value_json.trendArrow) }}", "", "", "" },
+    { "trend_num",        "Trendarrow Value", false, "{{ value_json.trendArrow }}",                                 "", "", "measurement" },
+    { "rssi",             "WiFi RSSI",        true,  "{{ value_json.RSSI }}",               "dBm",   "signal_strength", "measurement" },
+    { "lcd_brightness",   "LCD Brightness",   false, "{{ value_json.brightness }}",         "",      "",               "measurement" },
+    { "ota_state",        "OTA Server State", false, "{{ value_json.ota_server }}",         "",      "",               "" },
+    { "wg_state",         "WireGuard State",  false, "{{ value_json.wireguard_mode }}",     "",      "",               "" },
+    { "mqtt_state",       "MQTT State",       false, "{{ value_json.mqtt_mode }}",          "",      "",               "" },
+    { "mqtt_master_state","MQTT Master State",false, "{{ value_json.mqtt_master_mode }}",   "",      "",               "" },
 };
 
 static const HaSwitch k_ha_switches[] = {
@@ -101,6 +103,10 @@ static const HaSwitch k_ha_switches[] = {
       "{\"cmd\":\"mqtt_mode\",\"parameter1\":1}",
       "{\"cmd\":\"mqtt_mode\",\"parameter1\":0}",
       "{{ value_json.mqtt_mode }}" },
+    { "mqtt_master_mode", "MQTT Master Mode",
+      "{\"cmd\":\"mqtt_master_mode\",\"parameter1\":1}",
+      "{\"cmd\":\"mqtt_master_mode\",\"parameter1\":0}",
+      "{{ value_json.mqtt_master_mode }}" },
 };
 
 // ── HA discovery: helper functions ──────────────────────────────────────────
@@ -130,11 +136,11 @@ static void ha_publish_doc(JsonDocument &doc, const char *ha_type,
 
 void mqtt_publish_ha_discovery()
 {
+    if (!settings.config.mqtt_mode)    return;
     if (!settings.config.ha_discovery) return;
-    if (!mqtt_client.connected()) return;
+    if (!mqtt_client.connected())      return;
 
     const char *dev_id = mqtt.mqtt_client_name.c_str();
-    const bool  master = (bool)settings.config.mqtt_master_mode;
 
     char data_topic[96], net_topic[96], cmd_topic[96], dev_name[64];
     snprintf(data_topic, sizeof(data_topic), "%s/%s%s",
@@ -148,7 +154,6 @@ void mqtt_publish_ha_discovery()
     // ── Sensors ──────────────────────────────────────────────────────────────
     for (size_t i = 0; i < sizeof(k_ha_sensors) / sizeof(k_ha_sensors[0]); i++) {
         const HaSensor *s = &k_ha_sensors[i];
-        if (s->master_only && !master) continue;
 
         JsonDocument doc;
         doc["name"]           = s->name;
@@ -208,12 +213,26 @@ void mqtt_publish_ha_discovery()
     }
 }
 
+static const char* trend_to_str(int t)
+{
+    switch (t) {
+        case 1: return "\xe2\x86\x93";        // ↓
+        case 2: return "\xe2\x86\x98";        // ↘
+        case 3: return "\xe2\x86\x92";        // →
+        case 4: return "\xe2\x86\x97";        // ↗
+        case 5: return "\xe2\x86\x91";        // ↑
+        default: return "?";
+    }
+}
+
 void mqtt_publish()
 {
     json_mqtt["glucoseMeasurement"] = librelinkup.glucose_data().glucoseMeasurement;
     json_mqtt["trendArrow"]         = librelinkup.glucose_data().trendArrow;
+    json_mqtt["trendStr"]           = trend_to_str(librelinkup.glucose_data().trendArrow);
     json_mqtt["brightness"]         = settings.config.brightness;
     json_mqtt["mqtt_mode"]          = settings.config.mqtt_mode;
+    json_mqtt["mqtt_master_mode"]   = settings.config.mqtt_master_mode;
     json_mqtt["ota_server"]         = settings.config.ota_update;
     json_mqtt["wireguard_mode"]     = settings.config.wg_mode;
 
@@ -356,6 +375,13 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         else if (strcmp(cmd, "mqtt_mode") == 0)
         {
             settings.config.mqtt_mode = (parameter1 == 1);
+            cmd_ok = true;
+        }
+        else if (strcmp(cmd, "mqtt_master_mode") == 0)
+        {
+            settings.config.mqtt_master_mode = (parameter1 == 1);
+            settings.saveConfiguration(settings.config_filename, settings.config);
+            mqtt_publish_ha_discovery();
             cmd_ok = true;
         }
 
