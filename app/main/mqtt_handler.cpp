@@ -51,51 +51,161 @@ static bool         g_allow_retained_once  = true;
 static bool         g_allow_raw_first      = true;
 static int64_t      g_last_raw_meas_epoch  = -1;
 
+// ── HA discovery: entity table types ────────────────────────────────────────
+
+struct HaSensor {
+    const char *obj_id;
+    const char *name;
+    bool        net_topic;    // true → network topic, false → data topic
+    const char *value_tmpl;
+    const char *unit;
+    const char *dev_class;
+    const char *state_class;
+    bool        master_only;  // only published from the master device
+};
+
+struct HaSwitch {
+    const char *obj_id;
+    const char *name;
+    const char *payload_on;
+    const char *payload_off;
+    const char *value_tmpl;   // rendered against data_topic
+};
+
+// ── HA discovery: entity tables ─────────────────────────────────────────────
+
+static const HaSensor k_ha_sensors[] = {
+    { "glucose",        "Glucose",          false, "{{ value_json.glucoseMeasurement }}", "mg/dL", "",               "measurement", true  },
+    { "trend",          "Trendarrow",       false, "{{ value_json.trendArrow }}",          "",      "",               "",            true  },
+    { "rssi",           "WiFi RSSI",        true,  "{{ value_json.RSSI }}",                "dBm",   "signal_strength", "measurement", true  },
+    { "lcd_brightness", "LCD Brightness",   false, "{{ value_json.brightness }}",          "",      "",               "measurement", false },
+    { "ota_state",      "OTA Server State", false, "{{ value_json.ota_server }}",          "",      "",               "",            false },
+    { "wg_state",       "WireGuard State",  false, "{{ value_json.wireguard_mode }}",      "",      "",               "",            false },
+    { "mqtt_state",     "MQTT State",       false, "{{ value_json.mqtt_mode }}",           "",      "",               "",            false },
+};
+
+static const HaSwitch k_ha_switches[] = {
+    { "brightness_sw", "Brightness",
+      "{\"cmd\":\"brightness\",\"parameter1\":255}",
+      "{\"cmd\":\"brightness\",\"parameter1\":0}",
+      "{% if value_json.brightness | int > 0 %}1{% else %}0{% endif %}" },
+    { "ota_server", "OTA Server",
+      "{\"cmd\":\"ota_server_mode\",\"parameter1\":1}",
+      "{\"cmd\":\"ota_server_mode\",\"parameter1\":0}",
+      "{{ value_json.ota_server }}" },
+    { "wg_mode", "WireGuard VPN",
+      "{\"cmd\":\"wg_mode\",\"parameter1\":1}",
+      "{\"cmd\":\"wg_mode\",\"parameter1\":0}",
+      "{{ value_json.wireguard_mode }}" },
+    { "mqtt_mode", "MQTT",
+      "{\"cmd\":\"mqtt_mode\",\"parameter1\":1}",
+      "{\"cmd\":\"mqtt_mode\",\"parameter1\":0}",
+      "{{ value_json.mqtt_mode }}" },
+};
+
+// ── HA discovery: helper functions ──────────────────────────────────────────
+
+static void ha_add_device(JsonDocument &doc, const char *dev_id, const char *dev_name)
+{
+    JsonObject d        = doc["device"].to<JsonObject>();
+    d["identifiers"][0] = dev_id;
+    d["name"]           = dev_name;
+    d["manufacturer"]   = "Custom ESP32";
+    d["model"]          = "T-Panel S3";
+}
+
+static void ha_publish_doc(JsonDocument &doc, const char *ha_type,
+                           const char *dev_id, const char *obj_id)
+{
+    char topic[128];
+    snprintf(topic, sizeof(topic),
+             "homeassistant/%s/%s_%s/config", ha_type, dev_id, obj_id);
+    String payload;
+    serializeJson(doc, payload);
+    mqtt_client.publish(topic, (const uint8_t *)payload.c_str(), payload.length(), true);
+    logger.notice("HA discovery: %s", topic);
+}
+
+// ── HA discovery: main publish function ─────────────────────────────────────
+
 void mqtt_publish_ha_discovery()
 {
     if (!settings.config.ha_discovery) return;
     if (!mqtt_client.connected()) return;
 
-    const String& dev_id   = mqtt.mqtt_client_name;   // unique per device
-    const String  dev_name = "LibreLinkUp " + dev_id;
-    const String  data_topic    = mqtt.mqtt_base + "/" + dev_id + mqtt.mqtt_client_data;
-    const String  network_topic = mqtt.mqtt_base + "/" + dev_id + mqtt.mqtt_client_network;
-    const String  ha_base       = "homeassistant/sensor/" + dev_id;
+    const char *dev_id = mqtt.mqtt_client_name.c_str();
+    const bool  master = (bool)settings.config.mqtt_master_mode;
 
-    // Shared device block (built once, reused in all three payloads)
-    auto publish_entity = [&](const String& object_id,
-                               const String& name,
-                               const String& state_topic,
-                               const String& value_template,
-                               const String& unit,
-                               const String& device_class,
-                               const String& state_class) {
+    char data_topic[96], net_topic[96], cmd_topic[96], dev_name[64];
+    snprintf(data_topic, sizeof(data_topic), "%s/%s%s",
+             mqtt.mqtt_base.c_str(), dev_id, mqtt.mqtt_client_data.c_str());
+    snprintf(net_topic,  sizeof(net_topic),  "%s/%s%s",
+             mqtt.mqtt_base.c_str(), dev_id, mqtt.mqtt_client_network.c_str());
+    snprintf(cmd_topic,  sizeof(cmd_topic),  "%s/%s%s",
+             mqtt.mqtt_base.c_str(), dev_id, mqtt.mqtt_subscibe_toppic.c_str());
+    snprintf(dev_name,   sizeof(dev_name),   "LibreLinkUp %s", dev_id);
+
+    // ── Sensors ──────────────────────────────────────────────────────────────
+    for (size_t i = 0; i < sizeof(k_ha_sensors) / sizeof(k_ha_sensors[0]); i++) {
+        const HaSensor *s = &k_ha_sensors[i];
+        if (s->master_only && !master) continue;
+
         JsonDocument doc;
-        doc["name"]           = name;
-        doc["unique_id"]      = dev_id + "_" + object_id;
-        doc["state_topic"]    = state_topic;
-        doc["value_template"] = value_template;
-        if (unit.length())         doc["unit_of_measurement"] = unit;
-        if (device_class.length()) doc["device_class"]        = device_class;
-        if (state_class.length())  doc["state_class"]         = state_class;
+        doc["name"]           = s->name;
+        doc["unique_id"]      = String(dev_id) + "_" + s->obj_id;
+        doc["state_topic"]    = s->net_topic ? net_topic : data_topic;
+        doc["value_template"] = s->value_tmpl;
+        if (s->unit[0])       doc["unit_of_measurement"] = s->unit;
+        if (s->dev_class[0])  doc["device_class"]        = s->dev_class;
+        if (s->state_class[0])doc["state_class"]         = s->state_class;
+        ha_add_device(doc, dev_id, dev_name);
+        ha_publish_doc(doc, "sensor", dev_id, s->obj_id);
+    }
 
-        JsonObject device = doc["device"].to<JsonObject>();
-        device["identifiers"][0] = dev_id;
-        device["name"]           = dev_name;
-        device["manufacturer"]   = "Custom ESP32";
-        device["model"]          = "T-Panel S3";
+    // ── Switches ─────────────────────────────────────────────────────────────
+    for (size_t i = 0; i < sizeof(k_ha_switches) / sizeof(k_ha_switches[0]); i++) {
+        const HaSwitch *sw = &k_ha_switches[i];
 
-        String payload;
-        serializeJson(doc, payload);
-        const String config_topic = ha_base + "_" + object_id + "/config";
-        mqtt_client.publish(config_topic.c_str(),
-                            (const uint8_t*)payload.c_str(), payload.length(), true);
-        logger.notice("HA discovery: %s", config_topic.c_str());
-    };
+        JsonDocument doc;
+        doc["name"]           = sw->name;
+        doc["unique_id"]      = String(dev_id) + "_" + sw->obj_id;
+        doc["command_topic"]  = cmd_topic;
+        doc["payload_on"]     = sw->payload_on;
+        doc["payload_off"]    = sw->payload_off;
+        doc["state_topic"]    = data_topic;
+        doc["value_template"] = sw->value_tmpl;
+        doc["state_on"]       = "1";
+        doc["state_off"]      = "0";
+        ha_add_device(doc, dev_id, dev_name);
+        ha_publish_doc(doc, "switch", dev_id, sw->obj_id);
+    }
 
-    publish_entity("glucose",  "Glucose",     data_topic,    "{{ value_json.glucoseMeasurement }}", "mg/dL", "",               "measurement");
-    publish_entity("trend",    "Trend",        data_topic,    "{{ value_json.trendArrow }}",         "",      "",               "");
-    publish_entity("rssi",     "WiFi RSSI",    network_topic, "{{ value_json.RSSI }}",               "dBm",   "signal_strength", "measurement");
+    // ── Number (brightness slider) ────────────────────────────────────────────
+    {
+        JsonDocument doc;
+        doc["name"]             = "Brightness slider";
+        doc["unique_id"]        = String(dev_id) + "_brightness";
+        doc["command_topic"]    = cmd_topic;
+        doc["command_template"] = "{\"cmd\":\"brightness\",\"parameter1\":{{ value | int }}}";
+        doc["min"]              = 0;
+        doc["max"]              = 255;
+        doc["step"]             = 1;
+        doc["state_topic"]      = data_topic;
+        doc["value_template"]   = "{{ value_json.brightness }}";
+        ha_add_device(doc, dev_id, dev_name);
+        ha_publish_doc(doc, "number", dev_id, "brightness");
+    }
+
+    // ── Button (reset) ────────────────────────────────────────────────────────
+    {
+        JsonDocument doc;
+        doc["name"]          = "Reset";
+        doc["unique_id"]     = String(dev_id) + "_reset";
+        doc["command_topic"] = cmd_topic;
+        doc["payload_press"] = "{\"cmd\":\"reset\",\"parameter1\":0}";
+        ha_add_device(doc, dev_id, dev_name);
+        ha_publish_doc(doc, "button", dev_id, "reset");
+    }
 }
 
 void mqtt_publish()
