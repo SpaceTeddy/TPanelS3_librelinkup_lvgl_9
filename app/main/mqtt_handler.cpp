@@ -20,8 +20,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
-#include <ElegantOTA.h>
-#include <ESPAsyncWebServer.h>
 #include <librelinkup.h>
 #include <uuid/log.h>
 
@@ -42,7 +40,6 @@ extern IPAddress         local_ip;
 extern AppFsm            g_fsm;
 extern bool              flag_mqtt_master_rx;
 extern uint64_t          config_sleep_timer_backup;
-extern AsyncWebServer    server;
 extern TPanelS3          tpanels3;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -351,20 +348,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         }
         else if (strcmp(cmd, "ota_server_mode") == 0)
         {
-            if (parameter1 == 1)
-            {
-                settings.config.ota_update = 1;
-                server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-                    request->send(200, "text/plain", "ESP32 LibreLinkup Client");
-                });
-                ElegantOTA.begin(&server);
-                server.begin();
-            }
-            else
-            {
-                settings.config.ota_update = 0;
-                server.end();
-            }
+            settings.config.ota_update = (parameter1 == 1);
             cmd_ok = true;
         }
         else if (strcmp(cmd, "wg_mode") == 0)
