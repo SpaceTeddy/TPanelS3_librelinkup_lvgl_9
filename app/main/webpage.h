@@ -163,13 +163,13 @@ const char index_html[] PROGMEM = R"rawliteral(
   }
   .switch-label{
     color: var(--fg);
-    font-weight: 600;
+    font-weight: 400;
   }
   .switch{
     position: relative;
     display: inline-block;
-    width: 52px;
-    height: 30px;
+    width: 36px;
+    height: 20px;
     flex: 0 0 auto;
   }
   .switch input{
@@ -189,7 +189,7 @@ const char index_html[] PROGMEM = R"rawliteral(
   .slider:before{
     position:absolute;
     content:"";
-    height:24px; width:24px;
+    height:14px; width:14px;
     left:3px; top:50%;
     transform: translateY(-50%);
     background: var(--card);
@@ -202,7 +202,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     border-color: rgba(0,0,0,0);
   }
   input:checked + .slider:before{
-    transform: translate(22px,-50%);
+    transform: translate(16px,-50%);
     border-color: rgba(0,0,0,0);
   }
 
