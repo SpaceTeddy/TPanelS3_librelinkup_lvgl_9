@@ -330,21 +330,21 @@ const char index_html[] PROGMEM = R"rawliteral(
 <div class="container">
     <h2>MQTT Configuration</h2>
     <div class="switch-container">
-        <span class="switch-label">MQTT</span>
+        <span class="switch-label">MQTT <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enable general MQTT functionality)</span></span>
         <label class="switch">
             <input type="checkbox" id="mqttToggle" onchange="toggleFeature('mqtt_mode', this.checked)">
             <span class="slider"></span>
         </label>
     </div>
     <div class="switch-container">
-        <span class="switch-label">MQTT Master Mode</span>
+        <span class="switch-label">MQTT Master Mode <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enabled: ESP32 fetches LibreLinkUp data and publishes to MQTT; disabled: LLU data is provided by external source)</span></span>
         <label class="switch">
             <input type="checkbox" id="mqttMasterToggle" onchange="toggleFeature('mqtt_master_mode', this.checked)">
             <span class="slider"></span>
         </label>
     </div>
     <div class="switch-container">
-        <span class="switch-label">Home Assistant Discovery</span>
+        <span class="switch-label">Home Assistant Discovery <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(ESP32 device is announced to Home Assistant via MQTT Auto-Discovery)</span></span>
         <label class="switch">
             <input type="checkbox" id="haDiscoveryToggle" onchange="toggleFeature('ha_discovery', this.checked)">
             <span class="slider"></span>
