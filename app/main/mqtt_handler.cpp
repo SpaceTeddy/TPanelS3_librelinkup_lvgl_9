@@ -113,11 +113,12 @@ static const HaSwitch k_ha_switches[] = {
 
 static void ha_add_device(JsonDocument &doc, const char *dev_id, const char *dev_name)
 {
-    JsonObject d        = doc["device"].to<JsonObject>();
-    d["identifiers"][0] = dev_id;
-    d["name"]           = dev_name;
-    d["manufacturer"]   = "Custom ESP32";
-    d["model"]          = "T-Panel S3";
+    JsonObject d           = doc["device"].to<JsonObject>();
+    d["identifiers"][0]    = dev_id;
+    d["name"]              = dev_name;
+    d["manufacturer"]      = "Custom ESP32";
+    d["model"]             = "T-Panel S3";
+    d["configuration_url"] = String("http://") + WiFi.localIP().toString();
 }
 
 static void ha_publish_doc(JsonDocument &doc, const char *ha_type,
