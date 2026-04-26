@@ -264,43 +264,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 </div>
 
 <div class="container">
-    <h2>Feature Settings</h2>
-    <div class="switch-container">
-        <span class="switch-label">OTA Update</span>
-        <label class="switch">
-            <input type="checkbox" id="otaToggle" onchange="toggleFeature('ota_update', this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
-    <div class="switch-container">
-        <span class="switch-label">WireGuard</span>
-        <label class="switch">
-            <input type="checkbox" id="wireguardToggle" onchange="toggleFeature('wg_mode', this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
-    <div class="switch-container">
-        <span class="switch-label">MQTT</span>
-        <label class="switch">
-            <input type="checkbox" id="mqttToggle" onchange="toggleFeature('mqtt_mode', this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
-    <div class="switch-container">
-        <span class="switch-label">MQTT Master Mode</span>
-        <label class="switch">
-            <input type="checkbox" id="mqttMasterToggle" onchange="toggleFeature('mqtt_master_mode', this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
-    <div class="switch-container">
-        <span class="switch-label">Home Assistant Discovery</span>
-        <label class="switch">
-            <input type="checkbox" id="haDiscoveryToggle" onchange="toggleFeature('ha_discovery', this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
-
+    <h2>Brightness</h2>
     <div class="brightness-container">
         <div class="brightness-label">Brightness: <span id="brightnessValue">50</span></div>
         <input type="range" id="brightnessSlider" min="0" max="255" value="50" oninput="updateBrightness(this.value)">
@@ -309,6 +273,13 @@ const char index_html[] PROGMEM = R"rawliteral(
 
 <div class="container">
     <h2>Firmware Update</h2>
+    <div class="switch-container">
+        <span class="switch-label">OTA Update</span>
+        <label class="switch">
+            <input type="checkbox" id="otaToggle" onchange="toggleFeature('ota_update', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
     <p class="hint">Checks GitHub manifest for a newer firmware and installs it after confirmation.</p>
     <div class="row" style="margin-bottom:10px;">
         <button type="button" id="btnCheck" onclick="checkFirmwareUpdate()">Check now</button>
@@ -323,6 +294,13 @@ const char index_html[] PROGMEM = R"rawliteral(
 
 <div class="container">
     <h2>WireGuard Configuration</h2>
+    <div class="switch-container">
+        <span class="switch-label">WireGuard</span>
+        <label class="switch">
+            <input type="checkbox" id="wireguardToggle" onchange="toggleFeature('wg_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
     <form id="wireguardForm">
         <label for="wgPrivateKey">Private Key:</label>
         <input type="text" id="wgPrivateKey" name="wgPrivateKey">
@@ -351,6 +329,27 @@ const char index_html[] PROGMEM = R"rawliteral(
 
 <div class="container">
     <h2>MQTT Configuration</h2>
+    <div class="switch-container">
+        <span class="switch-label">MQTT</span>
+        <label class="switch">
+            <input type="checkbox" id="mqttToggle" onchange="toggleFeature('mqtt_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <div class="switch-container">
+        <span class="switch-label">MQTT Master Mode</span>
+        <label class="switch">
+            <input type="checkbox" id="mqttMasterToggle" onchange="toggleFeature('mqtt_master_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <div class="switch-container">
+        <span class="switch-label">Home Assistant Discovery</span>
+        <label class="switch">
+            <input type="checkbox" id="haDiscoveryToggle" onchange="toggleFeature('ha_discovery', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
     <form id="mqttForm">
         <label for="mqttServer">Server Address:</label>
         <input type="text" id="mqttServer" name="mqttServer">
