@@ -117,7 +117,8 @@ static void ha_add_device(JsonDocument &doc, const char *dev_id, const char *dev
     d["manufacturer"]      = "ESP32";
     d["model"]             = "LibreLinkUp Client";
     d["sw_version"]        = fw_update_get_current_version();
-    d["configuration_url"] = String("http://") + WiFi.localIP().toString();
+    d["configuration_url"] = String("http://") +
+        (settings.config.wg_mode == 1 ? local_ip.toString() : WiFi.localIP().toString());
 }
 
 static void ha_publish_doc(JsonDocument &doc, const char *ha_type,
