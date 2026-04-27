@@ -584,6 +584,17 @@ const char* fw_update_get_latest_version() {
     return g_fw_update.latest_version.c_str();
 }
 
+const char* fw_update_get_current_version() {
+    return APP_FIRMWARE_VERSION;
+}
+
+bool fw_update_is_update_available() {
+    if (!fw_update_lock()) return false;
+    bool available = g_fw_update.update_available;
+    fw_update_unlock();
+    return available;
+}
+
 /**
  * @brief Query whether a firmware operation is due on the next poll tick.
  *
