@@ -90,9 +90,8 @@ jobs:
           if [ -n "$LATEST_TAG" ]; then
             echo "Restoring prod from release ${LATEST_TAG}..."
             gh release download "$LATEST_TAG" \
-              --asset "firmware-${ENV_NAME}.bin" \
-              --output dist/ota/firmware.bin \
-              --clobber
+              -p "firmware-${ENV_NAME}.bin" \
+              -O dist/ota/firmware.bin
             printf '{\n  "version": "%s",\n  "url": "%s/ota/firmware.bin"\n}\n' \
               "$LATEST_VERSION" "$BASE_URL" > dist/ota/manifest.json
           else
