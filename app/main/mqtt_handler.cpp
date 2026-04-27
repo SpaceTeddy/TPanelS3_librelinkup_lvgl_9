@@ -29,6 +29,7 @@
 #include "app_fsm.h"
 #include "tpanels3.h"
 #include "main.h"
+#include "http_update.h"
 
 extern MQTT              mqtt;
 extern PubSubClient      mqtt_client;
@@ -115,6 +116,7 @@ static void ha_add_device(JsonDocument &doc, const char *dev_id, const char *dev
     d["name"]              = dev_name;
     d["manufacturer"]      = "ESP32";
     d["model"]             = "LibreLinkUp Client";
+    d["sw_version"]        = fw_update_get_current_version();
     d["configuration_url"] = String("http://") + WiFi.localIP().toString();
 }
 
@@ -209,6 +211,33 @@ void mqtt_publish_ha_discovery()
         ha_add_device(doc, dev_id, dev_name);
         ha_publish_doc(doc, "button", dev_id, "reset");
     }
+
+    // ── Update (firmware) ─────────────────────────────────────────────────────
+    {
+        JsonDocument doc;
+        doc["name"]                    = "Firmware";
+        doc["unique_id"]               = String(dev_id) + "_firmware";
+        doc["state_topic"]             = data_topic;
+        doc["value_template"]          = "{{ value_json.fw_installed }}";
+        doc["latest_version_topic"]    = data_topic;
+        doc["latest_version_template"] = "{{ value_json.fw_latest }}";
+        doc["command_topic"]           = cmd_topic;
+        doc["payload_install"]         = "{\"cmd\":\"fw_install\",\"parameter1\":0}";
+        doc["device_class"]            = "firmware";
+        ha_add_device(doc, dev_id, dev_name);
+        ha_publish_doc(doc, "update", dev_id, "firmware");
+    }
+
+    // ── Button (check for firmware update) ───────────────────────────────────
+    {
+        JsonDocument doc;
+        doc["name"]          = "Check for Update";
+        doc["unique_id"]     = String(dev_id) + "_fw_check";
+        doc["command_topic"] = cmd_topic;
+        doc["payload_press"] = "{\"cmd\":\"fw_check\",\"parameter1\":0}";
+        ha_add_device(doc, dev_id, dev_name);
+        ha_publish_doc(doc, "button", dev_id, "fw_check");
+    }
 }
 
 static const char* trend_to_str(int t)
@@ -233,6 +262,8 @@ void mqtt_publish()
     json_mqtt["mqtt_master_mode"]   = settings.config.mqtt_master_mode;
     json_mqtt["ota_server"]         = settings.config.ota_update;
     json_mqtt["wireguard_mode"]     = settings.config.wg_mode;
+    json_mqtt["fw_installed"]       = fw_update_get_current_version();
+    json_mqtt["fw_latest"]          = fw_update_get_latest_version();
 
     serializeJson(json_mqtt, mqtt.mqtt_buffer);
     json_mqtt.clear();
@@ -368,6 +399,16 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
             settings.saveConfiguration(settings.config_filename, settings.config);
             mqtt_publish_ha_discovery();
             cmd_ok = true;
+        }
+        else if (strcmp(cmd, "fw_check") == 0)
+        {
+            fw_update_request_check_now();
+            cmd_ok = true;
+        }
+        else if (strcmp(cmd, "fw_install") == 0)
+        {
+            String msg;
+            cmd_ok = fw_update_request_install(msg);
         }
 
         json_mqtt.clear();

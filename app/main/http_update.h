@@ -52,6 +52,16 @@ const char* fw_update_get_status();
 const char* fw_update_get_latest_version();
 
 /**
+ * @brief Returns the current firmware version string (compile-time constant).
+ */
+const char* fw_update_get_current_version();
+
+/**
+ * @brief Returns true if a firmware update is available.
+ */
+bool fw_update_is_update_available();
+
+/**
  * @brief Returns the pending operation type for FSM integration.
  * @return 0=none, 1=check due, 2=install due
  */
