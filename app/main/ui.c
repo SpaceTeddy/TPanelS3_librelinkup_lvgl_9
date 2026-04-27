@@ -38,6 +38,7 @@ lv_obj_t * ui_Label_GlucoseTrendMessage;
 // Main screen - Status indicators
 lv_obj_t * ui_Label_LiebreViewAPIActivity;
 lv_obj_t * ui_Label_ESP32Connectivity;
+lv_obj_t * ui_Label_FWUpdateHint = NULL;
 
 // Firmware update elements
 lv_obj_t * ui_Label_FWUpdateInfo;
@@ -638,6 +639,14 @@ void ui_Main_screen_init(void)
 
     // Initialize sensor validity progress bars
     create_all_sensor_valid_progress_bars();
+
+    // Firmware update hint label (hidden by default, shown when update is available)
+    ui_Label_FWUpdateHint = create_styled_label(ui_Main_screen, &JetBrainsMonoLight16,
+                                                 0x4488FF, 400, LV_ALIGN_CENTER, 0, 228);
+    if (ui_Label_FWUpdateHint != NULL) {
+        lv_label_set_text(ui_Label_FWUpdateHint, "");
+        lv_obj_add_flag(ui_Label_FWUpdateHint, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 /**

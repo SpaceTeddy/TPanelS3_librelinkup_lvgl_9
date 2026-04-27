@@ -1180,7 +1180,7 @@ const msVal = (cfg.mqtt_master_mode ?? 0);
 const brVal = (cfg.brightness ?? "--");
 const onOff = (v)=> (Number(v) ? "ON" : "OFF");
 const cfgLines = [
-  `OTA: ${onOff(cfg.ota_update ?? 0)} | Channel: ${(cfg.ota_staging ?? 0) ? "Staging" : "Release"}`,
+  `OTA: ${onOff(cfg.ota_update ?? 0)} | Channel: ${(cfg.ota_staging ?? 0) ? "Staging" : "Release"} | Force: ${onOff(cfg.ota_force ?? 0)}`,
   `WG: ${onOff(cfg.wg_mode ?? 0)}`,
   `MQTT: ${onOff(cfg.mqtt_mode ?? 0)}`,
   `Master: ${onOff(cfg.mqtt_master_mode ?? 0)}`,
@@ -1454,6 +1454,7 @@ if (librelinkup.login_data().user_token.length() > 10) {
     JsonObject cfg = doc["config"].to<JsonObject>();
     cfg["ota_update"]  = settings.config.ota_update;
     cfg["ota_staging"] = settings.config.ota_staging;
+    cfg["ota_force"]   = settings.config.ota_force;
     cfg["wg_mode"] = settings.config.wg_mode;
     cfg["mqtt_mode"] = settings.config.mqtt_mode;
     cfg["mqtt_master_mode"] = settings.config.mqtt_master_mode;
@@ -1601,6 +1602,7 @@ static void handleStatus(AsyncWebServerRequest *request) {
     JsonDocument json_config;
     json_config["ota_update"]        = settings.config.ota_update;
     json_config["ota_staging"]       = settings.config.ota_staging;
+    json_config["ota_force"]         = settings.config.ota_force;
     json_config["wg_mode"]           = settings.config.wg_mode;
     json_config["mqtt_mode"]         = settings.config.mqtt_mode;
     json_config["mqtt_master_mode"]  = settings.config.mqtt_master_mode;
@@ -1628,6 +1630,12 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
     } else if (feature == "ota_staging") {
         settings.config.ota_staging = status;
         logger.notice("OTA_Staging: %d", settings.config.ota_staging);
+        fw_update_request_check_now();
+        settings.saveConfiguration(settings.config_filename, settings.config);
+
+    } else if (feature == "ota_force") {
+        settings.config.ota_force = status;
+        logger.notice("OTA_Force: %d", settings.config.ota_force);
         fw_update_request_check_now();
         settings.saveConfiguration(settings.config_filename, settings.config);
 

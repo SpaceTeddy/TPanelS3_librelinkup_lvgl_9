@@ -16,6 +16,7 @@
 #include "mqtt.h"
 #include "main.h"
 #include "http_update.h"
+#include "ui_display.h"
 
 
 //------------------------[uuid logger]-----------------------------------
@@ -457,8 +458,10 @@ void app_fsm_poll(AppFsm &fsm)
 
     fw_update_poll();
 
-    if (fw_pending > 0)
+    if (fw_pending > 0) {
         enter_state(fsm, pre_fw_state, fw_update_get_status());
+        ui_update_fw_hint();
+    }
 
     if (ota_in_progress)
     {

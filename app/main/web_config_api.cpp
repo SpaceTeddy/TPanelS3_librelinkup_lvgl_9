@@ -83,7 +83,8 @@ String web_get_config_json() {
 
   out += "\"sleep_timer\":" + String((unsigned long long)settings.config.sleep_timer) + ",";
   out += "\"ha_discovery\":" + String((int)settings.config.ha_discovery) + ",";
-  out += "\"ota_staging\":" + String((int)settings.config.ota_staging);
+  out += "\"ota_staging\":" + String((int)settings.config.ota_staging) + ",";
+  out += "\"ota_force\":" + String((int)settings.config.ota_force);
 
   out += "}";
   return out;

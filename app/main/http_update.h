@@ -47,6 +47,11 @@ bool fw_update_request_install(String& message);
 const char* fw_update_get_status();
 
 /**
+ * @brief Returns the latest available firmware version string from the manifest.
+ */
+const char* fw_update_get_latest_version();
+
+/**
  * @brief Returns the pending operation type for FSM integration.
  * @return 0=none, 1=check due, 2=install due
  */

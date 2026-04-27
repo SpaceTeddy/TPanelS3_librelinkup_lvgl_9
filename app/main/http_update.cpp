@@ -334,7 +334,9 @@ static void fw_update_check_manifest_now() {
         return;
     }
 
-    const bool available = (fw_compare_versions(String(latest), String(APP_FIRMWARE_VERSION)) > 0);
+    const bool available = settings.config.ota_force
+        ? true
+        : (fw_compare_versions(String(latest), String(APP_FIRMWARE_VERSION)) > 0);
 
     if (fw_update_lock()) {
         g_fw_update.latest_version = latest;
@@ -576,6 +578,10 @@ String fw_update_get_status_json() {
  */
 const char* fw_update_get_status() {
     return g_fw_update.status.c_str();
+}
+
+const char* fw_update_get_latest_version() {
+    return g_fw_update.latest_version.c_str();
 }
 
 /**

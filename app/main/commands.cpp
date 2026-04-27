@@ -1044,7 +1044,7 @@ void showCaFromFileCommand(uuid::console::Shell &shell, const std::vector<std::s
  */
 void fwUpdateCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
     if (arguments.empty()) {
-        shell.println(F("Usage: fw_update <check|install|status|channel>"));
+        shell.println(F("Usage: fw_update <check|install|status|channel|force>"));
         return;
     }
 
@@ -1086,9 +1086,30 @@ void fwUpdateCommand(uuid::console::Shell &shell, const std::vector<std::string>
             shell.printfln("Unknown channel: %s. Use release or staging.", ch.c_str());
         }
 
+    } else if (arg == "force") {
+        if (arguments.size() < 2) {
+            shell.printfln("OTA force: %s", settings.config.ota_force ? "on" : "off");
+            shell.println(F("Usage: fw_update force <on|off>"));
+            return;
+        }
+        const String val = arguments[1].c_str();
+        if (val == "on") {
+            settings.config.ota_force = 1;
+            settings.saveConfiguration(settings.config_filename, settings.config);
+            fw_update_request_check_now();
+            shell.println(F("OTA force mode: on (any manifest version will be installed)"));
+        } else if (val == "off") {
+            settings.config.ota_force = 0;
+            settings.saveConfiguration(settings.config_filename, settings.config);
+            fw_update_request_check_now();
+            shell.println(F("OTA force mode: off (only newer versions will be installed)"));
+        } else {
+            shell.printfln("Unknown value: %s. Use on or off.", val.c_str());
+        }
+
     } else {
         shell.printfln("Unknown subcommand: %s", arg.c_str());
-        shell.println(F("Usage: fw_update <check|install|status|channel>"));
+        shell.println(F("Usage: fw_update <check|install|status|channel|force>"));
     }
 }
 
@@ -1128,5 +1149,5 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("download_ca_from_url")}, uuid::flash_string_vector{F("<https_url>"), F("<littlefs_path>")}, downloadRootCaFromURLToFileCommand);
     commands->add_command(uuid::flash_string_vector{F("set_ca_from_file")}, uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")}, setCaFromFileCommand);
     commands->add_command(uuid::flash_string_vector{F("show_ca_from_file")}, uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")}, showCaFromFileCommand);
-    commands->add_command(uuid::flash_string_vector{F("fw_update")}, uuid::flash_string_vector{F("<check|install|status|channel <release|staging>>")}, fwUpdateCommand);
+    commands->add_command(uuid::flash_string_vector{F("fw_update")}, uuid::flash_string_vector{F("<check|install|status|channel <release|staging>|force <on|off>>")}, fwUpdateCommand);
 }

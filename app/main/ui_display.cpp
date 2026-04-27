@@ -27,6 +27,7 @@
 #include "app_fsm.h"
 #include "helper.h"
 #include "main.h"
+#include "http_update.h"
 
 extern LIBRELINKUP librelinkup;
 extern HELPER      helper;
@@ -523,6 +524,27 @@ void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
         lv_label_set_text(ui_Label_GlucoseTrendMessage, _trendmessage.c_str());
     else
         lv_label_set_text(ui_Label_GlucoseTrendMessage, "");
+
+    ui_update_fw_hint();
+}
+
+///////////////////// FIRMWARE UPDATE HINT ////////////////////
+
+void ui_update_fw_hint()
+{
+    if (ui_Label_FWUpdateHint == NULL) return;
+
+    if (strcmp(fw_update_get_status(), "update_available") == 0) {
+        const char* ver = fw_update_get_latest_version();
+        if (ver != NULL && strlen(ver) > 0) {
+            lv_label_set_text_fmt(ui_Label_FWUpdateHint, "FW update v%s available", ver);
+        } else {
+            lv_label_set_text(ui_Label_FWUpdateHint, "FW update available");
+        }
+        lv_obj_clear_flag(ui_Label_FWUpdateHint, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(ui_Label_FWUpdateHint, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 ///////////////////// DEBUG SCREEN ////////////////////

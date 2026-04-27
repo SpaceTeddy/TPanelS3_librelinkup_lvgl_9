@@ -26,3 +26,4 @@ void    draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
                     uint16_t _glucose_value, String _trendarrow,
                     String _trendmessage, int16_t delta);
 void    update_debug_screen();
+void    ui_update_fw_hint();

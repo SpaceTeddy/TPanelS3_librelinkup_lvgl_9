@@ -287,6 +287,13 @@ const char index_html[] PROGMEM = R"rawliteral(
             <span class="slider"></span>
         </label>
     </div>
+    <div class="switch-container">
+        <span class="switch-label">Force update / allow downgrade <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enabled: installs manifest version regardless of version direction)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="otaForceToggle" onchange="toggleFeature('ota_force', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
     <p class="hint">Checks GitHub manifest for a newer firmware and installs it after confirmation.</p>
     <div class="row" style="margin-bottom:10px;">
         <button type="button" id="btnCheck" onclick="checkFirmwareUpdate()">Check now</button>
@@ -383,6 +390,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             .then(data => {
                 document.getElementById('otaToggle').checked = data.ota_update === 1;
                 if (document.getElementById('otaStagingToggle')) document.getElementById('otaStagingToggle').checked = data.ota_staging === 1;
+                if (document.getElementById('otaForceToggle')) document.getElementById('otaForceToggle').checked = data.ota_force === 1;
                 document.getElementById('wireguardToggle').checked = data.wg_mode === 1;
                 document.getElementById('mqttToggle').checked = data.mqtt_mode === 1;
                 if (document.getElementById('mqttMasterToggle')) document.getElementById('mqttMasterToggle').checked = data.mqtt_master_mode === 1;
@@ -772,6 +780,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       // Toggles + brightness (existing /status logic may also update these)
       setCheck("otaToggle", cfg.ota_update);
       setCheck("otaStagingToggle", cfg.ota_staging);
+      setCheck("otaForceToggle", cfg.ota_force);
       setCheck("wireguardToggle", cfg.wg_mode);
       setCheck("mqttToggle", cfg.mqtt_mode);
       setCheck("mqttMasterToggle", cfg.mqtt_master_mode);
