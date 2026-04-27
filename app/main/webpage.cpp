@@ -1180,7 +1180,7 @@ const msVal = (cfg.mqtt_master_mode ?? 0);
 const brVal = (cfg.brightness ?? "--");
 const onOff = (v)=> (Number(v) ? "ON" : "OFF");
 const cfgLines = [
-  `OTA: ${onOff(cfg.ota_update ?? 0)}`,
+  `OTA: ${onOff(cfg.ota_update ?? 0)} | Channel: ${(cfg.ota_staging ?? 0) ? "Staging" : "Release"}`,
   `WG: ${onOff(cfg.wg_mode ?? 0)}`,
   `MQTT: ${onOff(cfg.mqtt_mode ?? 0)}`,
   `Master: ${onOff(cfg.mqtt_master_mode ?? 0)}`,
@@ -1452,7 +1452,8 @@ if (librelinkup.login_data().user_token.length() > 10) {
 
     // Add a small config snapshot (no secrets)
     JsonObject cfg = doc["config"].to<JsonObject>();
-    cfg["ota_update"] = settings.config.ota_update;
+    cfg["ota_update"]  = settings.config.ota_update;
+    cfg["ota_staging"] = settings.config.ota_staging;
     cfg["wg_mode"] = settings.config.wg_mode;
     cfg["mqtt_mode"] = settings.config.mqtt_mode;
     cfg["mqtt_master_mode"] = settings.config.mqtt_master_mode;
@@ -1598,8 +1599,9 @@ static void handleStatus(AsyncWebServerRequest *request) {
     settings.loadConfiguration(settings.config_filename, settings.config);
 
     JsonDocument json_config;
-    json_config["ota_update"] = settings.config.ota_update;
-    json_config["wg_mode"]    = settings.config.wg_mode;
+    json_config["ota_update"]        = settings.config.ota_update;
+    json_config["ota_staging"]       = settings.config.ota_staging;
+    json_config["wg_mode"]           = settings.config.wg_mode;
     json_config["mqtt_mode"]         = settings.config.mqtt_mode;
     json_config["mqtt_master_mode"]  = settings.config.mqtt_master_mode;
     json_config["brightness"]        = settings.config.brightness;
@@ -1621,11 +1623,12 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
     if (feature == "ota_update") {
         settings.config.ota_update = status;
         logger.notice("OTA_Update: %d", settings.config.ota_update);
+        settings.saveConfiguration(settings.config_filename, settings.config);
 
-        // Best practice: do NOT stop/start the AsyncWebServer at runtime.
-        // ElegantOTA endpoints are registered once (see register_webpage_routes()).
-        // This toggle only enables/disables OTA on the UI side (your index_html can hide/show),
-        // and can be checked by your firmware if you want to gate access.
+    } else if (feature == "ota_staging") {
+        settings.config.ota_staging = status;
+        logger.notice("OTA_Staging: %d", settings.config.ota_staging);
+        fw_update_request_check_now();
         settings.saveConfiguration(settings.config_filename, settings.config);
 
     } else if (feature == "wg_mode") {

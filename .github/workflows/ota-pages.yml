@@ -1,9 +1,10 @@
-name: OTA Pages Deploy
+name: OTA Staging Deploy
+
+# Manual-only: deploy a test build to the staging OTA channel.
+# Prod channel (ota/) is preserved from the latest GitHub release.
+# Device manifest URL for testing: https://<owner>.github.io/<repo>/ota/staging/manifest.json
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       environment:
@@ -11,7 +12,7 @@ on:
         required: true
         default: "main"
       version:
-        description: "Version without v (e.g. 1.0.6)"
+        description: "Staging version label (e.g. 1.0.25-test)"
         required: true
 
 permissions:
@@ -45,42 +46,31 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Cache PlatformIO
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
       - name: Install PlatformIO Core
         run: pip install --upgrade platformio
 
-      - name: Resolve build metadata
-        id: meta
-        shell: bash
-        run: |
-          ENV_NAME="${{ github.event.inputs.environment }}"
-          if [ -z "$ENV_NAME" ]; then
-            ENV_NAME="main"
-          fi
-
-          VERSION_INPUT="${{ github.event.inputs.version }}"
-
-          if [ -n "$VERSION_INPUT" ]; then
-            VERSION="$VERSION_INPUT"
-            TAG="v${VERSION_INPUT}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-            VERSION="${TAG#v}"
-          fi
-
-          echo "env_name=$ENV_NAME" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Build firmware
+      - name: Build staging firmware
         env:
-          FIRMWARE_VERSION: ${{ steps.meta.outputs.version }}
-        run: pio run -e "${{ steps.meta.outputs.env_name }}"
+          FIRMWARE_VERSION: ${{ github.event.inputs.version }}
+        run: pio run -e "${{ github.event.inputs.environment }}"
 
-      - name: Prepare OTA files
+      - name: Prepare OTA pages
         shell: bash
         env:
-          ENV_NAME: ${{ steps.meta.outputs.env_name }}
-          VERSION: ${{ steps.meta.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          ENV_NAME: ${{ github.event.inputs.environment }}
+          VERSION: ${{ github.event.inputs.version }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
         run: |
@@ -91,17 +81,35 @@ jobs:
           fi
 
           BASE_URL="https://${OWNER}.github.io/${REPO}"
-          for OTA_DIR in "ota" "ota/staging"; do
-            mkdir -p "dist/${OTA_DIR}"
-            cp "$FW" "dist/${OTA_DIR}/firmware.bin"
-            printf '{\n  "version": "%s",\n  "url": "%s/%s/firmware.bin"\n}\n' \
-              "$VERSION" "$BASE_URL" "$OTA_DIR" > "dist/${OTA_DIR}/manifest.json"
-          done
+          mkdir -p dist/ota dist/ota/staging
 
-          echo "manifest_url_prod=${BASE_URL}/ota/manifest.json" >> "$GITHUB_ENV"
-          echo "firmware_url_prod=${BASE_URL}/ota/firmware.bin" >> "$GITHUB_ENV"
-          echo "manifest_url_staging=${BASE_URL}/ota/staging/manifest.json" >> "$GITHUB_ENV"
-          echo "firmware_url_staging=${BASE_URL}/ota/staging/firmware.bin" >> "$GITHUB_ENV"
+          # Prod channel: restore from latest GitHub release so prod devices are unaffected
+          LATEST_TAG=$(gh release view --json tagName --jq '.tagName' 2>/dev/null || echo "")
+          LATEST_VERSION="${LATEST_TAG#v}"
+
+          if [ -n "$LATEST_TAG" ]; then
+            echo "Restoring prod from release ${LATEST_TAG}..."
+            gh release download "$LATEST_TAG" \
+              --asset "firmware-${ENV_NAME}.bin" \
+              --output dist/ota/firmware.bin \
+              --clobber
+            printf '{\n  "version": "%s",\n  "url": "%s/ota/firmware.bin"\n}\n' \
+              "$LATEST_VERSION" "$BASE_URL" > dist/ota/manifest.json
+          else
+            echo "No release found — using staging firmware for prod channel too"
+            cp "$FW" dist/ota/firmware.bin
+            printf '{\n  "version": "%s",\n  "url": "%s/ota/firmware.bin"\n}\n' \
+              "$VERSION" "$BASE_URL" > dist/ota/manifest.json
+            LATEST_VERSION="$VERSION"
+          fi
+
+          # Staging channel: freshly built firmware
+          cp "$FW" dist/ota/staging/firmware.bin
+          printf '{\n  "version": "%s",\n  "url": "%s/ota/staging/firmware.bin"\n}\n' \
+            "$VERSION" "$BASE_URL" > dist/ota/staging/manifest.json
+
+          echo "PROD    manifest: ${BASE_URL}/ota/manifest.json → v${LATEST_VERSION}"
+          echo "STAGING manifest: ${BASE_URL}/ota/staging/manifest.json → v${VERSION}"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
@@ -111,10 +119,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-      - name: Print deployed URLs
-        run: |
-          echo "PROD Manifest: ${manifest_url_prod}"
-          echo "PROD Firmware: ${firmware_url_prod}"
-          echo "STAGING Manifest: ${manifest_url_staging}"
-          echo "STAGING Firmware: ${firmware_url_staging}"

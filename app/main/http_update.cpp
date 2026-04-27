@@ -21,6 +21,7 @@
  * to be driven externally (update_ota_progress_screen handles this).
  */
 #include "http_update.h"
+#include "settings.h"
 
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
@@ -41,9 +42,14 @@ extern uint8_t update_ota_progress_screen(int progress);
 #ifndef FW_UPDATE_MANIFEST_URL
 #define FW_UPDATE_MANIFEST_URL ""
 #endif
+#ifndef FW_UPDATE_MANIFEST_URL_STAGING
+#define FW_UPDATE_MANIFEST_URL_STAGING ""
+#endif
 #ifndef FW_UPDATE_CHECK_INTERVAL_MS
 #define FW_UPDATE_CHECK_INTERVAL_MS 600000 // 10 minutes
 #endif
+
+extern SETTINGS settings;
 
 // Root CA bundle embedded from data/cert/x509_crt_bundle.bin (136 Mozilla root CAs)
 extern const uint8_t x509_crt_bundle_start[] asm("_binary_data_cert_x509_crt_bundle_bin_start");
@@ -137,9 +143,18 @@ static int fw_compare_versions(const String& a, const String& b) {
     return result;
 }
 
-/** @brief Return true if FW_UPDATE_MANIFEST_URL is set to a non-empty string. */
+/** @brief Return the active manifest URL based on the ota_staging setting. */
+static const char* fw_get_manifest_url() {
+    if (settings.config.ota_staging) {
+        const char* s = FW_UPDATE_MANIFEST_URL_STAGING;
+        if (s != nullptr && strlen(s) > 0) return s;
+    }
+    return FW_UPDATE_MANIFEST_URL;
+}
+
+/** @brief Return true if a manifest URL is configured. */
 static bool fw_manifest_configured() {
-    const char* url = FW_UPDATE_MANIFEST_URL;
+    const char* url = fw_get_manifest_url();
     return (url != nullptr) && (strlen(url) > 0);
 }
 
@@ -271,7 +286,7 @@ static void fw_update_check_manifest_now() {
     HTTPClient http;
     http.setTimeout(10000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-    if (!http.begin(client, FW_UPDATE_MANIFEST_URL)) {
+    if (!http.begin(client, fw_get_manifest_url())) {
         if (fw_update_lock()) {
             fw_set_status_locked("error", "manifest begin failed");
             g_fw_update.checking = false;

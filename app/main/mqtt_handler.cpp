@@ -113,8 +113,8 @@ static void ha_add_device(JsonDocument &doc, const char *dev_id, const char *dev
     JsonObject d           = doc["device"].to<JsonObject>();
     d["identifiers"][0]    = dev_id;
     d["name"]              = dev_name;
-    d["manufacturer"]      = "Custom ESP32";
-    d["model"]             = "T-Panel S3";
+    d["manufacturer"]      = "ESP32";
+    d["model"]             = "LibreLinkUp Client";
     d["configuration_url"] = String("http://") + WiFi.localIP().toString();
 }
 

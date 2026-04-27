@@ -65,6 +65,7 @@ void SETTINGS::loadConfiguration(const char* filename, Config &config) {
     config.wgAllowedIPs     = doc["wgAllowedIPs"].as<String>();
     config.sleep_timer      = doc["sleep_timer"];
     config.ha_discovery     = doc["ha_discovery"] | (uint8_t)1;
+    config.ota_staging      = doc["ota_staging"]  | (uint8_t)0;
 
     // Load wifi_networks array; migrate legacy fields if missing
     config.wifi_networks.clear();
@@ -187,6 +188,7 @@ void SETTINGS::saveConfiguration(const char *filename, Config &config) {
     doc["wgAllowedIPs"]     = config.wgAllowedIPs.c_str();
     doc["sleep_timer"]      = config.sleep_timer;
     doc["ha_discovery"]     = config.ha_discovery;
+    doc["ota_staging"]      = config.ota_staging;
 
     // Save wifi_networks array; keep legacy fields in sync with first entry
     JsonArray nets = doc["wifi_networks"].to<JsonArray>();
