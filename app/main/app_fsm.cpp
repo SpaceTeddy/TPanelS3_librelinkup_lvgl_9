@@ -250,28 +250,71 @@ static bool ensure_wifi_connected(uint32_t timeout_ms)
  *
  * @return `true` if the WireGuard VPN connection is active or not enabled, `false` if it is enabled but not working.
  */
-static bool ensure_wireguard_ok()
+static bool ensure_wireguard_ok(AppFsm &fsm)
 {
-    // settings.config.wg_mode is the *desired* state (user config).
     if (settings.config.wg_mode != 1)
         return true;
 
-    // If setup is already running, treat as "in progress".
     if (wg_is_busy())
         return true;
 
-    // Interface not initialised at all — reinit immediately.
-    if (!wg_is_initialized())
-        return setup_wg(true, true);
+    // Step 1: if the lwIP netif is gone, reinit immediately.
+    bool wg_up = wg_is_initialized();
+    if (!wg_up)
+    {
+        logger.notice("[VPN] interface gone — reinit");
+        wg_up = setup_wg(true, true);
+    }
 
-    // Interface is up — verify the tunnel actually routes packets by pinging
-    // the MQTT broker (which sits behind the WG peer).
-    const int broker_ok = app_check_host_status(
-        settings.config.mqttServer.c_str(), settings.config.mqtt_port);
-    if (broker_ok != 1)
-        return setup_wg(true, true);
+    // Step 2: probe the MQTT broker through the tunnel.
+    // is_initialized() only means begin() was called; it does NOT confirm the
+    // WireGuard handshake completed or that packets flow. A TCP connect to the
+    // broker (which sits behind the WG peer) gives a real end-to-end signal.
+    // On failure we do NOT reinit — reinit blocks the main loop for seconds and
+    // can destabilise WiFi, causing an AP-mode lockup. Instead we track how
+    // long the tunnel has been "sick" and reboot if it exceeds the threshold.
+    bool broker_up = false;
+    if (wg_up)
+    {
+        broker_up = (app_check_host_status(
+            settings.config.mqttServer.c_str(), settings.config.mqtt_port) == 1);
+    }
 
-    return true;
+    const bool healthy = wg_up && broker_up;
+
+    if (!healthy)
+    {
+        if (fsm.wg_sick_since_ms == 0)
+            fsm.wg_sick_since_ms = millis();
+
+        const uint32_t sick_ms = millis() - fsm.wg_sick_since_ms;
+        logger.notice("[VPN] sick: wg_up=%d broker_up=%d duration=%lus / %lus",
+                      (int)wg_up, (int)broker_up,
+                      (unsigned long)(sick_ms / 1000),
+                      (unsigned long)(fsm.cfg.wg_reboot_timeout_ms / 1000));
+
+        if (sick_ms >= fsm.cfg.wg_reboot_timeout_ms)
+        {
+            logger.notice("[VPN] tunnel sick for %lu min — rebooting",
+                          (unsigned long)(sick_ms / 60000));
+            delay(200); // flush serial
+            esp_restart();
+        }
+    }
+    else
+    {
+        if (fsm.wg_sick_since_ms != 0)
+        {
+            logger.notice("[VPN] tunnel healthy again after %lus sick",
+                          (unsigned long)((millis() - fsm.wg_sick_since_ms) / 1000));
+            fsm.wg_sick_since_ms = 0;
+        }
+    }
+
+    // Return wg_up so VPN_CHECK can decide whether to reinit/backoff.
+    // Even if broker is temporarily unreachable, the FSM continues to
+    // MQTT_CONNECT which handles broker reconnect independently.
+    return wg_up;
 }
 
 /**
@@ -530,7 +573,7 @@ void app_fsm_poll(AppFsm &fsm)
         {
             fsm.last_wg_check_ms = millis();
     
-            if (!ensure_wireguard_ok())
+            if (!ensure_wireguard_ok(fsm))
             {
                 // If WG setup is currently in progress, don't treat as failure.
                 if (wg_is_busy())

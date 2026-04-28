@@ -53,6 +53,7 @@ struct AppFsmConfig
   uint32_t mqtt_check_period_ms = 30000;        ///< periodic MQTT health check
   uint32_t fetch_period_ms = 60000;           ///< Master mode cadence
   uint32_t wg_check_period_ms = 60000;        ///< Optional WireGuard/ping cadence
+  uint32_t wg_reboot_timeout_ms = 300000;     ///< Reboot if WG tunnel sick for this long (5 min)
   uint32_t backoff_min_ms = 2000;
   uint32_t backoff_max_ms = 60000;
   uint32_t internet_check_period_ms = 60000;  ///< periodic internet health check
@@ -86,6 +87,7 @@ struct AppFsm
   uint32_t last_backoff_ms = 0;
 
   uint32_t last_internet_check_ms = 0;
+  uint32_t wg_sick_since_ms = 0; ///< millis() when WG trouble started; 0 = healthy
 
   // Debug screen 1s polling
   uint32_t last_1s_tick_ms = 0;
