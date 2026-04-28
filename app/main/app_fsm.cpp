@@ -36,6 +36,7 @@ extern bool flag_debug_screen;
 extern void setup_wifi();
 extern bool setup_wg(bool enable, bool force_reinit);
 extern bool wg_is_busy();
+extern bool wg_is_initialized();
 extern bool setup_mqtt();
 
 // Existing processing pipeline you already have:
@@ -254,16 +255,18 @@ static bool ensure_wireguard_ok()
     if (settings.config.wg_mode != 1)
         return true;
 
-    // Test (as requested): ping our configured WG interface IP.
-    // NOTE: this proves interface presence, not peer handshake.
-    if (app_check_internet_status(IPAddress(192, 168, 0, 202), 1883) == true)
-        return true;
-
-    // If setup is already running, treat as "in progress" instead of failing the FSM.
+    // If setup is already running, treat as "in progress".
     if (wg_is_busy())
         return true;
 
-    // Force reinit. This function is responsible for being bounded in time.
+    // Trust the WG interface initialized state. Pinging the MQTT broker
+    // (192.168.0.202:1883) is not a reliable WG liveness test — if the broker
+    // is momentarily unavailable it triggers an unnecessary full reinit that
+    // blocks the main loop for ~20s and causes external connection timeouts.
+    if (wg.is_initialized())
+        return true;
+
+    // Interface is gone — reinit.
     return setup_wg(true, true);
 }
 
@@ -711,15 +714,22 @@ void app_fsm_poll(AppFsm &fsm)
             enter_state(fsm, AppState::WIFI_CONNECT, "WIFI LOST");
             break;
         }
-    
-        const int internet_status = app_check_internet_status(IPAddress(192, 168, 0, 202), 1883);
-        if (internet_status != 1)
+
+        // When WireGuard is active, the broker IP (192.168.0.202) routes through the
+        // WG tunnel — a brief WG reinit would cause a false "internet down" here and
+        // trigger start_ap_mode(), dropping the WiFi client. Skip the TCP check when
+        // WG is enabled; VPN_CHECK already handles WG health separately.
+        if (settings.config.wg_mode != 1)
         {
-            app_recover_offline();
-            enter_state(fsm, AppState::WIFI_CONNECT, "INET FAIL");
-            break;
+            const int internet_status = app_check_internet_status(IPAddress(192, 168, 0, 202), 1883);
+            if (internet_status != 1)
+            {
+                app_recover_offline();
+                enter_state(fsm, AppState::WIFI_CONNECT, "INET FAIL");
+                break;
+            }
         }
-    
+
         enter_state(fsm, AppState::RUN_IDLE, "INET OK");
         break;
     }

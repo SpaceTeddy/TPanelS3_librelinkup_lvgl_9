@@ -1829,6 +1829,11 @@ bool wg_is_busy()
     return g_wg_busy;
 }
 
+bool wg_is_initialized()
+{
+    return wg.is_initialized();
+}
+
 /**
  * @brief Setup or teardown WireGuard.
  * @param enable        true to enable/ensure WG; false to disable.
@@ -1869,16 +1874,15 @@ bool setup_wg(bool enable, bool force_reinit)
     logger.notice("[setup_wg] requested: enable=1, force_reinit=%d, local_ip=%s",
                   (int)force_reinit, local_ip.toString().c_str());
 
-    // If already initialized and not forcing, do a quick self-IP ping (interface presence)
+    // If already initialized and not forcing, trust the WG interface state.
+    // We do NOT TCP-ping the MQTT broker here: the broker being momentarily
+    // unreachable is not evidence of a WG failure and would cause an unnecessary
+    // full reinit (which blocks the main loop for ~20s).
     if (wg.is_initialized() && !force_reinit)
     {
-        if (app_check_internet_status(IPAddress(192, 168, 0, 202), 1883) == true)
-        {
-            logger.notice("[setup_wg] WG already initialized (self IP ping ok).");
-            g_wg_busy = false;
-            return true;
-        }
-        logger.notice("[setup_wg] self IP ping failed, will reinitialize WG");
+        logger.notice("[setup_wg] WG already initialized, skipping reinit.");
+        g_wg_busy = false;
+        return true;
     }
 
     // Tear down first (safe to call even if not initialized)
@@ -1971,35 +1975,14 @@ bool setup_wg(bool enable, bool force_reinit)
         return result;
     }
 
-    // Bounded ping checks. WG handshake can take a few seconds on some networks.
-    const uint32_t deadline = millis() + 7000;
-    DBGprint;
-    Serial.printf("[setup_wg] post-begin healthcheck start now=%lu deadline=%lu\n",
-                  (unsigned long)millis(), (unsigned long)deadline);
-    bool ok = false;
-    uint8_t ping_attempt = 0;
-    while (millis() < deadline)
-    {
-        ping_attempt++;
-        DBGprint;
-        Serial.printf("[setup_wg] healthcheck attempt=%u elapsed=%lums target=192.168.0.202:1883\n",
-                      (unsigned)ping_attempt,
-                      (unsigned long)(7000 - (deadline - millis())));
-        if (app_check_internet_status(IPAddress(192, 168, 0, 202), 1883) == true)
-        {
-            ok = true;
-            DBGprint;
-            Serial.printf("[setup_wg] healthcheck success on attempt=%u\n", (unsigned)ping_attempt);
-            break;
-        }
-        delay(200);
-    }
+    // Brief settle after wg.begin() — WireGuard handshake needs a moment.
+    // We do NOT block here trying to reach the MQTT broker: that IP routes through
+    // the WG tunnel, so a slow peer response would block the main loop for seconds
+    // and cause external connection timeouts. Trust wg.begin() result instead.
+    delay(500);
+    bool ok = begin_ok; // wg.begin() succeeded → interface is up
 
-    if (!ok)
-    {
-        DBGprint;
-        Serial.printf("[setup_wg] healthcheck timeout after attempts=%u\n", (unsigned)ping_attempt);
-    }
+    Serial.printf("[setup_wg] post-begin: wg.begin ok=%d, settling 500ms\n", (int)ok);
 
     if (ok)
     {
