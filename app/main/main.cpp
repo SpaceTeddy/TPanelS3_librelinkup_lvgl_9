@@ -61,6 +61,7 @@ AppFsm g_fsm; ///< Application state machine (polled from loop())
 /// @name System Status Counters
 /// @{
 uint8_t esp_status_counter_wifi_restart = 0; ///< WiFi reconnection counter
+uint8_t esp_status_counter_wg_reinit    = 0; ///< WireGuard tunnel reinit counter
 uint8_t esp_status_counter_llu_reauth = 0;   ///< LibreLinkUp re-authentication counter
 uint8_t esp_status_counter_llu_retou = 0;    ///< LibreLinkUp terms of use acceptance counter
 /// @}
@@ -1803,8 +1804,17 @@ void setup_wifi()
         tzset();
         helper.printLocalTime(0);
 
-        WiFi.setAutoReconnect(true);
+        // When WireGuard is active, disable WiFi auto-reconnect so that
+        // reconnection always flows through the FSM (WIFI_CONNECT → VPN_CHECK).
+        // Auto-reconnect bypasses the FSM and leaves the WG tunnel in a stale
+        // state after WiFi comes back — the tunnel needs an explicit reinit.
+        const bool wg_active = (settings.config.wg_mode == 1);
+        WiFi.setAutoReconnect(!wg_active);
         WiFi.persistent(true);
+        logger.notice("[WiFi] connected: SSID=%s IP=%s autoReconnect=%s",
+                      WiFi.SSID().c_str(),
+                      WiFi.localIP().toString().c_str(),
+                      wg_active ? "OFF(WG)" : "ON");
         return;
     }
 
@@ -1996,7 +2006,10 @@ bool setup_wg(bool enable, bool force_reinit)
 
     if (ok)
     {
-        logger.notice("[setup_wg] WG connected! IP:%s", local_ip.toString().c_str());
+        if (force_reinit)
+            esp_status_counter_wg_reinit++;
+        logger.notice("[setup_wg] WG connected! IP:%s (reinit#%u)",
+                      local_ip.toString().c_str(), (unsigned)esp_status_counter_wg_reinit);
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "WG connected!");
         lv_timer_handler();
         result = true;

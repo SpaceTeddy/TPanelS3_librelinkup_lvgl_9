@@ -51,6 +51,8 @@ extern void handle_internet_disconnection();
 extern int app_check_internet_status(IPAddress ip, uint16_t port);
 extern int app_check_host_status(const char* host, uint16_t port);
 extern void app_recover_offline();
+extern uint8_t esp_status_counter_wifi_restart;
+extern uint8_t esp_status_counter_wg_reinit;
 extern void start_ap_mode();
 extern bool g_force_ap_mode;
 
@@ -242,13 +244,17 @@ static bool ensure_wifi_connected(uint32_t timeout_ms)
 }
 
 /**
- * @brief Ensures that the WireGuard VPN connection is active.
+ * @brief Checks WireGuard tunnel health and manages the sick timer.
  *
- * This function checks if the WireGuard VPN is enabled in the settings. If it is enabled,
- * it performs a connectivity check (using ESPPing if available) to verify that the VPN
- * connection is working. If the check fails, it attempts to re-enable WireGuard and checks again.
+ * Two-level check:
+ *  1. If the lwIP netif is gone (wg_is_initialized() == false) → immediate reinit via setup_wg().
+ *  2. TCP probe to the MQTT broker (which sits behind the WG peer) to confirm end-to-end routing.
+ *     On probe failure we do NOT reinit — reinit blocks the main loop for seconds and can
+ *     destabilise WiFi. Instead we track how long the tunnel has been "sick" and call
+ *     esp_restart() if it exceeds wg_reboot_timeout_ms (default 5 min).
  *
- * @return `true` if the WireGuard VPN connection is active or not enabled, `false` if it is enabled but not working.
+ * @return true  if the WG interface is up (even if broker is temporarily unreachable).
+ * @return false if WG is enabled but the interface could not be brought up.
  */
 static bool ensure_wireguard_ok(AppFsm &fsm)
 {
@@ -309,6 +315,11 @@ static bool ensure_wireguard_ok(AppFsm &fsm)
                           (unsigned long)((millis() - fsm.wg_sick_since_ms) / 1000));
             fsm.wg_sick_since_ms = 0;
         }
+        logger.debug("[VPN] healthy: wg_up=%d broker_up=%d sick=0s/%lus wifi_reconnects=%u wg_reinits=%u",
+                     (int)wg_up, (int)broker_up,
+                     (unsigned long)(fsm.cfg.wg_reboot_timeout_ms / 1000),
+                     (unsigned)esp_status_counter_wifi_restart,
+                     (unsigned)esp_status_counter_wg_reinit);
     }
 
     // Return wg_up so VPN_CHECK can decide whether to reinit/backoff.
