@@ -49,6 +49,7 @@ extern void handle_internet_disconnection();
 
 // Internet health check (implemented in main.cpp)
 extern int app_check_internet_status(IPAddress ip, uint16_t port);
+extern int app_check_host_status(const char* host, uint16_t port);
 extern void app_recover_offline();
 extern void start_ap_mode();
 extern bool g_force_ap_mode;
@@ -715,13 +716,23 @@ void app_fsm_poll(AppFsm &fsm)
             break;
         }
 
-        // When WireGuard is active, the broker IP (192.168.0.202) routes through the
-        // WG tunnel — a brief WG reinit would cause a false "internet down" here and
-        // trigger start_ap_mode(), dropping the WiFi client. Skip the TCP check when
-        // WG is enabled; VPN_CHECK already handles WG health separately.
-        if (settings.config.wg_mode != 1)
+        if (settings.config.wg_mode == 1)
         {
-            const int internet_status = app_check_internet_status(IPAddress(192, 168, 0, 202), 1883);
+            // WG active: ping the MQTT broker through the tunnel.
+            // A successful TCP connect confirms the tunnel is routing packets.
+            // On failure don't tear down WiFi — let VPN_CHECK reinit the tunnel.
+            const int tunnel_ok = app_check_host_status(
+                settings.config.mqttServer.c_str(), settings.config.mqtt_port);
+            if (tunnel_ok != 1)
+            {
+                enter_state(fsm, AppState::VPN_CHECK, "WG TUNNEL FAIL");
+                break;
+            }
+        }
+        else
+        {
+            // WG disabled: check public internet reachability.
+            const int internet_status = app_check_internet_status(IPAddress(1, 1, 1, 1), 443);
             if (internet_status != 1)
             {
                 app_recover_offline();
