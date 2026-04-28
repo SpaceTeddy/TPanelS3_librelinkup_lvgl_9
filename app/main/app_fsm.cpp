@@ -260,15 +260,18 @@ static bool ensure_wireguard_ok()
     if (wg_is_busy())
         return true;
 
-    // Trust the WG interface initialized state. Pinging the MQTT broker
-    // (192.168.0.202:1883) is not a reliable WG liveness test — if the broker
-    // is momentarily unavailable it triggers an unnecessary full reinit that
-    // blocks the main loop for ~20s and causes external connection timeouts.
-    if (wg_is_initialized())
-        return true;
+    // Interface not initialised at all — reinit immediately.
+    if (!wg_is_initialized())
+        return setup_wg(true, true);
 
-    // Interface is gone — reinit.
-    return setup_wg(true, true);
+    // Interface is up — verify the tunnel actually routes packets by pinging
+    // the MQTT broker (which sits behind the WG peer).
+    const int broker_ok = app_check_host_status(
+        settings.config.mqttServer.c_str(), settings.config.mqtt_port);
+    if (broker_ok != 1)
+        return setup_wg(true, true);
+
+    return true;
 }
 
 /**
@@ -718,20 +721,13 @@ void app_fsm_poll(AppFsm &fsm)
 
         if (settings.config.wg_mode == 1)
         {
-            // WG active: ping the MQTT broker through the tunnel.
-            // A successful TCP connect confirms the tunnel is routing packets.
-            // On failure don't tear down WiFi — let VPN_CHECK reinit the tunnel.
-            const int tunnel_ok = app_check_host_status(
-                settings.config.mqttServer.c_str(), settings.config.mqtt_port);
-            if (tunnel_ok != 1)
-            {
-                enter_state(fsm, AppState::VPN_CHECK, "WG TUNNEL FAIL");
-                break;
-            }
+            // VPN_CHECK already handles tunnel health via ensure_wireguard_ok().
+            enter_state(fsm, AppState::RUN_IDLE, "INET OK (WG)");
+            break;
         }
-        else
+
+        // WG disabled: verify public internet reachability.
         {
-            // WG disabled: check public internet reachability.
             const int internet_status = app_check_internet_status(IPAddress(1, 1, 1, 1), 443);
             if (internet_status != 1)
             {
