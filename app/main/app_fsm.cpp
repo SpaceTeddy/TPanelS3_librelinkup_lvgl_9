@@ -263,7 +263,7 @@ static bool ensure_wireguard_ok()
     // (192.168.0.202:1883) is not a reliable WG liveness test — if the broker
     // is momentarily unavailable it triggers an unnecessary full reinit that
     // blocks the main loop for ~20s and causes external connection timeouts.
-    if (wg.is_initialized())
+    if (wg_is_initialized())
         return true;
 
     // Interface is gone — reinit.
