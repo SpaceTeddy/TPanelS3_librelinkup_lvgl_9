@@ -249,6 +249,16 @@ int app_check_internet_status(IPAddress ip, uint16_t port)
     return helper.check_internet_status(ip, port);
 }
 
+// Resolves host (IP string or hostname) then TCP-connects to port.
+// Returns 1 on success, 0 on DNS failure or connect timeout.
+int app_check_host_status(const char* host, uint16_t port)
+{
+    IPAddress addr;
+    if (!WiFi.hostByName(host, addr))
+        return 0;
+    return helper.check_internet_status(addr, port);
+}
+
 void start_ap_mode(); // defined later in this file
 
 /**
