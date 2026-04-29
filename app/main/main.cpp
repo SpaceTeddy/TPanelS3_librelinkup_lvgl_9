@@ -126,7 +126,7 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 #include <WireGuard-ESP32.h>
 #include "wireguardif.h"
 
-static WireGuard wg; ///< WireGuard VPN client instance
+WireGuard wg; ///< WireGuard VPN client instance
 
 /**
  * @brief WireGuard VPN configuration
