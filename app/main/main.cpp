@@ -653,6 +653,21 @@ static void btn_ota_cb(lv_event_t *event)
     }
 }
 
+static void btn_fw_check_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    logger.debug("FW button clicked");
+    if (fw_update_is_update_available())
+    {
+        String msg;
+        fw_update_request_install(msg);
+    }
+    else
+    {
+        fw_update_request_check_now();
+    }
+}
+
 /**
  * @brief Login button callback
  *
@@ -2189,6 +2204,7 @@ void setup()
     lv_obj_add_event_cb(ui_btn_wireguard, btn_wireguard_cb, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_btn_mqtt, btn_mqtt_cb, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_btn_ota_update, btn_ota_cb, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_btn_fw_check, btn_fw_check_cb, LV_EVENT_ALL, NULL);
 
     // On-screen keyboard show/hide for text areas
     lv_obj_add_event_cb(ui_ta_email, ta_event_cb, LV_EVENT_ALL, ui_kb);

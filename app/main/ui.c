@@ -80,6 +80,7 @@ lv_obj_t * ui_Label_DebugSensorValue;
 lv_obj_t * ui_Label_DebugTest;
 lv_obj_t * ui_Label_DebugFsmReason;
 lv_obj_t * ui_Label_DebugHeap;
+lv_obj_t * ui_Label_DebugFwStatus;
 
 // Login screen elements
 lv_obj_t * ui_Label_LoginInfo;
@@ -96,6 +97,8 @@ lv_obj_t * ui_btn_mqtt;
 lv_obj_t * ui_btn_label_mqtt;
 lv_obj_t * ui_btn_ota_update;
 lv_obj_t * ui_btn_label_ota_update;
+lv_obj_t * ui_btn_fw_check;
+lv_obj_t * ui_btn_label_fw_check;
 
 /// Progress bar definitions with C-linkage (as ui.h declares in extern "C")
 ProgressBarUI dayBar14 = { 0 };
@@ -757,6 +760,14 @@ void ui_Debug_screen_init(void)
         lv_obj_set_style_text_align(ui_Label_DebugSensorTimestamp, LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(ui_Label_DebugSensorTimestamp, "MQTT: -");
     }
+
+    // ── FW UPDATE STATUS ────────────────────────────────────────────────────
+    ui_Label_DebugFwStatus = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                  UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 305);
+    if (ui_Label_DebugFwStatus != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugFwStatus, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugFwStatus, "Update: -");
+    }
 }
 
 /**
@@ -860,7 +871,7 @@ void ui_btn_debug_screen_init(lv_obj_t * parent)
 
     // WireGuard button
     ui_btn_wireguard = lv_btn_create(parent);
-    lv_obj_align(ui_btn_wireguard, LV_ALIGN_CENTER, -115, 150);
+    lv_obj_align(ui_btn_wireguard, LV_ALIGN_CENTER, -165, 150);
     lv_obj_add_flag(ui_btn_wireguard, LV_OBJ_FLAG_CHECKABLE);
 
     ui_btn_label_wireguard = lv_label_create(ui_btn_wireguard);
@@ -871,9 +882,9 @@ void ui_btn_debug_screen_init(lv_obj_t * parent)
 
     // MQTT button
     ui_btn_mqtt = lv_btn_create(parent);
-    lv_obj_align(ui_btn_mqtt, LV_ALIGN_CENTER, 5, 150);
-    lv_obj_add_flag(ui_btn_mqtt, LV_OBJ_FLAG_CHECKABLE);    
-    
+    lv_obj_align(ui_btn_mqtt, LV_ALIGN_CENTER, -55, 150);
+    lv_obj_add_flag(ui_btn_mqtt, LV_OBJ_FLAG_CHECKABLE);
+
     ui_btn_label_mqtt = lv_label_create(ui_btn_mqtt);
     if (ui_btn_label_mqtt != NULL) {
         lv_obj_center(ui_btn_label_mqtt);
@@ -882,13 +893,23 @@ void ui_btn_debug_screen_init(lv_obj_t * parent)
 
     // OTA Update button
     ui_btn_ota_update = lv_btn_create(parent);
-    lv_obj_align(ui_btn_ota_update, LV_ALIGN_CENTER, 130, 150);
-    lv_obj_add_flag(ui_btn_ota_update, LV_OBJ_FLAG_CHECKABLE);    
-    
+    lv_obj_align(ui_btn_ota_update, LV_ALIGN_CENTER, 55, 150);
+    lv_obj_add_flag(ui_btn_ota_update, LV_OBJ_FLAG_CHECKABLE);
+
     ui_btn_label_ota_update = lv_label_create(ui_btn_ota_update);
     if (ui_btn_label_ota_update != NULL) {
         lv_obj_center(ui_btn_label_ota_update);
         lv_label_set_text(ui_btn_label_ota_update, "OTA");
+    }
+
+    // FW check / install button
+    ui_btn_fw_check = lv_btn_create(parent);
+    lv_obj_align(ui_btn_fw_check, LV_ALIGN_CENTER, 165, 150);
+
+    ui_btn_label_fw_check = lv_label_create(ui_btn_fw_check);
+    if (ui_btn_label_fw_check != NULL) {
+        lv_obj_center(ui_btn_label_fw_check);
+        lv_label_set_text(ui_btn_label_fw_check, "FW Chk");
     }
 }
 

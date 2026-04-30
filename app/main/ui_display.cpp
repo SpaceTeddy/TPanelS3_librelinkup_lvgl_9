@@ -659,6 +659,12 @@ void update_debug_screen()
     snprintf(buf, sizeof(buf), "MQTT: %s  Mode: %s", conn, mode);
     lv_label_set_text(ui_Label_DebugSensorTimestamp, buf);
 
+    // ── FW UPDATE STATUS ────────────────────────────────────────────────────
+    snprintf(buf, sizeof(buf), "Update: %s", fw_update_get_status());
+    lv_label_set_text(ui_Label_DebugFwStatus, buf);
+    lv_label_set_text(ui_btn_label_fw_check,
+                      fw_update_is_update_available() ? "FW Install" : "FW Chk");
+
     // ── HEAP (bottom) ────────────────────────────────────────────────────────
     snprintf(buf, sizeof(buf), "Heap: %luKB free", (unsigned long)(ESP.getFreeHeap() / 1024));
     lv_label_set_text(ui_Label_DebugHeap, buf);

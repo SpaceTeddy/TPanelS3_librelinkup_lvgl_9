@@ -163,6 +163,7 @@ extern lv_obj_t * ui_Label_DebugSensorValue;    ///< Current sensor value + delt
 extern lv_obj_t * ui_Label_DebugTest;           ///< FW version
 extern lv_obj_t * ui_Label_DebugFsmReason;      ///< FSM last transition reason + failure count
 extern lv_obj_t * ui_Label_DebugHeap;           ///< Free heap (bottom of screen)
+extern lv_obj_t * ui_Label_DebugFwStatus;       ///< FW update status
 /// @}
 
 /// @name Debug Screen Buttons
@@ -173,6 +174,8 @@ extern lv_obj_t * ui_btn_mqtt;              ///< MQTT toggle button
 extern lv_obj_t * ui_btn_label_mqtt;        ///< MQTT button label
 extern lv_obj_t * ui_btn_ota_update;        ///< OTA update button
 extern lv_obj_t * ui_btn_label_ota_update;  ///< OTA update button label
+extern lv_obj_t * ui_btn_fw_check;          ///< FW check/install button
+extern lv_obj_t * ui_btn_label_fw_check;    ///< FW check/install button label
 /// @}
 
 ///////////////////// LOGIN SCREEN ELEMENTS ////////////////////
