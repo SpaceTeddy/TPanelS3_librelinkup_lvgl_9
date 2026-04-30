@@ -1125,9 +1125,9 @@ document.getElementById("lluSensorState").textContent = `Sensor state: ${Number(
 const activeId = se.sensor_id || "--";
 const activeSn = se.sensor_sn || "--";
 document.getElementById("lluActive").textContent = `Active: ${activeSn} (${activeId})`;
-const dtid = Number(se.sensor_type_dtid) || 0;
 const sensorTypeName = se.sensor_type_name || "Unknown";
-document.getElementById("lluSensorType").textContent = `Type: ${sensorTypeName} (dtid: ${dtid || "--"})`;
+const sensorSnSrc    = se.sensor_type_sn_src || "--";
+document.getElementById("lluSensorType").textContent = `Type: ${sensorTypeName} (SN: ${sensorSnSrc})`;
 
 const inactId = se.sensor_id_non_active || "--";
 const inactSn = se.sensor_sn_non_active || "--";
@@ -1421,7 +1421,15 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
     se["sensor_id"] = librelinkup.sensor_data().sensor_id;
     se["sensor_sn"] = librelinkup.sensor_data().sensor_sn;
     se["sensor_type_dtid"] = (uint16_t)librelinkup.sensor_data().sensor_type_dtid;
-    se["sensor_type_name"] = librelinkup.sensor_device_type_to_string(librelinkup.get_sensor_device_type());
+    {
+        // Prefer SN-based detection; fall back to non-active SN before touching dtid
+        const String &sn_a = librelinkup.sensor_data().sensor_sn;
+        const String &sn_b = librelinkup.sensor_data().sensor_sn_non_active;
+        const String &sn   = (sn_a.length() >= 5) ? sn_a : sn_b;
+        se["sensor_type_name"]   = librelinkup.sensor_device_type_to_string(
+                                       librelinkup.get_sensor_device_type_from_sn(sn));
+        se["sensor_type_sn_src"] = sn.length() >= 5 ? sn : String("--");
+    }
     se["sensor_runtime"] = (uint32_t)librelinkup.sensor_data().sensor_runtime;
     se["sensor_activation_time"] = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
 
