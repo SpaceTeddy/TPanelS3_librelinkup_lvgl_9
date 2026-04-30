@@ -1119,35 +1119,149 @@ void fwUpdateCommand(uuid::console::Shell &shell, const std::vector<std::string>
  *
  * This function wires command strings to handler callbacks.
  */
+// Returns all .json filenames from LittleFS (used for tab-completion of file commands).
+static std::vector<std::string> list_json_files_completion(
+        uuid::console::Shell &, const std::vector<std::string> &, const std::string &) {
+    std::vector<std::string> files;
+    File root = LittleFS.open("/");
+    if (root) {
+        File f = root.openNextFile();
+        while (f) {
+            String name = f.name();
+            if (name.endsWith(".json")) {
+                files.push_back(name.c_str());
+            }
+            f = root.openNextFile();
+        }
+    }
+    return files;
+}
+
 void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
+    using SV = std::vector<std::string>;
+    using Shell = uuid::console::Shell;
+
     commands->add_command(uuid::flash_string_vector{F("help")}, helpCommand);
     commands->add_command(uuid::flash_string_vector{F("exit")}, exitCommand);
     commands->add_command(uuid::flash_string_vector{F("reboot")}, espResetCommand);
     commands->add_command(uuid::flash_string_vector{F("esp_status")}, espStatusCommand);
-    commands->add_command(uuid::flash_string_vector{F("screens")}, uuid::flash_string_vector{F("<next|prev>")}, switch_screensCommand);
-    commands->add_command(uuid::flash_string_vector{F("log_level")}, uuid::flash_string_vector{F("<OFF|INFO|NOTICE|DEBUG|ALL>")}, LoglevelCommand);
-    commands->add_command(uuid::flash_string_vector{F("config")}, uuid::flash_string_vector{F("<load|save>")}, configSettingCommand);
-    commands->add_command(uuid::flash_string_vector{F("wifi_settings")}, uuid::flash_string_vector{F("<bssid>"), F("<password>")}, WiFiSettingCommand);
-    commands->add_command(uuid::flash_string_vector{F("wifi")}, uuid::flash_string_vector{F("<ap|connect>")}, wifiModeCommand);
-    commands->add_command(uuid::flash_string_vector{F("timezone")}, uuid::flash_string_vector{F("<+/-hours>")}, timezoneCommand);
-    commands->add_command(uuid::flash_string_vector{F("ota")}, uuid::flash_string_vector{F("<enable|disable>")}, otaSettingCommand);
-    commands->add_command(uuid::flash_string_vector{F("trgb_brightness")}, uuid::flash_string_vector{F("<0-256>")}, trgbBrightnessCommand);
+    commands->add_command(uuid::flash_string_vector{F("ping")}, PingCommand);
     commands->add_command(uuid::flash_string_vector{F("create_json_week_files")}, create_json_week_files_Command);
     commands->add_command(uuid::flash_string_vector{F("add_glucosevalue_to_json")}, addGlucoseValueToJsonCommand);
     commands->add_command(uuid::flash_string_vector{F("list_json_files")}, printJsonFileListCommand);
-    commands->add_command(uuid::flash_string_vector{F("print_json_file")}, uuid::flash_string_vector{F("<filename>")}, printJsonFileCommand);
-    commands->add_command(uuid::flash_string_vector{F("delete_json_file")}, uuid::flash_string_vector{F("<filename>")}, deleteJsonFileCommand);
-    commands->add_command(uuid::flash_string_vector{F("print_raw_json_file")}, uuid::flash_string_vector{F("<filename>")}, debugRawFileContentsCommand);
-    commands->add_command(uuid::flash_string_vector{F("llu_login_data")}, uuid::flash_string_vector{F("<email@domain.com>"), F("<password>")}, LLULoginDataCommand);
-    commands->add_command(uuid::flash_string_vector{F("llu_sensor_type")}, uuid::flash_string_vector{F("<Libre3|Libre3Plus>")}, lluSensorTypeCommand);
-    commands->add_command(uuid::flash_string_vector{F("llu")}, uuid::flash_string_vector{F("\t<value>\n\r\t<user_id>\n\r\t<user_token>\n\r\t<auth>\n\r\t<tou>\n\r\t<sensor_id>\n\r\t<sensor_sn>\n\r\t<sensor_type>\n\r\t<sensor_expiry>\n\r\t<timestamp>\n\r\t<history>\n\r\t<graphdata>\n\r\t<graph_redraw>\n\r\t<get_graphdata>\n\r\t<statistics>")}, lluCommand);
-    commands->add_command(uuid::flash_string_vector{F("ping")}, PingCommand);
-    commands->add_command(uuid::flash_string_vector{F("mqtt_client")}, uuid::flash_string_vector{F("<enable|disable>")}, mqttClientSettingCommand);
-    commands->add_command(uuid::flash_string_vector{F("mqtt_master_mode")}, uuid::flash_string_vector{F("<enable|disable>")}, mqttMasterModeCommand);
-    commands->add_command(uuid::flash_string_vector{F("wireguard")}, uuid::flash_string_vector{F("<enable|disable>")}, wgSettingCommand);
-    commands->add_command(uuid::flash_string_vector{F("download_ca_to_file")}, uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")}, downloadRootCaToFileCommand);
-    commands->add_command(uuid::flash_string_vector{F("download_ca_from_url")}, uuid::flash_string_vector{F("<https_url>"), F("<littlefs_path>")}, downloadRootCaFromURLToFileCommand);
-    commands->add_command(uuid::flash_string_vector{F("set_ca_from_file")}, uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")}, setCaFromFileCommand);
-    commands->add_command(uuid::flash_string_vector{F("show_ca_from_file")}, uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")}, showCaFromFileCommand);
-    commands->add_command(uuid::flash_string_vector{F("fw_update")}, uuid::flash_string_vector{F("<check|install|status|channel <release|staging>|force <on|off>>")}, fwUpdateCommand);
+
+    commands->add_command(uuid::flash_string_vector{F("screens")},
+        uuid::flash_string_vector{F("<next|prev>")},
+        switch_screensCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"next", "prev"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("log_level")},
+        uuid::flash_string_vector{F("<off|info|notice|debug|all>")},
+        LoglevelCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"off", "info", "notice", "debug", "all"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("config")},
+        uuid::flash_string_vector{F("<load|save>")},
+        configSettingCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"load", "save"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("wifi_settings")},
+        uuid::flash_string_vector{F("<bssid>"), F("<password>")},
+        WiFiSettingCommand);
+
+    commands->add_command(uuid::flash_string_vector{F("wifi")},
+        uuid::flash_string_vector{F("<ap|connect>")},
+        wifiModeCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"ap", "connect"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("timezone")},
+        uuid::flash_string_vector{F("<+/-hours>")},
+        timezoneCommand);
+
+    commands->add_command(uuid::flash_string_vector{F("ota")},
+        uuid::flash_string_vector{F("<enable|disable>")},
+        otaSettingCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"enable", "disable"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("trgb_brightness")},
+        uuid::flash_string_vector{F("<0-256>")},
+        trgbBrightnessCommand);
+
+    commands->add_command(uuid::flash_string_vector{F("print_json_file")},
+        uuid::flash_string_vector{F("<filename>")},
+        printJsonFileCommand,
+        list_json_files_completion);
+
+    commands->add_command(uuid::flash_string_vector{F("delete_json_file")},
+        uuid::flash_string_vector{F("<filename>")},
+        deleteJsonFileCommand,
+        list_json_files_completion);
+
+    commands->add_command(uuid::flash_string_vector{F("print_raw_json_file")},
+        uuid::flash_string_vector{F("<filename>")},
+        debugRawFileContentsCommand,
+        list_json_files_completion);
+
+    commands->add_command(uuid::flash_string_vector{F("llu_login_data")},
+        uuid::flash_string_vector{F("<email@domain.com>"), F("<password>")},
+        LLULoginDataCommand);
+
+    commands->add_command(uuid::flash_string_vector{F("llu_sensor_type")},
+        uuid::flash_string_vector{F("<Libre3|Libre3Plus>")},
+        lluSensorTypeCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"Libre3", "Libre3Plus"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("llu")},
+        uuid::flash_string_vector{F("<subcommand>")},
+        lluCommand,
+        [](Shell &, const SV &, const std::string &) -> SV {
+            return {"value", "user_id", "user_token", "auth", "tou",
+                    "sensor_id", "sensor_sn", "sensor_type", "sensor_expiry",
+                    "timestamp", "history", "graphdata", "graph_redraw",
+                    "get_graphdata", "statistics"};
+        });
+
+    commands->add_command(uuid::flash_string_vector{F("mqtt_client")},
+        uuid::flash_string_vector{F("<enable|disable>")},
+        mqttClientSettingCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"enable", "disable"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("mqtt_master_mode")},
+        uuid::flash_string_vector{F("<enable|disable>")},
+        mqttMasterModeCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"enable", "disable"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("wireguard")},
+        uuid::flash_string_vector{F("<enable|disable>")},
+        wgSettingCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"enable", "disable"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("download_ca_to_file")},
+        uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")},
+        downloadRootCaToFileCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "Baltimore", "GoogleTrust"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("download_ca_from_url")},
+        uuid::flash_string_vector{F("<https_url>"), F("<littlefs_path>")},
+        downloadRootCaFromURLToFileCommand);
+
+    commands->add_command(uuid::flash_string_vector{F("set_ca_from_file")},
+        uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")},
+        setCaFromFileCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "Baltimore", "GoogleTrust"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("show_ca_from_file")},
+        uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")},
+        showCaFromFileCommand,
+        [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "Baltimore", "GoogleTrust"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("fw_update")},
+        uuid::flash_string_vector{F("<check|install|status|channel|force>")},
+        fwUpdateCommand,
+        [](Shell &, const SV &args, const std::string &) -> SV {
+            if (args.empty())        return {"check", "install", "status", "channel", "force"};
+            if (args[0] == "channel") return {"release", "staging"};
+            if (args[0] == "force")   return {"on", "off"};
+            return {};
+        });
 }
