@@ -364,7 +364,8 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         float       parameter2 = json_mqtt["parameter2"];
         logger.notice("CMD=%s p1=%.2f p2=%.2f", cmd, parameter1, parameter2);
 
-        bool cmd_ok = false;
+        bool cmd_ok     = false;
+        bool needs_save = false;
 
         if (strcmp(cmd, "reset") == 0)
         {
@@ -376,30 +377,34 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
             settings.config.brightness = tpanels3.set_backlight_brightness(parameter1);
             config_sleep_timer_backup  = millis();
             app_fsm_notify_user_activity(g_fsm);
-            cmd_ok = true;
+            cmd_ok     = true;
+            needs_save = true;
         }
         else if (strcmp(cmd, "ota_server_mode") == 0)
         {
             settings.config.ota_update = (parameter1 == 1);
-            cmd_ok = true;
+            cmd_ok     = true;
+            needs_save = true;
         }
         else if (strcmp(cmd, "wg_mode") == 0)
         {
             settings.config.wg_mode = (parameter1 == 1);
             setup_wg(settings.config.wg_mode);
-            cmd_ok = true;
+            cmd_ok     = true;
+            needs_save = true;
         }
         else if (strcmp(cmd, "mqtt_mode") == 0)
         {
             settings.config.mqtt_mode = (parameter1 == 1);
-            cmd_ok = true;
+            cmd_ok     = true;
+            needs_save = true;
         }
         else if (strcmp(cmd, "mqtt_master_mode") == 0)
         {
             settings.config.mqtt_master_mode = (parameter1 == 1);
-            settings.saveConfiguration(settings.config_filename, settings.config);
             mqtt_publish_ha_discovery();
-            cmd_ok = true;
+            cmd_ok     = true;
+            needs_save = true;
         }
         else if (strcmp(cmd, "fw_check") == 0)
         {
@@ -411,6 +416,9 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
             String msg;
             cmd_ok = fw_update_request_install(msg);
         }
+
+        if (needs_save)
+            settings.saveConfiguration(settings.config_filename, settings.config);
 
         json_mqtt.clear();
         json_mqtt["cmd"]        = cmd;
