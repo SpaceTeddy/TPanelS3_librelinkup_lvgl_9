@@ -19,6 +19,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <PubSubClient.h>
 #include <librelinkup.h>
 #include <uuid/log.h>
 
@@ -28,10 +29,14 @@
 #include "helper.h"
 #include "main.h"
 #include "http_update.h"
+#include "settings.h"
 
-extern LIBRELINKUP librelinkup;
-extern HELPER      helper;
-extern AppFsm      g_fsm;
+extern LIBRELINKUP  librelinkup;
+extern HELPER       helper;
+extern AppFsm       g_fsm;
+extern SETTINGS     settings;
+extern PubSubClient mqtt_client;
+extern IPAddress    local_ip;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
@@ -561,60 +566,100 @@ void ui_update_fw_hint()
  *
  * @note Only updates if debug screen is active
  */
+static const char *appstate_name(AppState s)
+{
+    switch (s) {
+        case AppState::BOOT:           return "BOOT";
+        case AppState::WIFI_CONNECT:   return "WIFI_CONNECT";
+        case AppState::VPN_CHECK:      return "VPN_CHECK";
+        case AppState::MQTT_CONNECT:   return "MQTT_CONNECT";
+        case AppState::RUN_IDLE:       return "RUN_IDLE";
+        case AppState::RUN_FETCH:      return "RUN_FETCH";
+        case AppState::RUN_PUBLISH:    return "RUN_PUBLISH";
+        case AppState::DISPLAY_DIM:    return "DISPLAY_DIM";
+        case AppState::INTERNET_CHECK: return "NET_CHECK";
+        case AppState::BACKOFF:        return "BACKOFF";
+        case AppState::OTA_MODE:       return "OTA_MODE";
+        case AppState::FW_CHECKING:    return "FW_CHECK";
+        case AppState::FW_INSTALLING:  return "FW_INSTALL";
+        default:                       return "?";
+    }
+}
+
 void update_debug_screen()
 {
-    if (lv_scr_act() == ui_Debug_screen)
-    {
-        const uint32_t period_ms  = g_fsm.cfg.fetch_period_ms ? g_fsm.cfg.fetch_period_ms : 60000U;
-        const uint32_t elapsed_ms = (uint32_t)(millis() - (uint32_t)g_fsm.last_fetch_ms);
-        uint32_t remaining_s      = (elapsed_ms < period_ms) ? ((period_ms - elapsed_ms) / 1000U) : 0;
+    if (lv_scr_act() != ui_Debug_screen) return;
 
-        char buf[96];
+    char buf[128];
 
-        snprintf(buf, sizeof(buf), "Data Refresh in: %lu sec.", (unsigned long)remaining_s);
-        lv_label_set_text(ui_Label_DebugDataRefresh, buf);
+    // ── SYSTEM ──────────────────────────────────────────────────────────────
+    snprintf(buf, sizeof(buf), "WiFi: %s  RSSI: %ddBm",
+             WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    lv_label_set_text(ui_Label_DebugIP, buf);
 
-        snprintf(buf, sizeof(buf), "ESP32 Time: %s", helper.get_esp_time_date().c_str());
-        lv_label_set_text(ui_Label_DebugTime, buf);
+    if (settings.config.wg_mode)
+        snprintf(buf, sizeof(buf), "WG: %s", local_ip.toString().c_str());
+    else
+        snprintf(buf, sizeof(buf), "WG: off");
+    lv_label_set_text(ui_Label_DebugWG, buf);
 
-        IPAddress ip = WiFi.localIP();
-        snprintf(buf, sizeof(buf), "IP: %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-        lv_label_set_text(ui_Label_DebugIP, buf);
+    snprintf(buf, sizeof(buf), "Time: %s", helper.get_esp_time_date().c_str());
+    lv_label_set_text(ui_Label_DebugTime, buf);
 
-        snprintf(buf, sizeof(buf), "Sensor: %s", librelinkup.sensor_data().sensor_id.c_str());
-        lv_label_set_text(ui_Label_DebugSensor, buf);
+    snprintf(buf, sizeof(buf), "FW: %s", fw_update_get_current_version());
+    lv_label_set_text(ui_Label_DebugTest, buf);
 
-        snprintf(buf, sizeof(buf), "Valid: %dDays %dHours %dMinutes",
-                 librelinkup.sensor_lifetime().sensor_valid_days,
-                 librelinkup.sensor_lifetime().sensor_valid_hours,
-                 librelinkup.sensor_lifetime().sensor_valid_minutes);
-        lv_label_set_text(ui_Label_DebugSensorTimestamp, buf);
+    // ── FSM ─────────────────────────────────────────────────────────────────
+    const uint32_t period_ms   = g_fsm.cfg.fetch_period_ms ? g_fsm.cfg.fetch_period_ms : 60000U;
+    const uint32_t elapsed_ms  = (uint32_t)(millis() - (uint32_t)g_fsm.last_fetch_ms);
+    const uint32_t remaining_s = (elapsed_ms < period_ms) ? ((period_ms - elapsed_ms) / 1000U) : 0U;
+    snprintf(buf, sizeof(buf), "State: %s  Fetch: %lus",
+             appstate_name(g_fsm.state), (unsigned long)remaining_s);
+    lv_label_set_text(ui_Label_DebugDataRefresh, buf);
 
-        const int st = librelinkup.sensor_data().sensor_state;
-        const char *st_txt =
-            (st == 0) ? "unknown"          :
-            (st == 1) ? "not started yet"  :
-            (st == 2) ? "starting phase"   :
-            (st == 3) ? "ready"            :
-            (st == 4) ? "expired"          :
-            (st == 5) ? "shut down"        :
-            (st == 6) ? "has failure"      : "other";
+    const char *reason = g_fsm.last_transition_reason ? g_fsm.last_transition_reason : "-";
+    snprintf(buf, sizeof(buf), "Reason: %s  Fails: %u", reason, (unsigned)g_fsm.consecutive_failures);
+    lv_label_set_text(ui_Label_DebugFsmReason, buf);
 
-        snprintf(buf, sizeof(buf), "Sensor State: %d => %s", st, st_txt);
-        lv_label_set_text(ui_Label_DebugSensorState, buf);
+    // ── SENSOR ──────────────────────────────────────────────────────────────
+    snprintf(buf, sizeof(buf), "Sensor SN: %s", librelinkup.sensor_data().sensor_sn.c_str());
+    lv_label_set_text(ui_Label_DebugSensor, buf);
 
-        char delta_buf[16];
-        if (glucose_delta == 0)
-            snprintf(delta_buf, sizeof(delta_buf), "±%d", glucose_delta);
-        else if (glucose_delta > 0)
-            snprintf(delta_buf, sizeof(delta_buf), "+%d", glucose_delta);
-        else
-            snprintf(delta_buf, sizeof(delta_buf), "%d", glucose_delta);
+    const int st     = librelinkup.status().sensor_state;      // calculated state (reliable)
+    const int pt_raw = librelinkup.sensor_data().sensor_state; // raw API pt field
+    const auto &lt = librelinkup.sensor_lifetime();
+    const char *st_txt =
+        (st == 1) ? "not started" :
+        (st == 2) ? "starting"    :
+        (st == 3) ? "ready"       :
+        (st == 4) ? "expired"     :
+        (st == 5) ? "shutdown"    :
+        (st == 6) ? "failure"     : "unknown";
+    snprintf(buf, sizeof(buf), "State: %s  Valid: %dD %dH %dM",
+             st_txt, lt.sensor_valid_days, lt.sensor_valid_hours, lt.sensor_valid_minutes);
+    lv_label_set_text(ui_Label_DebugSensorState, buf);
 
-        snprintf(buf, sizeof(buf), "Sensor Value: %d%s %s mg/dL",
-                 librelinkup.glucose_data().glucoseMeasurement,
-                 librelinkup.glucose_data().str_trendArrow.c_str(),
-                 delta_buf);
-        lv_label_set_text(ui_Label_DebugSensorValue, buf);
-    }
+    char delta_buf[12];
+    if (glucose_delta == 0)
+        snprintf(delta_buf, sizeof(delta_buf), "+-0");
+    else if (glucose_delta > 0)
+        snprintf(delta_buf, sizeof(delta_buf), "+%d", glucose_delta);
+    else
+        snprintf(delta_buf, sizeof(delta_buf), "%d", glucose_delta);
+    snprintf(buf, sizeof(buf), "Value: %d %s %s mg/dL",
+             librelinkup.glucose_data().glucoseMeasurement,
+             librelinkup.glucose_data().str_trendArrow.c_str(),
+             delta_buf);
+    lv_label_set_text(ui_Label_DebugSensorValue, buf);
+
+    // ── MQTT ────────────────────────────────────────────────────────────────
+    const char *conn = mqtt_client.connected() ? "connected" : "disconnected";
+    const char *mode = !settings.config.mqtt_mode      ? "off"    :
+                        settings.config.mqtt_master_mode ? "master" : "client";
+    snprintf(buf, sizeof(buf), "MQTT: %s  Mode: %s", conn, mode);
+    lv_label_set_text(ui_Label_DebugSensorTimestamp, buf);
+
+    // ── HEAP (bottom) ────────────────────────────────────────────────────────
+    snprintf(buf, sizeof(buf), "Heap: %luKB free", (unsigned long)(ESP.getFreeHeap() / 1024));
+    lv_label_set_text(ui_Label_DebugHeap, buf);
 }

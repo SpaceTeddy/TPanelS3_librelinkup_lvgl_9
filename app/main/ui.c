@@ -72,11 +72,14 @@ lv_obj_t * ui_Label_DebugInfo;
 lv_obj_t * ui_Label_DebugDataRefresh;
 lv_obj_t * ui_Label_DebugTime;
 lv_obj_t * ui_Label_DebugIP;
+lv_obj_t * ui_Label_DebugWG;
 lv_obj_t * ui_Label_DebugSensor;
 lv_obj_t * ui_Label_DebugSensorTimestamp;
 lv_obj_t * ui_Label_DebugSensorState;
 lv_obj_t * ui_Label_DebugSensorValue;
 lv_obj_t * ui_Label_DebugTest;
+lv_obj_t * ui_Label_DebugFsmReason;
+lv_obj_t * ui_Label_DebugHeap;
 
 // Login screen elements
 lv_obj_t * ui_Label_LoginInfo;
@@ -664,77 +667,95 @@ void ui_Debug_screen_init(void)
     ui_Debug_screen = lv_obj_create(NULL);
     lv_obj_clear_flag(ui_Debug_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui_Debug_screen, lv_color_black(), LV_PART_MAIN);
-    
-    // Debug screen title
+
+    // ── Title ───────────────────────────────────────────────────────────────
     ui_Label_DebugInfo = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight32,
-                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 100, 30);
+                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 15);
     if (ui_Label_DebugInfo != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugInfo, LV_TEXT_ALIGN_LEFT, 0);
-        lv_label_set_text(ui_Label_DebugInfo, "Debug Screen");
+        lv_label_set_text(ui_Label_DebugInfo, "Debug");
     }
 
-    // Data refresh countdown
-    ui_Label_DebugDataRefresh = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                     UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 100);
-    if (ui_Label_DebugDataRefresh != NULL) {
-        lv_obj_set_style_text_align(ui_Label_DebugDataRefresh, LV_TEXT_ALIGN_LEFT, 0);
-        lv_label_set_text(ui_Label_DebugDataRefresh, "DataRefreshIn: ");
-    }
-
-    // IP address display
+    // ── SYSTEM ──────────────────────────────────────────────────────────────
     ui_Label_DebugIP = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                            UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 120);
+                                            UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 65);
     if (ui_Label_DebugIP != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugIP, LV_TEXT_ALIGN_LEFT, 0);
-        lv_label_set_text(ui_Label_DebugIP, "IP: ");
+        lv_label_set_text(ui_Label_DebugIP, "WiFi: -");
     }
 
-    // System time display
+    ui_Label_DebugWG = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                            UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 87);
+    if (ui_Label_DebugWG != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugWG, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugWG, "WG: -");
+    }
+
     ui_Label_DebugTime = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 140);
+                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 109);
     if (ui_Label_DebugTime != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugTime, LV_TEXT_ALIGN_LEFT, 0);
-        lv_label_set_text(ui_Label_DebugTime, "ESP32 Time: ");
+        lv_label_set_text(ui_Label_DebugTime, "Time: -");
     }
 
-    // Sensor information
-    ui_Label_DebugSensor = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 160);
-    if (ui_Label_DebugSensor != NULL) {
-        lv_obj_set_style_text_align(ui_Label_DebugSensor, LV_TEXT_ALIGN_LEFT, 0);
-        lv_label_set_text(ui_Label_DebugSensor, "Sensor: ");
-    }
-
-    // Sensor timestamp
-    ui_Label_DebugSensorTimestamp = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                         UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 200);
-    if (ui_Label_DebugSensorTimestamp != NULL) {
-        lv_obj_set_style_text_align(ui_Label_DebugSensorTimestamp, LV_TEXT_ALIGN_LEFT, 0);
-        lv_label_set_text(ui_Label_DebugSensorTimestamp, "SensorTimestamp: ");
-    }
-
-    // Sensor state
-    ui_Label_DebugSensorState = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                     UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 220);
-    if (ui_Label_DebugSensorState != NULL) {
-        lv_obj_set_style_text_align(ui_Label_DebugSensorState, LV_TEXT_ALIGN_LEFT, 0);
-        lv_label_set_text(ui_Label_DebugSensorState, "SensorState: ");
-    }
-
-    // Sensor value
-    ui_Label_DebugSensorValue = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
-                                                     UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 240);
-    if (ui_Label_DebugSensorValue != NULL) {
-        lv_obj_set_style_text_align(ui_Label_DebugSensorValue, LV_TEXT_ALIGN_LEFT, 0);
-        lv_label_set_text(ui_Label_DebugSensorValue, "SensorValue: ");
-    }
-
-    // Test label with trend arrows
-    ui_Label_DebugTest = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight72,
-                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 20, 280);
+    ui_Label_DebugTest = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 131);
     if (ui_Label_DebugTest != NULL) {
         lv_obj_set_style_text_align(ui_Label_DebugTest, LV_TEXT_ALIGN_LEFT, 0);
-        lv_label_set_text(ui_Label_DebugTest, "↓ ↘️ → ↗️ ↑");
+        lv_label_set_text(ui_Label_DebugTest, "FW: -");
+    }
+
+    // ── HEAP (bottom, above buttons) ────────────────────────────────────────
+    ui_Label_DebugHeap = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                              UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 330);
+    if (ui_Label_DebugHeap != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugHeap, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugHeap, "Heap: -");
+    }
+
+    // ── FSM ─────────────────────────────────────────────────────────────────
+    ui_Label_DebugDataRefresh = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                     UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 158);
+    if (ui_Label_DebugDataRefresh != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugDataRefresh, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugDataRefresh, "State: -");
+    }
+
+    ui_Label_DebugFsmReason = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                   UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 180);
+    if (ui_Label_DebugFsmReason != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugFsmReason, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugFsmReason, "Reason: -");
+    }
+
+    // ── SENSOR ──────────────────────────────────────────────────────────────
+    ui_Label_DebugSensor = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 207);
+    if (ui_Label_DebugSensor != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugSensor, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugSensor, "Sensor: -");
+    }
+
+    ui_Label_DebugSensorState = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                     UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 229);
+    if (ui_Label_DebugSensorState != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugSensorState, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugSensorState, "State: -");
+    }
+
+    ui_Label_DebugSensorValue = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                     UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 251);
+    if (ui_Label_DebugSensorValue != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugSensorValue, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugSensorValue, "Value: -");
+    }
+
+    // ── MQTT ────────────────────────────────────────────────────────────────
+    ui_Label_DebugSensorTimestamp = create_styled_label(ui_Debug_screen, &JetBrainsMonoLight20,
+                                                         UI_COLOR_WHITE, DEBUG_MESSAGE_WIDTH, LV_TEXT_ALIGN_CENTER, 10, 278);
+    if (ui_Label_DebugSensorTimestamp != NULL) {
+        lv_obj_set_style_text_align(ui_Label_DebugSensorTimestamp, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(ui_Label_DebugSensorTimestamp, "MQTT: -");
     }
 }
 

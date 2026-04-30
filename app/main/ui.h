@@ -152,14 +152,17 @@ extern lv_chart_series_t * sensorValidDaysSeries_grey;    ///< Sensor validity (
 /// @name Debug Screen Elements
 /// @{
 extern lv_obj_t * ui_Label_DebugInfo;           ///< Debug screen title
-extern lv_obj_t * ui_Label_DebugDataRefresh;    ///< Data refresh countdown
+extern lv_obj_t * ui_Label_DebugDataRefresh;    ///< FSM state + next fetch countdown
 extern lv_obj_t * ui_Label_DebugTime;           ///< System time display
-extern lv_obj_t * ui_Label_DebugIP;             ///< IP address display
+extern lv_obj_t * ui_Label_DebugIP;             ///< WiFi IP + RSSI
+extern lv_obj_t * ui_Label_DebugWG;             ///< WireGuard IP or off
 extern lv_obj_t * ui_Label_DebugSensor;         ///< Sensor ID
-extern lv_obj_t * ui_Label_DebugSensorTimestamp;///< Last sensor reading time
-extern lv_obj_t * ui_Label_DebugSensorState;    ///< Sensor state
-extern lv_obj_t * ui_Label_DebugSensorValue;    ///< Current sensor value
-extern lv_obj_t * ui_Label_DebugTest;           ///< Test label for symbols
+extern lv_obj_t * ui_Label_DebugSensorTimestamp;///< MQTT connection status
+extern lv_obj_t * ui_Label_DebugSensorState;    ///< Sensor state + validity
+extern lv_obj_t * ui_Label_DebugSensorValue;    ///< Current sensor value + delta
+extern lv_obj_t * ui_Label_DebugTest;           ///< FW version
+extern lv_obj_t * ui_Label_DebugFsmReason;      ///< FSM last transition reason + failure count
+extern lv_obj_t * ui_Label_DebugHeap;           ///< Free heap (bottom of screen)
 /// @}
 
 /// @name Debug Screen Buttons
