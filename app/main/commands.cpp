@@ -38,6 +38,7 @@ extern MQTT mqtt;
 extern HBA1C hba1c;
 extern HELPER helper;
 extern uint16_t telnet_port;
+extern HardwareSerial SerialPort;
 
 extern int  app_check_internet_status(IPAddress ip, uint16_t port);
 extern void start_ap_mode();
@@ -1119,6 +1120,28 @@ void fwUpdateCommand(uuid::console::Shell &shell, const std::vector<std::string>
  *
  * This function wires command strings to handler callbacks.
  */
+/**
+ * @brief Handler for command: `h2_send <string>`
+ * @param shell Shell output.
+ * @param arguments arguments[0..] joined with spaces and sent to the ESP32-H2 via UART.
+ */
+void h2SendCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
+    if (arguments.empty()) {
+        shell.println(F("Usage: h2_send <string>  e.g.: h2_send {\"cmd\":\"scan\"}"));
+        return;
+    }
+
+    // Rejoin all arguments (allows spaces inside the JSON without quoting)
+    String msg;
+    for (size_t i = 0; i < arguments.size(); i++) {
+        if (i > 0) msg += ' ';
+        msg += arguments[i].c_str();
+    }
+
+    SerialPort.println(msg);   // sends msg + '\n' to H2
+    shell.printfln("H2 >> %s", msg.c_str());
+}
+
 // Returns all .json filenames from LittleFS (used for tab-completion of file commands).
 static std::vector<std::string> list_json_files_completion(
         uuid::console::Shell &, const std::vector<std::string> &, const std::string &) {
@@ -1254,6 +1277,10 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
         uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")},
         showCaFromFileCommand,
         [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "Baltimore", "GoogleTrust"}; });
+
+    commands->add_command(uuid::flash_string_vector{F("h2_send")},
+        uuid::flash_string_vector{F("<string>")},
+        h2SendCommand);
 
     commands->add_command(uuid::flash_string_vector{F("fw_update")},
         uuid::flash_string_vector{F("<check|install|status|channel|force>")},

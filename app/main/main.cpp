@@ -1580,6 +1580,58 @@ void setup_UART_IPC()
     Serial.println(F("Init SerialPort for IPC"));
 }
 
+/// Sendet einen JSON-Befehl an den ESP32-H2
+void h2_send(const char *cmd)
+{
+    SerialPort.print(cmd);
+    SerialPort.print('\n');
+    logger.notice("[H2] TX: %s", cmd);
+}
+
+/// Verarbeitet eine vollständige JSON-Zeile vom ESP32-H2
+static void h2_handle_message(const String &line)
+{
+    logger.notice("[H2] raw: %s", line.c_str());
+
+    JsonDocument doc;
+    if (deserializeJson(doc, line) != DeserializationError::Ok)
+    {
+        logger.warning("[H2] JSON parse error: %s", line.c_str());
+        return;
+    }
+
+    const char *type = doc["type"] | "";
+
+    if (strcmp(type, "list") == 0 || strcmp(type, "join") == 0)
+    {
+        logger.notice("[H2] devices (%s): %d entries", type, doc["devices"].size());
+        // TODO: Gerätliste in UI übernehmen
+    }
+    else if (strcmp(type, "ack") == 0)
+    {
+        const char *ack_cmd = doc["cmd"] | "?";
+        bool ok             = doc["ok"] | false;
+        const char *msg     = doc["msg"] | "";
+        logger.notice("[H2] ack [%s] ok=%d %s", ack_cmd, ok, msg);
+    }
+    else if (strcmp(type, "scan") == 0)
+    {
+        logger.notice("[H2] scan: %d networks found", doc["networks"].size());
+    }
+    else if (strcmp(type, "wakeup") == 0)
+    {
+        logger.notice("[H2] wakeup reason: %s", doc["reason"] | "?");
+    }
+    else if (strcmp(type, "ota_progress") == 0)
+    {
+        logger.notice("[H2] OTA: %d / %d bytes", doc["written"].as<int>(), doc["total"].as<int>());
+    }
+    else
+    {
+        logger.notice("[H2] msg [%s]: %s", type, line.c_str());
+    }
+}
+
 /**
  * @brief Initializes LittleFS filesystem
  *
@@ -2159,7 +2211,7 @@ void setup()
     setup_serial(); ///< Initialize USB CDC serial (logging etc.)
 
     // Optional secondary UART (ESP32H2 <-> ESP32S3 IPC)
-    // setup_UART_IPC();
+    setup_UART_IPC();
 
     // --- Storage & Configuration --------------------------------------------
     setup_littlefs();           ///< Mount LittleFS (fail is non-fatal by design)
@@ -2269,11 +2321,27 @@ void loop()
         // Keep this loop short to maintain UI responsiveness.
 
         // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
-        if (SerialPort.available() > 0)
+        static String uart_ipc_buf;
+        while (SerialPort.available() > 0)
         {
-            UART_IPC_DATA1 = SerialPort.read();
-            DBGprint; Serial.print(UART_IPC_DATA1);
-            logger.notice("UART_IPC: %c", UART_IPC_DATA1);
+            char c = (char)SerialPort.read();
+            if (c == '\n')
+            {
+                if (!uart_ipc_buf.isEmpty())
+                {
+                    if (uart_ipc_buf.startsWith("{"))
+                        h2_handle_message(uart_ipc_buf);
+                    else
+                        logger.notice("[H2]: %s", uart_ipc_buf.c_str());
+                    uart_ipc_buf.clear();
+                }
+            }
+            else if (c != '\r')
+            {
+                uart_ipc_buf += c;
+                if (uart_ipc_buf.length() > 2048)
+                    uart_ipc_buf.clear();
+            }
         }
 
         // --- LVGL: let the GUI process pending work ------------------------------
