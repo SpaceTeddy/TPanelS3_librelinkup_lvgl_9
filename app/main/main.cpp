@@ -42,6 +42,7 @@ HELPER helper; ///< Helper class instance for time and utility functions
 ///////////////////// UART IPC COMMUNICATION ////////////////////
 
 #include <HardwareSerial.h>
+#include "h2_ota.h"
 
 /// UART2 instance for IPC communication between ESP32-H2 and ESP32-S3
 HardwareSerial SerialPort(2);
@@ -2321,8 +2322,9 @@ void loop()
         // Keep this loop short to maintain UI responsiveness.
 
         // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
+        // h2_ota_task reads SerialPort directly; skip here while it's active.
         static String uart_ipc_buf;
-        while (SerialPort.available() > 0)
+        while (!h2_ota_in_progress() && SerialPort.available() > 0)
         {
             char c = (char)SerialPort.read();
             if (c == '\n')

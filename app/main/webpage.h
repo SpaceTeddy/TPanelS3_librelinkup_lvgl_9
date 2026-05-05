@@ -307,6 +307,34 @@ const char index_html[] PROGMEM = R"rawliteral(
 </div>
 
 <div class="container">
+    <h2>H2 Co-Processor Firmware Update</h2>
+    <p class="hint">Flash a compiled .bin directly to the ESP32-H2 Zigbee coordinator via UART.</p>
+    <div style="margin-bottom:12px;">
+        <input type="file" id="h2FwFile" accept=".bin" style="margin-bottom:10px;">
+        <div class="row">
+            <button type="button" id="h2FlashBtn" onclick="h2FlashStart()">Flash to H2</button>
+            <span id="h2StatusPill" class="pill" style="flex:1;text-align:center;">idle</span>
+        </div>
+    </div>
+    <div id="h2UploadWrap" style="display:none;margin-bottom:8px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:3px;display:flex;justify-content:space-between;">
+            <span>Upload &rarr; S3</span><span id="h2PctUp">0%</span>
+        </div>
+        <div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden;">
+            <div id="h2BarUp" style="width:0%;height:100%;background:#42a5f5;transition:width .3s;"></div>
+        </div>
+    </div>
+    <div id="h2FlashWrap" style="display:none;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:3px;display:flex;justify-content:space-between;">
+            <span>Flash &rarr; H2</span><span id="h2PctFlash">0%</span>
+        </div>
+        <div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden;">
+            <div id="h2BarFlash" style="width:0%;height:100%;background:#66bb6a;transition:width .4s;"></div>
+        </div>
+    </div>
+</div>
+
+<div class="container">
     <h2>WireGuard Configuration</h2>
     <div class="switch-container">
         <span class="switch-label">WireGuard</span>
@@ -664,6 +692,67 @@ const char index_html[] PROGMEM = R"rawliteral(
             setFwBtnLabel('btnInstall', 'Install update');
         }
     }
+
+    // ── H2 Co-Processor OTA ──────────────────────────────────────
+    let h2PollTimer = null;
+
+    function h2SetStatus(msg) {
+        const el = document.getElementById('h2StatusPill');
+        if (el) el.textContent = msg;
+    }
+    function h2SetUpload(pct) {
+        document.getElementById('h2UploadWrap').style.display = 'block';
+        document.getElementById('h2BarUp').style.width = pct + '%';
+        document.getElementById('h2PctUp').textContent = pct + '%';
+    }
+    function h2SetFlash(written, total) {
+        const pct = total > 0 ? Math.round(written / total * 100) : 0;
+        document.getElementById('h2FlashWrap').style.display = 'block';
+        document.getElementById('h2BarFlash').style.width = pct + '%';
+        document.getElementById('h2PctFlash').textContent =
+            pct + '% (' + Math.round(written/1024) + ' / ' + Math.round(total/1024) + ' KB)';
+    }
+    function h2PollFlash() {
+        fetch('/api/h2/ota/status', {cache:'no-store'})
+            .then(r => r.json())
+            .then(d => {
+                h2SetFlash(d.written, d.total);
+                if (d.active) {
+                    h2SetStatus('Flashing...');
+                } else {
+                    clearInterval(h2PollTimer); h2PollTimer = null;
+                    document.getElementById('h2FlashBtn').disabled = false;
+                    h2SetStatus(d.written >= d.total && d.total > 0 ? 'Done - H2 rebooting' : 'Finished');
+                }
+            })
+            .catch(() => {});
+    }
+    function h2FlashStart() {
+        const f = document.getElementById('h2FwFile').files[0];
+        if (!f) { h2SetStatus('Please select a .bin file'); return; }
+        document.getElementById('h2FlashBtn').disabled = true;
+        document.getElementById('h2UploadWrap').style.display = 'none';
+        document.getElementById('h2FlashWrap').style.display = 'none';
+        h2SetStatus('Uploading...');
+        const fd = new FormData();
+        fd.append('firmware', f);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/h2/ota/upload');
+        xhr.upload.onprogress = e => { if (e.lengthComputable) h2SetUpload(Math.round(e.loaded/e.total*100)); };
+        xhr.onload = () => {
+            h2SetUpload(100);
+            if (xhr.status === 202) {
+                h2SetStatus('Flashing...');
+                h2PollTimer = setInterval(h2PollFlash, 1000);
+            } else {
+                h2SetStatus('Upload error: ' + xhr.status);
+                document.getElementById('h2FlashBtn').disabled = false;
+            }
+        };
+        xhr.onerror = () => { h2SetStatus('Network error'); document.getElementById('h2FlashBtn').disabled = false; };
+        xhr.send(fd);
+    }
+    // ─────────────────────────────────────────────────────────────
 
     function configureWireGuard() {
         const privateKey = document.getElementById('wgPrivateKey').value;

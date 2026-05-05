@@ -19,6 +19,7 @@
 #include "mqtt.h"
 #include "hba1c.h"
 #include "http_update.h"
+#include "h2_ota.h"
 #include "ui.h"
 #include "ui_display.h"
 #include <LittleFS.h>
@@ -1138,8 +1139,95 @@ void h2SendCommand(uuid::console::Shell &shell, const std::vector<std::string> &
         msg += arguments[i].c_str();
     }
 
+    if (h2_ota_in_progress()) {
+        shell.println(F("H2 OTA in progress — command blocked"));
+        return;
+    }
     SerialPort.println(msg);   // sends msg + '\n' to H2
     shell.printfln("H2 >> %s", msg.c_str());
+}
+
+// ── h2 <subcommand> ───────────────────────────────────────────
+static void h2_tx(const char* json) {
+    if (h2_ota_in_progress()) return;
+    SerialPort.print(json);
+    SerialPort.print('\n');
+}
+
+void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args) {
+    if (args.empty()) {
+        shell.println(F("Usage: h2 <list|poll|scan|permit|on|off|toggle|reboot|sleep|deepsleep|wakeup|reset>"));
+        return;
+    }
+    if (h2_ota_in_progress()) {
+        shell.println(F("H2 OTA in progress"));
+        return;
+    }
+
+    const std::string& sub = args[0];
+    char buf[128];
+
+    if (sub == "list") {
+        h2_tx("{\"cmd\":\"list\"}");
+
+    } else if (sub == "poll") {
+        if (args.size() >= 2)
+            snprintf(buf, sizeof(buf), "{\"cmd\":\"poll\",\"addr\":%s}", args[1].c_str());
+        else
+            strcpy(buf, "{\"cmd\":\"poll\"}");
+        h2_tx(buf);
+
+    } else if (sub == "scan") {
+        uint8_t dur = (args.size() >= 2) ? atoi(args[1].c_str()) : 3;
+        snprintf(buf, sizeof(buf), "{\"cmd\":\"scan\",\"dur\":%u}", dur);
+        h2_tx(buf);
+
+    } else if (sub == "permit") {
+        uint8_t sec = (args.size() >= 2) ? atoi(args[1].c_str()) : 60;
+        snprintf(buf, sizeof(buf), "{\"cmd\":\"permit\",\"seconds\":%u}", sec);
+        h2_tx(buf);
+
+    } else if (sub == "on" || sub == "off" || sub == "toggle") {
+        if (args.size() < 2) { shell.printfln("Usage: h2 %s <addr> [ep]", sub.c_str()); return; }
+        uint8_t ep = (args.size() >= 3) ? atoi(args[2].c_str()) : 1;
+        snprintf(buf, sizeof(buf), "{\"cmd\":\"%s\",\"addr\":%s,\"ep\":%u}", sub.c_str(), args[1].c_str(), ep);
+        h2_tx(buf);
+
+    } else if (sub == "reboot") {
+        h2_tx("{\"cmd\":\"reboot\"}");
+
+    } else if (sub == "sleep") {
+        uint32_t sec = (args.size() >= 2) ? atoi(args[1].c_str()) : 60;
+        snprintf(buf, sizeof(buf), "{\"cmd\":\"sleep\",\"seconds\":%u}", sec);
+        h2_tx(buf);
+
+    } else if (sub == "deepsleep") {
+        uint32_t sec = (args.size() >= 2) ? atoi(args[1].c_str()) : 60;
+        snprintf(buf, sizeof(buf), "{\"cmd\":\"deepsleep\",\"seconds\":%u}", sec);
+        h2_tx(buf);
+
+    } else if (sub == "wakeup") {
+        h2_tx("{\"cmd\":\"wakeup\"}");
+
+    } else if (sub == "reset") {
+        h2_tx("{\"cmd\":\"reset\"}");
+
+    } else {
+        shell.printfln("Unknown H2 command: %s", sub.c_str());
+        return;
+    }
+    shell.printfln("H2 >> %s", buf[0] ? buf : sub.c_str());
+}
+
+void h2OtaAbortCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
+    if (!h2_ota_in_progress()) {
+        shell.println(F("H2 OTA not active"));
+        return;
+    }
+    // Force-clear the flag so the main loop resumes reading UART.
+    // The background task will still finish on its own.
+    h2_ota_force_clear();
+    shell.println(F("H2 OTA flag cleared — UART reading resumed"));
 }
 
 // Returns all .json filenames from LittleFS (used for tab-completion of file commands).
@@ -1281,6 +1369,20 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("h2_send")},
         uuid::flash_string_vector{F("<string>")},
         h2SendCommand);
+
+    commands->add_command(uuid::flash_string_vector{F("h2")},
+        uuid::flash_string_vector{F("<subcommand>"), F("[args...]")},
+        h2Command,
+        [](Shell &, const SV &args, const std::string &) -> SV {
+            if (args.empty())
+                return {"list","poll","scan","permit","on","off","toggle",
+                        "reboot","sleep","deepsleep","wakeup","reset"};
+            return {};
+        });
+
+    commands->add_command(uuid::flash_string_vector{F("h2_ota_abort")},
+        uuid::flash_string_vector{},
+        h2OtaAbortCommand);
 
     commands->add_command(uuid::flash_string_vector{F("fw_update")},
         uuid::flash_string_vector{F("<check|install|status|channel|force>")},
