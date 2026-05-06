@@ -17,6 +17,7 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 static constexpr int CHUNK_RAW           = 384;
 static constexpr int CHUNK_B64           = 512;
 static constexpr unsigned long ACK_TIMEOUT_MS = 15000;
+static constexpr int OTA_CHUNK_RETRIES   = 3;
 
 static volatile bool   g_ota_active  = false;
 static volatile size_t g_ota_written = 0;
@@ -97,6 +98,32 @@ static bool wait_progress(unsigned long timeout_ms = ACK_TIMEOUT_MS)
     return false;
 }
 
+enum class OtaChunkStatus : uint8_t {
+    Progress,
+    RetryableError,
+    Timeout
+};
+
+static OtaChunkStatus wait_progress_or_error(unsigned long timeout_ms = ACK_TIMEOUT_MS)
+{
+    String line;
+    unsigned long deadline = millis() + timeout_ms;
+    while (millis() < deadline) {
+        unsigned long left = deadline - millis();
+        if (!read_line(line, left)) break;
+        JsonDocument doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        const char* type = doc["type"] | "";
+        if (strcmp(type, "ota_progress") == 0) return OtaChunkStatus::Progress;
+        if (strcmp(type, "ack") == 0 && strcmp(doc["cmd"] | "", "ota_data") == 0 && !(doc["ok"] | true)) {
+            logger.warning("[H2-OTA] chunk rejected: %s", doc["msg"] | "?");
+            return OtaChunkStatus::RetryableError;
+        }
+    }
+    logger.warning("[H2-OTA] timeout for ota_progress");
+    return OtaChunkStatus::Timeout;
+}
+
 // ──────────────────────────────────────────────────────────────
 // Core flash routine — reads from a callback that yields raw bytes
 // ──────────────────────────────────────────────────────────────
@@ -139,9 +166,23 @@ static bool flash_to_h2(ChunkSource& src, size_t total)
         b64[b64_len] = '\0';
 
         snprintf(json_buf, sizeof(json_buf), "{\"cmd\":\"ota_data\",\"data\":\"%s\"}", (char*)b64);
-        h2_tx(json_buf);
 
-        if (!wait_progress()) return false;
+        bool chunk_ok = false;
+        for (int attempt = 1; attempt <= OTA_CHUNK_RETRIES; attempt++) {
+            h2_tx(json_buf);
+            OtaChunkStatus st = wait_progress_or_error();
+            if (st == OtaChunkStatus::Progress) {
+                chunk_ok = true;
+                break;
+            }
+            if (st == OtaChunkStatus::RetryableError && attempt < OTA_CHUNK_RETRIES) {
+                logger.warning("[H2-OTA] retry chunk %d (%d/%d)", chunk_num, attempt + 1, OTA_CHUNK_RETRIES);
+                delay(20);
+                continue;
+            }
+            return false;
+        }
+        if (!chunk_ok) return false;
 
         sent += got;
         g_ota_written = sent;
