@@ -333,14 +333,15 @@ This project includes an S3 shell command bridge to the ESP32-H2 Zigbee coordina
 
 - `h2 list`
 - `h2 version`
+- `h2 chipinfo`
 - `h2 discover [addr]`
 - `h2 poll [addr]`
 - `h2 scan [dur]`
 - `h2 permit [seconds]`
 - `h2 pair [seconds]`
-- `h2 on <addr> [ep]`
-- `h2 off <addr> [ep]`
-- `h2 toggle <addr> [ep]`
+- `h2 on <addr> [ep|auto]`
+- `h2 off <addr> [ep|auto]`
+- `h2 toggle <addr> [ep|auto]`
 - `h2 forget <addr>`
 - `h2 forget all`
 - `h2 remove <addr>`
