@@ -28,6 +28,7 @@
 
 #include <cstdarg> // for va_list, va_start, va_end
 #include <cstdio>  // for vsnprintf
+#include <cstdint> // for uintptr_t
 #include <cstdlib> // for strtol
 
 extern SETTINGS settings;
@@ -50,6 +51,28 @@ extern bool g_force_ap_mode;
 /** @brief Module logger instance. */
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 //------------------------------------------------------------------------
+
+// One-shot helper task for `h2 pair <seconds>`.
+static volatile bool g_h2_pair_task_active = false;
+
+static void h2_pair_task(void* arg) {
+    uint32_t seconds = (uint32_t)(uintptr_t)arg;
+    if (seconds == 0) seconds = 120;
+
+    char cmd[96];
+    snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permit\",\"seconds\":%u}", (unsigned)seconds);
+    SerialPort.print(cmd);
+    SerialPort.print('\n');
+    logger.notice("[H2] pair helper: sent permit for %u s", (unsigned)seconds);
+
+    vTaskDelay(pdMS_TO_TICKS(seconds * 1000UL));
+
+    SerialPort.print("{\"cmd\":\"list\"}\n");
+    logger.notice("[H2] pair helper: permit window ended -> requested list");
+
+    g_h2_pair_task_active = false;
+    vTaskDelete(nullptr);
+}
 
 /**
  * @brief Print a welcome banner on shell connect.
@@ -1156,7 +1179,17 @@ static void h2_tx(const char* json) {
 
 void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args) {
     if (args.empty()) {
-        shell.println(F("Usage: h2 <list|poll|scan|permit|on|off|toggle|reboot|sleep|deepsleep|wakeup|reset>"));
+        shell.println(F("Usage: h2 <list|version|discover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|raw>"));
+        shell.println(F("  h2 poll [addr]"));
+        shell.println(F("  h2 discover [addr]"));
+        shell.println(F("  h2 scan [dur]"));
+        shell.println(F("  h2 permit [seconds]"));
+        shell.println(F("  h2 pair [seconds]"));
+        shell.println(F("  h2 on|off|toggle <addr> [ep]"));
+        shell.println(F("  h2 forget <addr> | h2 forget all"));
+        shell.println(F("  h2 remove <addr>"));
+        shell.println(F("  h2 sleep|deepsleep [seconds]"));
+        shell.println(F("  h2 raw '{\"cmd\":\"list\"}'"));
         return;
     }
     if (h2_ota_in_progress()) {
@@ -1165,10 +1198,22 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
     }
 
     const std::string& sub = args[0];
-    char buf[128];
+    char buf[128] = {0};
 
     if (sub == "list") {
-        h2_tx("{\"cmd\":\"list\"}");
+        strcpy(buf, "{\"cmd\":\"list\"}");
+        h2_tx(buf);
+
+    } else if (sub == "version") {
+        strcpy(buf, "{\"cmd\":\"version\"}");
+        h2_tx(buf);
+
+    } else if (sub == "discover") {
+        if (args.size() >= 2)
+            snprintf(buf, sizeof(buf), "{\"cmd\":\"discover\",\"addr\":%s}", args[1].c_str());
+        else
+            strcpy(buf, "{\"cmd\":\"discover\"}");
+        h2_tx(buf);
 
     } else if (sub == "poll") {
         if (args.size() >= 2)
@@ -1187,14 +1232,53 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
         snprintf(buf, sizeof(buf), "{\"cmd\":\"permit\",\"seconds\":%u}", sec);
         h2_tx(buf);
 
+    } else if (sub == "pair") {
+        uint32_t sec = (args.size() >= 2) ? atoi(args[1].c_str()) : 120;
+        if (sec == 0) sec = 120;
+
+        if (g_h2_pair_task_active) {
+            shell.println(F("H2 pair helper already running"));
+            return;
+        }
+
+        g_h2_pair_task_active = true;
+        if (xTaskCreate(h2_pair_task, "h2_pair", 4096, (void*)(uintptr_t)sec, 1, nullptr) != pdPASS) {
+            g_h2_pair_task_active = false;
+            shell.println(F("Failed to start H2 pair helper task"));
+            return;
+        }
+        shell.printfln("H2 pair helper started: permit %us, auto-list at end", (unsigned)sec);
+        snprintf(buf, sizeof(buf), "{\"cmd\":\"permit\",\"seconds\":%u}", (unsigned)sec);
+
     } else if (sub == "on" || sub == "off" || sub == "toggle") {
         if (args.size() < 2) { shell.printfln("Usage: h2 %s <addr> [ep]", sub.c_str()); return; }
         uint8_t ep = (args.size() >= 3) ? atoi(args[2].c_str()) : 1;
         snprintf(buf, sizeof(buf), "{\"cmd\":\"%s\",\"addr\":%s,\"ep\":%u}", sub.c_str(), args[1].c_str(), ep);
         h2_tx(buf);
 
+    } else if (sub == "forget") {
+        if (args.size() < 2) {
+            shell.println(F("Usage: h2 forget <addr>|all"));
+            return;
+        }
+        if (args[1] == "all") {
+            strcpy(buf, "{\"cmd\":\"forget\",\"all\":true}");
+        } else {
+            snprintf(buf, sizeof(buf), "{\"cmd\":\"forget\",\"addr\":%s}", args[1].c_str());
+        }
+        h2_tx(buf);
+
+    } else if (sub == "remove") {
+        if (args.size() < 2) {
+            shell.println(F("Usage: h2 remove <addr>"));
+            return;
+        }
+        snprintf(buf, sizeof(buf), "{\"cmd\":\"remove\",\"addr\":%s}", args[1].c_str());
+        h2_tx(buf);
+
     } else if (sub == "reboot") {
-        h2_tx("{\"cmd\":\"reboot\"}");
+        strcpy(buf, "{\"cmd\":\"reboot\"}");
+        h2_tx(buf);
 
     } else if (sub == "sleep") {
         uint32_t sec = (args.size() >= 2) ? atoi(args[1].c_str()) : 60;
@@ -1207,10 +1291,26 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
         h2_tx(buf);
 
     } else if (sub == "wakeup") {
-        h2_tx("{\"cmd\":\"wakeup\"}");
+        strcpy(buf, "{\"cmd\":\"wakeup\"}");
+        h2_tx(buf);
 
     } else if (sub == "reset") {
-        h2_tx("{\"cmd\":\"reset\"}");
+        strcpy(buf, "{\"cmd\":\"reset\"}");
+        h2_tx(buf);
+
+    } else if (sub == "raw") {
+        if (args.size() < 2) {
+            shell.println(F("Usage: h2 raw <json>"));
+            return;
+        }
+        String msg;
+        for (size_t i = 1; i < args.size(); i++) {
+            if (i > 1) msg += ' ';
+            msg += args[i].c_str();
+        }
+        h2_tx(msg.c_str());
+        shell.printfln("H2 >> %s", msg.c_str());
+        return;
 
     } else {
         shell.printfln("Unknown H2 command: %s", sub.c_str());
@@ -1375,7 +1475,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
         h2Command,
         [](Shell &, const SV &args, const std::string &) -> SV {
             if (args.empty())
-                return {"list","poll","scan","permit","on","off","toggle",
+                return {"list","poll","scan","permit","pair","on","off","toggle",
                         "reboot","sleep","deepsleep","wakeup","reset"};
             return {};
         });

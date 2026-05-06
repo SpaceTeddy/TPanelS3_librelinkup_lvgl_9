@@ -326,3 +326,31 @@
 * [ESP32_USB_Stream-0.0.1](https://github.com/esp-arduino-libs/ESP32_USB_Stream)
 * [JPEGDEC-1.2.8](https://github.com/bitbank2/JPEGDEC)
 * [MiniTV](https://github.com/moononournation/MiniTV)
+
+## H2 Console Commands (Project-Specific)
+
+This project includes an S3 shell command bridge to the ESP32-H2 Zigbee coordinator:
+
+- `h2 list`
+- `h2 version`
+- `h2 discover [addr]`
+- `h2 poll [addr]`
+- `h2 scan [dur]`
+- `h2 permit [seconds]`
+- `h2 pair [seconds]`
+- `h2 on <addr> [ep]`
+- `h2 off <addr> [ep]`
+- `h2 toggle <addr> [ep]`
+- `h2 forget <addr>`
+- `h2 forget all`
+- `h2 remove <addr>`
+- `h2 reboot`
+- `h2 sleep [seconds]`
+- `h2 deepsleep [seconds]`
+- `h2 wakeup`
+- `h2 reset`
+- `h2 raw '{"cmd":"list"}'`
+
+Direct JSON passthrough is also available via:
+
+- `h2_send <json>`
