@@ -1475,8 +1475,10 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
         h2Command,
         [](Shell &, const SV &args, const std::string &) -> SV {
             if (args.empty())
-                return {"list","poll","scan","permit","pair","on","off","toggle",
-                        "reboot","sleep","deepsleep","wakeup","reset"};
+                return {"list","version","discover","poll","scan","permit","pair",
+                        "on","off","toggle","forget","remove","reboot","sleep",
+                        "deepsleep","wakeup","reset","raw"};
+            if (args[0] == "forget") return {"all"};
             return {};
         });
 
