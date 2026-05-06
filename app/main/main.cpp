@@ -1570,12 +1570,12 @@ void setup_serial()
  * Sets up UART2 for Inter-Processor Communication between
  * ESP32-H2 and ESP32-S3.
  *
- * @note Uses 921600 baud, 8N1 configuration
+ * @note Uses 460800 baud, 8N1 configuration
  * @note Currently commented out in main setup()
  */
 void setup_UART_IPC()
 {
-    SerialPort.begin(921600, SERIAL_8N1, ESP32H2_RX, ESP32H2_TX);
+    SerialPort.begin(460800, SERIAL_8N1, ESP32H2_RX, ESP32H2_TX);
     Serial.println();
     DBGprint;
     Serial.println(F("Init SerialPort for IPC"));
