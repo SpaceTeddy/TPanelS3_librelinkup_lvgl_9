@@ -1185,7 +1185,7 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
         shell.println(F("  h2 scan [dur]"));
         shell.println(F("  h2 permit [seconds]"));
         shell.println(F("  h2 pair [seconds]"));
-        shell.println(F("  h2 on|off|toggle <addr> [ep]"));
+        shell.println(F("  h2 on|off|toggle <addr> [ep|auto]"));
         shell.println(F("  h2 forget <addr> | h2 forget all"));
         shell.println(F("  h2 remove <addr>"));
         shell.println(F("  h2 sleep|deepsleep [seconds]"));
@@ -1251,7 +1251,19 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
         snprintf(buf, sizeof(buf), "{\"cmd\":\"permit\",\"seconds\":%u}", (unsigned)sec);
 
     } else if (sub == "on" || sub == "off" || sub == "toggle") {
-        if (args.size() < 2) { shell.printfln("Usage: h2 %s <addr> [ep]", sub.c_str()); return; }
+        if (args.size() < 2) { shell.printfln("Usage: h2 %s <addr> [ep|auto]", sub.c_str()); return; }
+        bool auto_ep = (args.size() >= 3) && (args[2] == "auto");
+        if (auto_ep) {
+            // Common fallback for plugs that expose On/Off on EP 1 or EP 10.
+            snprintf(buf, sizeof(buf), "{\"cmd\":\"%s\",\"addr\":%s,\"ep\":1}", sub.c_str(), args[1].c_str());
+            h2_tx(buf);
+            vTaskDelay(pdMS_TO_TICKS(120));
+            snprintf(buf, sizeof(buf), "{\"cmd\":\"%s\",\"addr\":%s,\"ep\":10}", sub.c_str(), args[1].c_str());
+            h2_tx(buf);
+            shell.printfln("H2 >> auto endpoint fallback for %s (ep 1, then ep 10)", args[1].c_str());
+            return;
+        }
+
         uint8_t ep = (args.size() >= 3) ? atoi(args[2].c_str()) : 1;
         snprintf(buf, sizeof(buf), "{\"cmd\":\"%s\",\"addr\":%s,\"ep\":%u}", sub.c_str(), args[1].c_str(), ep);
         h2_tx(buf);

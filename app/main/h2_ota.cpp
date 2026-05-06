@@ -110,6 +110,8 @@ static bool flash_to_h2(ChunkSource& src, size_t total)
 {
     g_ota_written = 0;
     g_ota_total   = total;
+    uint32_t last_progress_log_ms = 0;
+    int last_progress_percent = -1;
 
     // ota_start
     char cmd[64];
@@ -144,8 +146,20 @@ static bool flash_to_h2(ChunkSource& src, size_t total)
         sent += got;
         g_ota_written = sent;
         chunk_num++;
-        if (chunk_num % 20 == 0)
-            logger.notice("[H2-OTA] %u / %u bytes", (unsigned)sent, (unsigned)total);
+
+        if (total > 0) {
+            float progress = (100.0f * (float)sent) / (float)total;
+            if (progress > 100.0f) progress = 100.0f;
+            int progress_i = (int)progress;
+            uint32_t now = millis();
+            if (progress_i != last_progress_percent &&
+                (last_progress_log_ms == 0 || (now - last_progress_log_ms) >= 1000)) {
+                last_progress_percent = progress_i;
+                last_progress_log_ms = now;
+                logger.notice("[H2-OTA] Progress: %.2f%% (%u / %u Bytes)",
+                              progress, (unsigned)sent, (unsigned)total);
+            }
+        }
     }
 
     // ota_end
