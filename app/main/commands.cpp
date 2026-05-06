@@ -1179,7 +1179,7 @@ static void h2_tx(const char* json) {
 
 void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args) {
     if (args.empty()) {
-        shell.println(F("Usage: h2 <list|version|chipinfo|discover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|raw>"));
+        shell.println(F("Usage: h2 <list|version|chipinfo|discover|rediscover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|raw>"));
         shell.println(F("  h2 poll [addr]"));
         shell.println(F("  h2 discover [addr]"));
         shell.println(F("  h2 scan [dur]"));
@@ -1217,6 +1217,10 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
             snprintf(buf, sizeof(buf), "{\"cmd\":\"discover\",\"addr\":%s}", args[1].c_str());
         else
             strcpy(buf, "{\"cmd\":\"discover\"}");
+        h2_tx(buf);
+
+    } else if (sub == "rediscover") {
+        strcpy(buf, "{\"cmd\":\"rediscover\"}");
         h2_tx(buf);
 
     } else if (sub == "poll") {
@@ -1491,7 +1495,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
         h2Command,
         [](Shell &, const SV &args, const std::string &) -> SV {
             if (args.empty())
-                return {"list","version","chipinfo","discover","poll","scan","permit","pair",
+                return {"list","version","chipinfo","discover","rediscover","poll","scan","permit","pair",
                         "on","off","toggle","forget","remove","reboot","sleep",
                         "deepsleep","wakeup","reset","raw"};
             if (args[0] == "forget") return {"all"};
