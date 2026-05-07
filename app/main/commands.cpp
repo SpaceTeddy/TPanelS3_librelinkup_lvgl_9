@@ -1179,7 +1179,7 @@ static void h2_tx(const char* json) {
 
 void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args) {
     if (args.empty()) {
-        shell.println(F("Usage: h2 <list|version|chipinfo|discover|rediscover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|raw>"));
+        shell.println(F("Usage: h2 <list|version|chipinfo|discover|rediscover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|hwreset|raw>"));
         shell.println(F("  h2 poll [addr]"));
         shell.println(F("  h2 discover [addr]"));
         shell.println(F("  h2 scan [dur]"));
@@ -1317,6 +1317,14 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
     } else if (sub == "reset") {
         strcpy(buf, "{\"cmd\":\"reset\"}");
         h2_tx(buf);
+
+    } else if (sub == "hwreset") {
+        // Toggle ESP32H2_EN pin to hard-reset the H2 chip.
+        // Use this when H2 is unresponsive and "h2 reset" (JSON) doesn't work.
+        extern void h2_reset_chip();
+        h2_reset_chip();
+        delay(600); // wait for H2 to boot
+        shell.println(F("H2 EN toggled — chip hard-reset done, try 'h2 version'"));
 
     } else if (sub == "raw") {
         if (args.size() < 2) {

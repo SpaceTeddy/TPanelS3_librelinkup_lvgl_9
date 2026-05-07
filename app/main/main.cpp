@@ -1573,8 +1573,24 @@ void setup_serial()
  * @note Uses 460800 baud, 8N1 configuration
  * @note Currently commented out in main setup()
  */
+void h2_reset_chip()
+{
+    // Explicitly drive EN low → high to ensure H2 boots cleanly.
+    // Without this the H2 depends on a PCB pull-up which may be too weak
+    // on some board samples to hold EN high reliably.
+    pinMode(ESP32H2_EN, OUTPUT);
+    digitalWrite(ESP32H2_EN, LOW);
+    delay(50);
+    digitalWrite(ESP32H2_EN, HIGH);
+    Serial.println(F("[H2] EN toggled — chip reset"));
+}
+
 void setup_UART_IPC()
 {
+    // Ensure H2 is out of reset before opening UART.
+    h2_reset_chip();
+    delay(500); // give H2 time to boot and start its UART
+
     SerialPort.begin(460800, SERIAL_8N1, ESP32H2_RX, ESP32H2_TX);
     Serial.println();
     DBGprint;
