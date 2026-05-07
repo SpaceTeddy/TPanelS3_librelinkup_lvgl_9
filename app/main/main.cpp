@@ -1617,7 +1617,10 @@ static void h2_handle_message(const String &line)
     }
     else if (strcmp(type, "scan") == 0)
     {
-        logger.notice("[H2] scan: %d networks found", doc["networks"].size());
+        size_t count = 0;
+        if (!doc["nets"].isNull()) count = doc["nets"].size();
+        else if (!doc["networks"].isNull()) count = doc["networks"].size();
+        logger.notice("[H2] scan: %d networks found", (int)count);
     }
     else if (strcmp(type, "wakeup") == 0)
     {
