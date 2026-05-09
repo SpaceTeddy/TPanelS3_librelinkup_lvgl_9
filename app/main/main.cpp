@@ -1646,6 +1646,29 @@ static void h2_handle_message(const String &line)
     {
         logger.notice("[H2] OTA: %d / %d bytes", doc["written"].as<int>(), doc["total"].as<int>());
     }
+    else if (strcmp(type, "motion") == 0)
+    {
+        const bool occ = doc["occ"] | false;
+        logger.notice("[H2] motion occ=%d lux=%d temp=%.1f bat=%d",
+                      (int)occ,
+                      doc["lux"] | -1,
+                      doc["temp"] | 0.0,
+                      doc["bat"] | -1);
+
+        // Wake display only on real occupancy events.
+        if (occ)
+            app_fsm_notify_user_activity(g_fsm);
+    }
+    else if (strcmp(type, "sensor") == 0)
+    {
+        logger.notice("[H2] sensor lux=%d temp=%.1f bat=%d",
+                      doc["lux"] | -1,
+                      doc["temp"] | 0.0,
+                      doc["bat"] | -1);
+
+        // Treat fresh sensor data as activity to restore dimmed display.
+        app_fsm_notify_user_activity(g_fsm);
+    }
     else
     {
         logger.notice("[H2] msg [%s]: %s", type, line.c_str());
