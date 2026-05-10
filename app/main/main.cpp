@@ -56,6 +56,18 @@ SETTINGS settings; ///< Settings manager instance
 
 bool flag_mqtt_master_rx = true; // for first run
 bool flag_debug_screen = true;   // Debug flag to trigger debug screen on first loop iteration
+String g_h2_fw_version = "";
+String g_h2_fw_build   = "";
+String g_h2_chip_model = "";
+String g_h2_chip_rev   = "";
+String g_h2_chip_mac   = "";
+String g_h2_chip_cores = "";
+String g_h2_chip_cpu_mhz = "";
+String g_h2_chip_xtal_mhz = "";
+String g_h2_chip_features = "";
+String g_h2_last_type  = "";
+String g_h2_last_json  = "";
+uint32_t g_h2_last_seen_ms = 0;
 
 AppFsm g_fsm; ///< Application state machine (polled from loop())
 
@@ -1595,6 +1607,10 @@ void setup_UART_IPC()
     Serial.println();
     DBGprint;
     Serial.println(F("Init SerialPort for IPC"));
+
+    // Request one info snapshot so web/debug can show H2 details after boot.
+    h2_send("{\"cmd\":\"version\"}");
+    h2_send("{\"cmd\":\"chipinfo\"}");
 }
 
 /// Sendet einen JSON-Befehl an den ESP32-H2
@@ -1618,10 +1634,71 @@ static void h2_handle_message(const String &line)
     }
 
     const char *type = doc["type"] | "";
+    g_h2_last_seen_ms = millis();
+    g_h2_last_type = String(type);
+    g_h2_last_json = line;
+
+    // Opportunistically collect H2 FW/chip fields from any message shape.
+    const char *v1 = doc["version"] | "";
+    const char *v2 = doc["fw"] | "";
+    const char *v3 = doc["app_version"] | "";
+    const char *b1 = doc["build"] | "";
+    const char *b2 = doc["git"] | "";
+    const char *m1 = doc["model"] | "";
+    const char *m2 = doc["chip"] | "";
+    const char *m3 = doc["chip_model"] | "";
+    const char *r1 = doc["revision"] | "";
+    const char *r2 = doc["rev"] | "";
+    const char *r3 = doc["chip_revision"] | "";
+    const int ri1 = doc["revision"] | -1;
+    const int ri2 = doc["rev"] | -1;
+    const char *a1 = doc["mac"] | "";
+    const char *a2 = doc["eui64"] | "";
+    const char *a3 = doc["chip_mac"] | "";
+    const char *f1 = doc["features"] | "";
+    const int c1 = doc["cores"] | -1;
+    const int hz1 = doc["cpuMHz"] | -1;
+    const int xt1 = doc["xtalMHz"] | -1;
+
+    if (strlen(v1) > 0 || strlen(v2) > 0 || strlen(v3) > 0)
+        g_h2_fw_version = (strlen(v1) > 0) ? String(v1) : ((strlen(v2) > 0) ? String(v2) : String(v3));
+    if (strlen(b1) > 0 || strlen(b2) > 0)
+        g_h2_fw_build = (strlen(b1) > 0) ? String(b1) : String(b2);
+    if (strlen(m1) > 0 || strlen(m2) > 0 || strlen(m3) > 0)
+        g_h2_chip_model = (strlen(m1) > 0) ? String(m1) : ((strlen(m2) > 0) ? String(m2) : String(m3));
+    if (strlen(r1) > 0 || strlen(r2) > 0 || strlen(r3) > 0)
+        g_h2_chip_rev = (strlen(r1) > 0) ? String(r1) : ((strlen(r2) > 0) ? String(r2) : String(r3));
+    else if (ri1 >= 0)
+        g_h2_chip_rev = String(ri1);
+    else if (ri2 >= 0)
+        g_h2_chip_rev = String(ri2);
+    if (strlen(a1) > 0 || strlen(a2) > 0 || strlen(a3) > 0)
+        g_h2_chip_mac = (strlen(a1) > 0) ? String(a1) : ((strlen(a2) > 0) ? String(a2) : String(a3));
+    if (strlen(f1) > 0)
+        g_h2_chip_features = String(f1);
+    if (c1 >= 0)
+        g_h2_chip_cores = String(c1);
+    if (hz1 >= 0)
+        g_h2_chip_cpu_mhz = String(hz1);
+    if (xt1 >= 0)
+        g_h2_chip_xtal_mhz = String(xt1);
 
     if (strcmp(type, "list") == 0 || strcmp(type, "join") == 0)
     {
-        logger.notice("[H2] devices (%s): %d entries", type, doc["devices"].size());
+        JsonArray devices = doc["devices"].as<JsonArray>();
+        logger.notice("[H2] devices (%s): %d entries", type, devices.size());
+        for (JsonObject d : devices) {
+            logger.notice("[H2]  0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
+                d["addr"].as<uint16_t>(),
+                d["ieee"] | "?",
+                d["mfr"]  | "?",
+                d["model"] | "?",
+                d["ep"].as<uint8_t>(),
+                (int)(d["online"] | false),
+                d["occ"] | -1,
+                (float)(d["temp"] | 0.0f),
+                d["bat"] | -1);
+        }
         // TODO: Gerätliste in UI übernehmen
     }
     else if (strcmp(type, "ack") == 0)
@@ -1645,6 +1722,28 @@ static void h2_handle_message(const String &line)
     else if (strcmp(type, "ota_progress") == 0)
     {
         logger.notice("[H2] OTA: %d / %d bytes", doc["written"].as<int>(), doc["total"].as<int>());
+    }
+    else if (strcmp(type, "version") == 0)
+    {
+        logger.notice("[H2] version fw=%s build=%s",
+                      g_h2_fw_version.length() ? g_h2_fw_version.c_str() : "-",
+                      g_h2_fw_build.length() ? g_h2_fw_build.c_str() : "-");
+    }
+    else if (strcmp(type, "chipinfo") == 0)
+    {
+        logger.notice("[H2] chipinfo model=%s rev=%s mac=%s",
+                      g_h2_chip_model.length() ? g_h2_chip_model.c_str() : "-",
+                      g_h2_chip_rev.length() ? g_h2_chip_rev.c_str() : "-",
+                      g_h2_chip_mac.length() ? g_h2_chip_mac.c_str() : "-");
+    }
+    else if (strcmp(type, "chip") == 0)
+    {
+        logger.notice("[H2] chip model=%s rev=%s cores=%s cpuMHz=%s mac=%s",
+                      g_h2_chip_model.length() ? g_h2_chip_model.c_str() : "-",
+                      g_h2_chip_rev.length() ? g_h2_chip_rev.c_str() : "-",
+                      g_h2_chip_cores.length() ? g_h2_chip_cores.c_str() : "-",
+                      g_h2_chip_cpu_mhz.length() ? g_h2_chip_cpu_mhz.c_str() : "-",
+                      g_h2_chip_mac.length() ? g_h2_chip_mac.c_str() : "-");
     }
     else if (strcmp(type, "motion") == 0)
     {

@@ -15,6 +15,18 @@
 
 extern int16_t glucose_delta;               ///< Change from last reading
 extern uint16_t glucoseMeasurement_backup;  ///< Previous measurement
+extern String g_h2_fw_version;              ///< Last known H2 firmware version
+extern String g_h2_fw_build;                ///< Last known H2 firmware build string
+extern String g_h2_chip_model;              ///< Last known H2 chip model
+extern String g_h2_chip_rev;                ///< Last known H2 chip revision
+extern String g_h2_chip_mac;                ///< Last known H2 MAC/EUI
+extern String g_h2_chip_cores;              ///< Last known H2 core count
+extern String g_h2_chip_cpu_mhz;            ///< Last known H2 CPU clock
+extern String g_h2_chip_xtal_mhz;           ///< Last known H2 XTAL clock
+extern String g_h2_chip_features;           ///< Last known H2 feature string
+extern String g_h2_last_type;               ///< Last H2 message type
+extern String g_h2_last_json;               ///< Last raw H2 JSON message
+extern uint32_t g_h2_last_seen_ms;          ///< millis() of last H2 message
 
 
 /**
@@ -34,6 +46,7 @@ enum GlucoseLabelColor : uint8_t {
  * @brief enable UART IPC communication
  */
 void setup_UART_IPC(void);
+void h2_send(const char *cmd);
 
 /** @} */
 

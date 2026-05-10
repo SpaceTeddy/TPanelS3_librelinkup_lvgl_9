@@ -48,6 +48,18 @@ extern SETTINGS settings;
 extern TPanelS3 tpanels3;
 
 extern LIBRELINKUP librelinkup;
+extern String g_h2_fw_version;
+extern String g_h2_fw_build;
+extern String g_h2_chip_model;
+extern String g_h2_chip_rev;
+extern String g_h2_chip_mac;
+extern String g_h2_chip_cores;
+extern String g_h2_chip_cpu_mhz;
+extern String g_h2_chip_xtal_mhz;
+extern String g_h2_chip_features;
+extern String g_h2_last_type;
+extern String g_h2_last_json;
+extern uint32_t g_h2_last_seen_ms;
 
 
 // int16_t fix (used by debug endpoint)
@@ -63,6 +75,18 @@ static String username;
 static String password;
 static String wifi_bssid;
 static String wifi_password;
+static uint32_t g_h2_info_req_last_ms = 0;
+
+static void maybe_request_h2_info()
+{
+    if (h2_ota_in_progress()) return;
+    const uint32_t now = millis();
+    if ((now - g_h2_info_req_last_ms) < 15000U)
+        return;
+    g_h2_info_req_last_ms = now;
+    h2_send("{\"cmd\":\"version\"}");
+    h2_send("{\"cmd\":\"chipinfo\"}");
+}
 
 static const char dashboard_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -988,6 +1012,16 @@ static const char debug_html[] PROGMEM = R"rawliteral(
     <div class="small" id="cfgMain">--</div>
     <div class="small" id="cfgMore">--</div>
   </div>
+
+  <div class="card">
+    <div class="k">H2 Co-Processor</div>
+    <div class="v" id="h2Fw">FW: --</div>
+    <div class="small" id="h2ChipModel">Model: --</div>
+    <div class="small" id="h2ChipPerf">CPU: -- | Cores: -- | XTAL: --</div>
+    <div class="small" id="h2ChipRadio">Features: --</div>
+    <div class="small" id="h2ChipMac">MAC: --</div>
+    <div class="small" id="h2LastSeen">Last seen: --</div>
+  </div>
 </div>
 
 <div class="card">
@@ -1190,6 +1224,24 @@ const cfgLines = [
 document.getElementById("cfgMain").innerHTML = cfgLines.join("<br>");
 document.getElementById("cfgMore").textContent = "";
 
+const h2 = j.h2 || {};
+const h2Fw = h2.fw_version || "--";
+const h2ChipModel = h2.chip_model || "--";
+const h2ChipRev = h2.chip_revision || "--";
+const h2ChipMac = h2.chip_mac || "--";
+const h2ChipCores = h2.chip_cores || "--";
+const h2ChipCpu = h2.chip_cpu_mhz || "--";
+const h2Features = h2.chip_features || "--";
+const h2Xtal = h2.chip_xtal_mhz || "--";
+const h2SeenAgo = Number(h2.last_seen_ms_ago || 0);
+const h2SeenTxt = h2.has_data ? (Math.round(h2SeenAgo / 1000) + " s ago") : "--";
+document.getElementById("h2Fw").textContent = `FW: ${h2Fw}`;
+document.getElementById("h2ChipModel").textContent = `Model: ${h2ChipModel} | Rev: ${h2ChipRev}`;
+document.getElementById("h2ChipPerf").textContent = `CPU: ${h2ChipCpu} MHz | Cores: ${h2ChipCores} | XTAL: ${h2Xtal} MHz`;
+document.getElementById("h2ChipRadio").textContent = `Features: ${h2Features}`;
+document.getElementById("h2ChipMac").textContent = `MAC: ${h2ChipMac}`;
+document.getElementById("h2LastSeen").textContent = `Last seen: ${h2SeenTxt} | last type: ${h2.last_type || "--"}`;
+
   }catch(e){
     document.getElementById("raw").textContent = "Failed to fetch /api/debug: " + (e && e.message ? e.message : e);
     const stEl=document.getElementById("status");
@@ -1367,6 +1419,7 @@ static void handleDebugPage(AsyncWebServerRequest *request) {
 
 static void handleApiDebug(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
+    maybe_request_h2_info();
 
     JsonDocument doc;
 
@@ -1469,6 +1522,21 @@ if (librelinkup.login_data().user_token.length() > 10) {
     cfg["mqtt_master_mode"] = settings.config.mqtt_master_mode;
     cfg["brightness"] = settings.config.brightness;
 
+    JsonObject h2 = doc["h2"].to<JsonObject>();
+    h2["fw_version"] = g_h2_fw_version;
+    h2["fw_build"] = g_h2_fw_build;
+    h2["chip_model"] = g_h2_chip_model;
+    h2["chip_revision"] = g_h2_chip_rev;
+    h2["chip_mac"] = g_h2_chip_mac;
+    h2["chip_cores"] = g_h2_chip_cores;
+    h2["chip_cpu_mhz"] = g_h2_chip_cpu_mhz;
+    h2["chip_xtal_mhz"] = g_h2_chip_xtal_mhz;
+    h2["chip_features"] = g_h2_chip_features;
+    h2["last_type"] = g_h2_last_type;
+    h2["last_seen_ms_ago"] = (g_h2_last_seen_ms > 0) ? (uint32_t)(millis() - g_h2_last_seen_ms) : 0;
+    h2["has_data"] = (g_h2_last_seen_ms > 0);
+    h2["last_json"] = g_h2_last_json;
+
     String out;
     serializeJson(doc, out);
     request->send(200, "application/json; charset=utf-8", out);
@@ -1526,7 +1594,32 @@ static void handleApiConfig(AsyncWebServerRequest *request) {
 
 static void handleApiFwStatus(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
-    request->send(200, "application/json; charset=utf-8", fw_update_get_status_json());
+    maybe_request_h2_info();
+
+    JsonDocument doc;
+    const String fw = fw_update_get_status_json();
+    if (deserializeJson(doc, fw) != DeserializationError::Ok)
+    {
+        request->send(200, "application/json; charset=utf-8", fw);
+        return;
+    }
+
+    JsonObject h2 = doc["h2"].to<JsonObject>();
+    h2["fw_version"] = g_h2_fw_version;
+    h2["fw_build"] = g_h2_fw_build;
+    h2["chip_model"] = g_h2_chip_model;
+    h2["chip_revision"] = g_h2_chip_rev;
+    h2["chip_mac"] = g_h2_chip_mac;
+    h2["chip_cores"] = g_h2_chip_cores;
+    h2["chip_cpu_mhz"] = g_h2_chip_cpu_mhz;
+    h2["chip_xtal_mhz"] = g_h2_chip_xtal_mhz;
+    h2["chip_features"] = g_h2_chip_features;
+    h2["last_seen_ms_ago"] = (g_h2_last_seen_ms > 0) ? (uint32_t)(millis() - g_h2_last_seen_ms) : 0;
+    h2["has_data"] = (g_h2_last_seen_ms > 0);
+
+    String out;
+    serializeJson(doc, out);
+    request->send(200, "application/json; charset=utf-8", out);
 }
 
 static void handleApiFwCheck(AsyncWebServerRequest *request) {

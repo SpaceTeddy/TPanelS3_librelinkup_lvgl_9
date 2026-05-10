@@ -309,6 +309,9 @@ const char index_html[] PROGMEM = R"rawliteral(
 <div class="container">
     <h2>H2 Co-Processor Firmware Update</h2>
     <p class="hint">Flash a compiled .bin directly to the ESP32-H2 Zigbee coordinator via UART.</p>
+    <div class="pill">H2 FW: <span id="h2FwCurrent">--</span></div>
+    <div class="pill">H2 Chip: <span id="h2ChipInfo">--</span></div>
+    <div class="pill">H2 Seen: <span id="h2Seen">--</span></div>
     <div style="margin-bottom:12px;">
         <input type="file" id="h2FwFile" accept=".bin" style="margin-bottom:10px;">
         <div class="row">
@@ -632,6 +635,13 @@ const char index_html[] PROGMEM = R"rawliteral(
         setText("fwAvailable", data.update_available ? "yes" : "no");
         setText("fwStatus", data.status);
         setText("fwError", data.last_error);
+        const h2 = data.h2 || {};
+        const h2Fw = h2.fw_version || "--";
+        const h2Chip = `model=${h2.chip_model || "--"} rev=${h2.chip_revision || "--"} cores=${h2.chip_cores || "--"} cpu=${h2.chip_cpu_mhz || "--"}MHz mac=${h2.chip_mac || "--"}`;
+        const h2Seen = h2.has_data ? (Math.round((Number(h2.last_seen_ms_ago || 0))/1000) + " s ago") : "--";
+        setText("h2FwCurrent", h2Fw);
+        setText("h2ChipInfo", h2Chip);
+        setText("h2Seen", h2Seen);
 
     }
 
