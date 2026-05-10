@@ -1144,32 +1144,6 @@ void fwUpdateCommand(uuid::console::Shell &shell, const std::vector<std::string>
  *
  * This function wires command strings to handler callbacks.
  */
-/**
- * @brief Handler for command: `h2_send <string>`
- * @param shell Shell output.
- * @param arguments arguments[0..] joined with spaces and sent to the ESP32-H2 via UART.
- */
-void h2SendCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
-    if (arguments.empty()) {
-        shell.println(F("Usage: h2_send <string>  e.g.: h2_send {\"cmd\":\"scan\"}"));
-        return;
-    }
-
-    // Rejoin all arguments (allows spaces inside the JSON without quoting)
-    String msg;
-    for (size_t i = 0; i < arguments.size(); i++) {
-        if (i > 0) msg += ' ';
-        msg += arguments[i].c_str();
-    }
-
-    if (h2_ota_in_progress()) {
-        shell.println(F("H2 OTA in progress — command blocked"));
-        return;
-    }
-    SerialPort.println(msg);   // sends msg + '\n' to H2
-    shell.printfln("H2 >> %s", msg.c_str());
-}
-
 // ── h2 <subcommand> ───────────────────────────────────────────
 static void h2_tx(const char* json) {
     if (h2_ota_in_progress()) return;
@@ -1179,7 +1153,7 @@ static void h2_tx(const char* json) {
 
 void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args) {
     if (args.empty()) {
-        shell.println(F("Usage: h2 <list|version|chipinfo|discover|rediscover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|hwreset|loglevel|raw>"));
+        shell.println(F("Usage: h2 <list|version|chipinfo|discover|rediscover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|hwreset|loglevel|send|raw|ota_abort>"));
         shell.println(F("  h2 list [addr]"));
         shell.println(F("  h2 poll [addr]"));
         shell.println(F("  h2 discover [addr]"));
@@ -1188,19 +1162,32 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
         shell.println(F("  h2 pair [seconds]"));
         shell.println(F("  h2 on|off|toggle <addr> [ep|auto]"));
         shell.println(F("  h2 loglevel <0|1|2>"));
+        shell.println(F("  h2 send <json string>"));
         shell.println(F("  h2 forget <addr> | h2 forget all"));
         shell.println(F("  h2 remove <addr>"));
         shell.println(F("  h2 sleep|deepsleep [seconds]"));
+        shell.println(F("  h2 ota_abort"));
         shell.println(F("  h2 raw '{\"cmd\":\"list\"}'"));
-        return;
-    }
-    if (h2_ota_in_progress()) {
-        shell.println(F("H2 OTA in progress"));
         return;
     }
 
     const std::string& sub = args[0];
     char buf[128] = {0};
+
+    if (sub == "ota_abort") {
+        if (!h2_ota_in_progress()) {
+            shell.println(F("H2 OTA not active"));
+            return;
+        }
+        h2_ota_force_clear();
+        shell.println(F("H2 OTA flag cleared — UART reading resumed"));
+        return;
+    }
+
+    if (h2_ota_in_progress()) {
+        shell.println(F("H2 OTA in progress"));
+        return;
+    }
 
     if (sub == "list") {
         if (args.size() >= 2) {
@@ -1360,22 +1347,25 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
         shell.printfln("H2 >> %s", msg.c_str());
         return;
 
+    } else if (sub == "send") {
+        if (args.size() < 2) {
+            shell.println(F("Usage: h2 send <string>"));
+            return;
+        }
+        String msg;
+        for (size_t i = 1; i < args.size(); i++) {
+            if (i > 1) msg += ' ';
+            msg += args[i].c_str();
+        }
+        h2_tx(msg.c_str());
+        shell.printfln("H2 >> %s", msg.c_str());
+        return;
+
     } else {
         shell.printfln("Unknown H2 command: %s", sub.c_str());
         return;
     }
     shell.printfln("H2 >> %s", buf[0] ? buf : sub.c_str());
-}
-
-void h2OtaAbortCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
-    if (!h2_ota_in_progress()) {
-        shell.println(F("H2 OTA not active"));
-        return;
-    }
-    // Force-clear the flag so the main loop resumes reading UART.
-    // The background task will still finish on its own.
-    h2_ota_force_clear();
-    shell.println(F("H2 OTA flag cleared — UART reading resumed"));
 }
 
 // Returns all .json filenames from LittleFS (used for tab-completion of file commands).
@@ -1514,10 +1504,6 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
         showCaFromFileCommand,
         [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "Baltimore", "GoogleTrust"}; });
 
-    commands->add_command(uuid::flash_string_vector{F("h2_send")},
-        uuid::flash_string_vector{F("<string>")},
-        h2SendCommand);
-
     commands->add_command(uuid::flash_string_vector{F("h2")},
         uuid::flash_string_vector{F("<subcommand>"), F("[args...]")},
         h2Command,
@@ -1525,15 +1511,11 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
             if (args.empty())
                 return {"list","version","chipinfo","discover","rediscover","poll","scan","permit","pair",
                         "on","off","toggle","forget","remove","reboot","sleep",
-                        "deepsleep","wakeup","reset","hwreset","loglevel","raw"};
+                        "deepsleep","wakeup","reset","hwreset","loglevel","send","raw","ota_abort"};
             if (args[0] == "forget") return {"all"};
             if (args[0] == "loglevel") return {"0","1","2"};
             return {};
         });
-
-    commands->add_command(uuid::flash_string_vector{F("h2_ota_abort")},
-        uuid::flash_string_vector{},
-        h2OtaAbortCommand);
 
     commands->add_command(uuid::flash_string_vector{F("fw_update")},
         uuid::flash_string_vector{F("<check|install|status|channel|force>")},
