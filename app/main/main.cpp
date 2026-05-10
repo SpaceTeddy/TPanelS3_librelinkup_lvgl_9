@@ -1686,25 +1686,25 @@ static void h2_handle_message(const String &line)
     if (strcmp(type, "list") == 0 || strcmp(type, "join") == 0)
     {
         JsonArray devices = doc["devices"].as<JsonArray>();
-        bool streaming = doc.containsKey("idx");
-        int  idx       = streaming ? doc["idx"].as<int>() : -1;
-        int  total     = doc.containsKey("total") ? doc["total"].as<int>() : (int)devices.size();
+        bool streaming = (line.indexOf("\"idx\"") >= 0);
+        int  idx       = streaming ? doc["idx"].as<int>() : 0;
+        int  total     = streaming ? doc["total"].as<int>() : (int)devices.size();
         if (!streaming) {
-            logger.notice("[H2] devices (%s): %d entries", type, total);
+            logger.notice("[H2] devices (%s): %d entries", type, (int)devices.size());
         }
         for (JsonObject d : devices) {
             if (streaming) {
                 logger.notice("[H2] device (%s) %d/%d: 0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
-                    type, idx + 1, total,
+                    type, idx, total,
                     d["addr"].as<uint16_t>(),
                     d["ieee"] | "?",
                     d["mfr"]  | "?",
                     d["model"] | "?",
                     d["ep"].as<uint8_t>(),
                     (int)(d["online"] | false),
-                    d["occ"] | -1,
-                    (float)(d["temp"] | 0.0f),
-                    d["bat"] | -1);
+                    d["occ"].isNull() ? -1 : (int)d["occ"].as<bool>(),
+                    d["temp"].isNull() ? 0.0f : (float)d["temp"].as<float>(),
+                    d["bat"].isNull() ? -1 : (int)d["bat"].as<int>());
             } else {
                 logger.notice("[H2]  0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
                     d["addr"].as<uint16_t>(),
@@ -1713,9 +1713,9 @@ static void h2_handle_message(const String &line)
                     d["model"] | "?",
                     d["ep"].as<uint8_t>(),
                     (int)(d["online"] | false),
-                    d["occ"] | -1,
-                    (float)(d["temp"] | 0.0f),
-                    d["bat"] | -1);
+                    d["occ"].isNull() ? -1 : (int)d["occ"].as<bool>(),
+                    d["temp"].isNull() ? 0.0f : (float)d["temp"].as<float>(),
+                    d["bat"].isNull() ? -1 : (int)d["bat"].as<int>());
             }
         }
         // TODO: Gerätliste in UI übernehmen
@@ -1766,16 +1766,20 @@ static void h2_handle_message(const String &line)
     }
     else if (strcmp(type, "motion") == 0)
     {
-        const bool occ = doc["occ"] | false;
+        const bool occ = doc["occ"].as<bool>();
         logger.notice("[H2] motion occ=%d lux=%d temp=%.1f bat=%d",
                       (int)occ,
                       doc["lux"] | -1,
                       doc["temp"] | 0.0,
                       doc["bat"] | -1);
 
-        // Wake display only on real occupancy events.
-        if (occ)
+        if (occ) {
+            // Motion detected — wake display.
             app_fsm_notify_user_activity(g_fsm);
+        } else {
+            // Motion cleared — start dimming immediately instead of waiting for timeout.
+            g_fsm.last_user_activity_ms = 0;
+        }
     }
     else if (strcmp(type, "sensor") == 0)
     {
