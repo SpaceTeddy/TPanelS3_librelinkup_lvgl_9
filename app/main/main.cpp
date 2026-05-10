@@ -1773,13 +1773,8 @@ static void h2_handle_message(const String &line)
                       doc["temp"] | 0.0,
                       doc["bat"] | -1);
 
-        if (occ) {
-            // Motion detected — wake display.
+        if (occ)
             app_fsm_notify_user_activity(g_fsm);
-        } else {
-            // Motion cleared — start dimming immediately instead of waiting for timeout.
-            g_fsm.last_user_activity_ms = 0;
-        }
     }
     else if (strcmp(type, "sensor") == 0)
     {
