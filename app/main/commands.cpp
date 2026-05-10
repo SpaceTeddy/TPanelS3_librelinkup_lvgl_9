@@ -1179,13 +1179,15 @@ static void h2_tx(const char* json) {
 
 void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args) {
     if (args.empty()) {
-        shell.println(F("Usage: h2 <list|version|chipinfo|discover|rediscover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|hwreset|raw>"));
+        shell.println(F("Usage: h2 <list|version|chipinfo|discover|rediscover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|hwreset|loglevel|raw>"));
+        shell.println(F("  h2 list [addr]"));
         shell.println(F("  h2 poll [addr]"));
         shell.println(F("  h2 discover [addr]"));
         shell.println(F("  h2 scan [dur]"));
         shell.println(F("  h2 permit [seconds]"));
         shell.println(F("  h2 pair [seconds]"));
         shell.println(F("  h2 on|off|toggle <addr> [ep|auto]"));
+        shell.println(F("  h2 loglevel <0|1|2>"));
         shell.println(F("  h2 forget <addr> | h2 forget all"));
         shell.println(F("  h2 remove <addr>"));
         shell.println(F("  h2 sleep|deepsleep [seconds]"));
@@ -1201,7 +1203,12 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
     char buf[128] = {0};
 
     if (sub == "list") {
-        strcpy(buf, "{\"cmd\":\"list\"}");
+        if (args.size() >= 2) {
+            unsigned long addr = strtoul(args[1].c_str(), nullptr, 0);
+            snprintf(buf, sizeof(buf), "{\"cmd\":\"list\",\"addr\":%lu}", addr);
+        } else {
+            strcpy(buf, "{\"cmd\":\"list\"}");
+        }
         h2_tx(buf);
 
     } else if (sub == "version") {
@@ -1316,6 +1323,19 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
 
     } else if (sub == "reset") {
         strcpy(buf, "{\"cmd\":\"reset\"}");
+        h2_tx(buf);
+
+    } else if (sub == "loglevel") {
+        if (args.size() < 2) {
+            shell.println(F("Usage: h2 loglevel <0|1|2>"));
+            return;
+        }
+        int level = atoi(args[1].c_str());
+        if (level < 0 || level > 2) {
+            shell.println(F("Invalid level. Allowed: 0, 1, 2"));
+            return;
+        }
+        snprintf(buf, sizeof(buf), "{\"cmd\":\"loglevel\",\"level\":%d}", level);
         h2_tx(buf);
 
     } else if (sub == "hwreset") {
@@ -1505,8 +1525,9 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
             if (args.empty())
                 return {"list","version","chipinfo","discover","rediscover","poll","scan","permit","pair",
                         "on","off","toggle","forget","remove","reboot","sleep",
-                        "deepsleep","wakeup","reset","raw"};
+                        "deepsleep","wakeup","reset","hwreset","loglevel","raw"};
             if (args[0] == "forget") return {"all"};
+            if (args[0] == "loglevel") return {"0","1","2"};
             return {};
         });
 

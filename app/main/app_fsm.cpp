@@ -482,7 +482,8 @@ void app_fsm_notify_mqtt_master_rx(AppFsm &fsm)
 void app_fsm_notify_user_activity(AppFsm &fsm)
 {
     fsm.last_user_activity_ms = millis();
-    if (fsm.display_dim_active)
+    const bool brightness_is_off = (settings.config.brightness == 0);
+    if (fsm.display_dim_active || brightness_is_off)
     {
         fsm.display_dim_active = false;
         fsm.last_dim_step_ms = 0;
