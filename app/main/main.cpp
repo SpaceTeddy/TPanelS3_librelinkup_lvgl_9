@@ -1686,18 +1686,37 @@ static void h2_handle_message(const String &line)
     if (strcmp(type, "list") == 0 || strcmp(type, "join") == 0)
     {
         JsonArray devices = doc["devices"].as<JsonArray>();
-        logger.notice("[H2] devices (%s): %d entries", type, devices.size());
+        bool streaming = doc.containsKey("idx");
+        int  idx       = streaming ? doc["idx"].as<int>() : -1;
+        int  total     = doc.containsKey("total") ? doc["total"].as<int>() : (int)devices.size();
+        if (!streaming) {
+            logger.notice("[H2] devices (%s): %d entries", type, total);
+        }
         for (JsonObject d : devices) {
-            logger.notice("[H2]  0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
-                d["addr"].as<uint16_t>(),
-                d["ieee"] | "?",
-                d["mfr"]  | "?",
-                d["model"] | "?",
-                d["ep"].as<uint8_t>(),
-                (int)(d["online"] | false),
-                d["occ"] | -1,
-                (float)(d["temp"] | 0.0f),
-                d["bat"] | -1);
+            if (streaming) {
+                logger.notice("[H2] device (%s) %d/%d: 0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
+                    type, idx + 1, total,
+                    d["addr"].as<uint16_t>(),
+                    d["ieee"] | "?",
+                    d["mfr"]  | "?",
+                    d["model"] | "?",
+                    d["ep"].as<uint8_t>(),
+                    (int)(d["online"] | false),
+                    d["occ"] | -1,
+                    (float)(d["temp"] | 0.0f),
+                    d["bat"] | -1);
+            } else {
+                logger.notice("[H2]  0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
+                    d["addr"].as<uint16_t>(),
+                    d["ieee"] | "?",
+                    d["mfr"]  | "?",
+                    d["model"] | "?",
+                    d["ep"].as<uint8_t>(),
+                    (int)(d["online"] | false),
+                    d["occ"] | -1,
+                    (float)(d["temp"] | 0.0f),
+                    d["bat"] | -1);
+            }
         }
         // TODO: Gerätliste in UI übernehmen
     }
