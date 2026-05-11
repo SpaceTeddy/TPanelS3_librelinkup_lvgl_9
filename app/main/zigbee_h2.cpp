@@ -219,7 +219,7 @@ void zigbee_h2_poll_uart()
                 if (uart_ipc_buf.startsWith("{"))
                     h2_handle_message(uart_ipc_buf);
                 else
-                    logger.notice("[H2]: %s", uart_ipc_buf.c_str());
+                    logger.notice("[H2] %s", uart_ipc_buf.c_str());
                 uart_ipc_buf.clear();
             }
         }
