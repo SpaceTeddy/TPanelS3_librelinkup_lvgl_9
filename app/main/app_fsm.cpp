@@ -770,6 +770,7 @@ void app_fsm_poll(AppFsm &fsm)
     {
         if (!wifi_ok())
         {
+            fsm.inet_fail_count = 0;
             enter_state(fsm, AppState::WIFI_CONNECT, "WIFI LOST");
             break;
         }
@@ -777,19 +778,39 @@ void app_fsm_poll(AppFsm &fsm)
         if (settings.config.wg_mode == 1)
         {
             // VPN_CHECK already handles tunnel health via ensure_wireguard_ok().
+            fsm.inet_fail_count = 0;
             enter_state(fsm, AppState::RUN_IDLE, "INET OK (WG)");
             break;
         }
 
         // WG disabled: verify public internet reachability.
+        // Tolerate inet_fail_max consecutive failures (covers ~3 min router
+        // IP-change reconnect) before forcing a fresh WiFi association.
+        // AP mode is only triggered by setup_wifi() itself when no known SSID
+        // is reachable — not by a transient internet outage.
         {
-            const int internet_status = app_check_internet_status(IPAddress(1, 1, 1, 1), 443);
-            if (internet_status != 1)
+            const int inet_status = app_check_internet_status(IPAddress(1, 1, 1, 1), 443);
+            if (inet_status != 1)
             {
-                app_recover_offline();
-                enter_state(fsm, AppState::WIFI_CONNECT, "INET FAIL");
+                fsm.inet_fail_count++;
+                logger.warning("INET check failed (%u/%u)", fsm.inet_fail_count, fsm.cfg.inet_fail_max);
+                if (fsm.inet_fail_count >= fsm.cfg.inet_fail_max)
+                {
+                    // Force a full WiFi reconnect so setup_wifi() runs.
+                    // If the SSID is unreachable setup_wifi() will fall back to
+                    // AP mode on its own; no need to call app_recover_offline() here.
+                    fsm.inet_fail_count = 0;
+                    WiFi.disconnect();
+                    enter_state(fsm, AppState::WIFI_CONNECT, "INET FAIL");
+                }
+                else
+                {
+                    // Transient failure — return to RUN_IDLE and retry next period
+                    enter_state(fsm, AppState::RUN_IDLE, "INET RETRY");
+                }
                 break;
             }
+            fsm.inet_fail_count = 0;
         }
 
         enter_state(fsm, AppState::RUN_IDLE, "INET OK");

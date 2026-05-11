@@ -57,6 +57,7 @@ struct AppFsmConfig
   uint32_t backoff_min_ms = 2000;
   uint32_t backoff_max_ms = 60000;
   uint32_t internet_check_period_ms = 60000;  ///< periodic internet health check
+  uint8_t  inet_fail_max = 3;                 ///< consecutive failures before triggering AP mode (covers ~3 min router reconnect)
   uint32_t debug_screen_period_ms = 1000; // 1s
 };
 
@@ -88,6 +89,7 @@ struct AppFsm
 
   uint32_t last_internet_check_ms = 0;
   uint32_t wg_sick_since_ms = 0; ///< millis() when WG trouble started; 0 = healthy
+  uint8_t  inet_fail_count = 0;  ///< consecutive INTERNET_CHECK failures; AP mode only after reaching inet_fail_max
 
   // Debug screen 1s polling
   uint32_t last_1s_tick_ms = 0;
