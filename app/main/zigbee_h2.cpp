@@ -149,6 +149,22 @@ static void h2_handle_message(const String &line)
     {
         logger.notice("[H2] ack [%s] ok=%d %s", doc["cmd"] | "?", (bool)(doc["ok"] | false), doc["msg"] | "");
     }
+    else if (strcmp(type, "status") == 0)
+    {
+        logger.notice("[H2] status  ch=%d  pan=0x%04x  epid=%s  coord=%s  role=%s  joined=%d  factory_new=%d  tx=%ddBm  nwk_upd=%d  devices=%d  heap=%u  uptime=%us",
+            doc["ch"]          | -1,
+            doc["pan"]         | 0,
+            doc["epid"]        | "?",
+            doc["coord"]       | "?",
+            doc["role"]        | "?",
+            (int)(doc["joined"]      | false),
+            (int)(doc["factory_new"] | false),
+            doc["tx_dbm"]      | 0,
+            doc["nwk_upd_id"]  | 0,
+            doc["devices"]     | -1,
+            (unsigned)(doc["heap"]     | 0),
+            (unsigned)(doc["uptime_s"] | 0));
+    }
     else if (strcmp(type, "scan") == 0)
     {
         size_t count = 0;
