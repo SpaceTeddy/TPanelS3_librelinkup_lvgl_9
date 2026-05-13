@@ -1153,7 +1153,7 @@ static void h2_tx(const char* json) {
 
 void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args) {
     if (args.empty()) {
-        shell.println(F("Usage: h2 <list|version|chipinfo|status|discover|rediscover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|hwreset|loglevel|send|raw|ota_abort>"));
+        shell.println(F("Usage: h2 <list|version|chipinfo|status|discover|rediscover|poll|scan|permit|pair|on|off|toggle|forget|remove|reboot|sleep|deepsleep|wakeup|reset|hwreset|loglevel|channel|send|raw|ota_abort>"));
         shell.println(F("  h2 list [addr]"));
         shell.println(F("  h2 poll [addr]"));
         shell.println(F("  h2 discover [addr]"));
@@ -1162,6 +1162,7 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
         shell.println(F("  h2 pair [seconds]"));
         shell.println(F("  h2 on|off|toggle <addr> [ep|auto]"));
         shell.println(F("  h2 loglevel <0|1|2>"));
+        shell.println(F("  h2 channel [11-26|0]"));
         shell.println(F("  h2 send <json string>"));
         shell.println(F("  h2 forget <addr> | h2 forget all"));
         shell.println(F("  h2 remove <addr>"));
@@ -1328,6 +1329,25 @@ void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args
         }
         snprintf(buf, sizeof(buf), "{\"cmd\":\"loglevel\",\"level\":%d}", level);
         h2_tx(buf);
+
+    } else if (sub == "channel") {
+        if (args.size() >= 2) {
+            int ch = atoi(args[1].c_str());
+            if (ch != 0 && (ch < 11 || ch > 26)) {
+                shell.println(F("Invalid channel. Allowed: 11-26, or 0 for auto"));
+                return;
+            }
+            snprintf(buf, sizeof(buf), "{\"cmd\":\"channel\",\"ch\":%d}", ch);
+            h2_tx(buf);
+            if (ch == 0)
+                shell.println(F("H2 channel set to auto — run 'h2 reset' then 'h2 reboot' to apply"));
+            else
+                shell.printfln("H2 channel set to %d — run 'h2 reset' then 'h2 reboot' to apply", ch);
+            return;
+        } else {
+            strcpy(buf, "{\"cmd\":\"channel\"}");
+            h2_tx(buf);
+        }
 
     } else if (sub == "hwreset") {
         // Toggle ESP32H2_EN pin to hard-reset the H2 chip.
@@ -1515,9 +1535,10 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
             if (args.empty())
                 return {"list","version","chipinfo","status","discover","rediscover","poll","scan","permit","pair",
                         "on","off","toggle","forget","remove","reboot","sleep",
-                        "deepsleep","wakeup","reset","hwreset","loglevel","send","raw","ota_abort"};
+                        "deepsleep","wakeup","reset","hwreset","loglevel","channel","send","raw","ota_abort"};
             if (args[0] == "forget") return {"all"};
             if (args[0] == "loglevel") return {"0","1","2"};
+            if (args[0] == "channel") return {"11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","0"};
             return {};
         });
 

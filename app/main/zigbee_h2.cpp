@@ -172,6 +172,11 @@ static void h2_handle_message(const String &line)
         else if (!doc["networks"].isNull()) count = doc["networks"].size();
         logger.notice("[H2] scan: %d networks found", (int)count);
     }
+    else if (strcmp(type, "channel") == 0)
+    {
+        logger.notice("[H2] channel  current=%d  configured=%d",
+                      doc["ch"] | -1, doc["configured"] | -1);
+    }
     else if (strcmp(type, "wakeup") == 0)
     {
         logger.notice("[H2] wakeup reason: %s", doc["reason"] | "?");
