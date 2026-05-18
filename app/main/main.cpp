@@ -962,8 +962,8 @@ void handle_invalid_timestamp()
                 librelinkup.glucose_data().str_trendArrow,
                 librelinkup.glucose_data().str_TrendMessage, 0);
 
-    // Keep target limit lines and data visible even if the sensor data timestamp is invalid.
-    draw_chart_glucose_data(1);
+    // Keep target limit lines visible even if the sensor data timestamp is invalid.
+    draw_chart_glucose_data(3);
     lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_5Min, LV_CHART_POINT_NONE);
     lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_alert, LV_CHART_POINT_NONE);
     lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_last, LV_CHART_POINT_NONE);
@@ -1383,6 +1383,9 @@ void update_glucose_data()
     // Set trend message based on sensor status
     update_trend_message();
 
+    // Always update sensor validity progress bar regardless of timestamp status
+    draw_chart_sensor_valid();
+
     // Check if LLU timestamp is valid and process data
     if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_VALID)
     {
@@ -1406,7 +1409,6 @@ void update_glucose_data()
                       librelinkup.glucose_data().str_trendArrow.c_str(),
                       glucose_delta);
 
-        draw_chart_sensor_valid();
         draw_labels(true, librelinkup.glucose_data().measurement_color,
                     librelinkup.glucose_data().glucoseMeasurement,
                     librelinkup.glucose_data().str_trendArrow,
