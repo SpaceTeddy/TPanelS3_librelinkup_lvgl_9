@@ -51,6 +51,7 @@ HELPER helper; ///< Helper class instance for time and utility functions
 SETTINGS settings; ///< Settings manager instance
 
 bool flag_mqtt_master_rx = true; // for first run
+bool g_sim_sensor_pending = false;
 bool flag_debug_screen = true;   // Debug flag to trigger debug screen on first loop iteration
 
 AppFsm g_fsm; ///< Application state machine (polled from loop())
@@ -2256,6 +2257,11 @@ void loop()
         // --- LVGL: let the GUI process pending work ------------------------------
         lv_timer_handler();
         delay(1);
+
+        if (g_sim_sensor_pending) {
+            g_sim_sensor_pending = false;
+            draw_chart_sensor_valid();
+        }
 
         // --- Application state machine (connectivity/fetch/publish) -----------------
         app_fsm_poll(g_fsm);

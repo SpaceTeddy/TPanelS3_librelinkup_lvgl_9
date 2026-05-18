@@ -46,6 +46,7 @@ extern int  app_check_internet_status(IPAddress ip, uint16_t port);
 extern void start_ap_mode();
 extern void setup_wifi();
 extern bool g_force_ap_mode;
+extern bool g_sim_sensor_pending;
 
 //------------------------[uuid logger]-----------------------------------
 /** @brief Module logger instance. */
@@ -822,6 +823,58 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
                                                                 mean_glucose_value_from_history));
             shell.println("===========================================");
         }
+        else if (llu_argument == "sim") {
+            if (arguments.size() < 2) {
+                shell.println(F("Usage: llu sim <expired|not_available|starting|ready <days>|hours <n>|minutes <n>>"));
+                return;
+            }
+            String sub = arguments[1].c_str();
+
+            auto &st   = librelinkup.status().sensor_state;
+            auto &life = librelinkup.sensor_lifetime();
+
+            life.sensor_valid_days    = 0;
+            life.sensor_valid_hours   = 0;
+            life.sensor_valid_minutes = 0;
+
+            if (sub == "expired") {
+                st = SENSOR_EXPIRED;
+                shell.println(F("[SIM] sensor_state = SENSOR_EXPIRED"));
+            } else if (sub == "not_available") {
+                st = SENSOR_NOT_AVAILABLE;
+                shell.println(F("[SIM] sensor_state = SENSOR_NOT_AVAILABLE"));
+            } else if (sub == "starting") {
+                st = SENSOR_STARTING;
+                shell.println(F("[SIM] sensor_state = SENSOR_STARTING"));
+            } else if (sub == "ready" && arguments.size() >= 3) {
+                int days = atoi(arguments[2].c_str());
+                st = SENSOR_READY;
+                life.sensor_valid_days    = (days > 0) ? days - 1 : 0;
+                life.sensor_valid_hours   = 12;
+                life.sensor_valid_minutes = 0;
+                shell.printfln("[SIM] sensor_state = SENSOR_READY, %d days remaining", days);
+            } else if (sub == "hours" && arguments.size() >= 3) {
+                int hours = atoi(arguments[2].c_str());
+                st = SENSOR_READY;
+                life.sensor_valid_days    = 0;
+                life.sensor_valid_hours   = (hours > 0) ? hours - 1 : 0;
+                life.sensor_valid_minutes = 30;
+                shell.printfln("[SIM] sensor_state = SENSOR_READY, %d hours remaining", hours);
+            } else if (sub == "minutes" && arguments.size() >= 3) {
+                int mins = atoi(arguments[2].c_str());
+                st = SENSOR_READY;
+                life.sensor_valid_days    = 0;
+                life.sensor_valid_hours   = 0;
+                life.sensor_valid_minutes = (mins > 0) ? mins - 1 : 0;
+                shell.printfln("[SIM] sensor_state = SENSOR_READY, %d minutes remaining", mins);
+            } else {
+                shell.println(F("Usage: llu sim <expired|not_available|starting|ready <days>|hours <n>|minutes <n>>"));
+                return;
+            }
+
+            g_sim_sensor_pending = true;
+            shell.println(F("[SIM] state set — display updates on next loop tick"));
+        }
         else {
             shell.printfln("invalid argument: %s", llu_argument.c_str());
         }
@@ -1485,13 +1538,13 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
         [](Shell &, const SV &, const std::string &) -> SV { return {"Libre3", "Libre3Plus"}; });
 
     commands->add_command(uuid::flash_string_vector{F("llu")},
-        uuid::flash_string_vector{F("<subcommand>")},
+        uuid::flash_string_vector{F("<subcommand>"), F("[arg1]"), F("[arg2]")},
         lluCommand,
         [](Shell &, const SV &, const std::string &) -> SV {
             return {"value", "user_id", "user_token", "auth", "tou",
                     "sensor_id", "sensor_sn", "sensor_type", "sensor_expiry",
                     "timestamp", "history", "graphdata", "graph_redraw",
-                    "get_graphdata", "statistics"};
+                    "get_graphdata", "statistics", "sim"};
         });
 
     commands->add_command(uuid::flash_string_vector{F("mqtt_client")},
