@@ -219,12 +219,15 @@ void draw_chart_sensor_valid()
     const uint8_t sensorState = librelinkup.status().sensor_state;
 
     bool expired = (sensorState == SENSOR_EXPIRED) ||
-                   (rawDays < 0) || (rawHours < 0) || (rawMinutes < 0);
+                   (sensorState == SENSOR_NOT_AVAILABLE) ||
+                   (sensorState == SENSOR_STARTING);
 
     if (expired)
     {
-        switch_sensor_valid_progress_bar(&dayBar15);
-        update_chart_valid_values(&dayBar15, -1);
+        bool is14day = (librelinkup.sensor_data().sensor_runtime == 14 * 86400);
+        ProgressBarUI *expiredBar = is14day ? &dayBar14 : &dayBar15;
+        switch_sensor_valid_progress_bar(expiredBar);
+        update_chart_valid_values(expiredBar, -1);
         return;
     }
 
