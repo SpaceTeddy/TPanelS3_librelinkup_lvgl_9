@@ -1208,18 +1208,16 @@ const exp = Number(lo.user_token_expires)||0;
 document.getElementById("lluTokenExp").textContent = `Expires: ${exp?fmtDateTime(exp):"--"}`;
 
 const cfg = j.config || {};
-const otaTxt = cfg.ota_update ? "on" : "off";
-const wgVal = (cfg.wg_mode ?? 0);
-const mqVal = (cfg.mqtt_mode ?? 0);
-const msVal = (cfg.mqtt_master_mode ?? 0);
 const brVal = (cfg.brightness ?? "--");
+const dimTout = (cfg.display_dim_timeout_s != null) ? (cfg.display_dim_timeout_s === 0 ? "disabled" : cfg.display_dim_timeout_s + " s") : "--";
 const onOff = (v)=> (Number(v) ? "ON" : "OFF");
 const cfgLines = [
   `OTA: ${onOff(cfg.ota_update ?? 0)} | Channel: ${(cfg.ota_staging ?? 0) ? "Staging" : "Release"} | Force: ${onOff(cfg.ota_force ?? 0)}`,
   `WG: ${onOff(cfg.wg_mode ?? 0)}`,
   `MQTT: ${onOff(cfg.mqtt_mode ?? 0)}`,
   `Master: ${onOff(cfg.mqtt_master_mode ?? 0)}`,
-  `Brightness: ${brVal}`
+  `Brightness: ${brVal}`,
+  `Dim timeout: ${dimTout}`
 ];
 document.getElementById("cfgMain").innerHTML = cfgLines.join("<br>");
 document.getElementById("cfgMore").textContent = "";
@@ -1521,6 +1519,7 @@ if (librelinkup.login_data().user_token.length() > 10) {
     cfg["mqtt_mode"] = settings.config.mqtt_mode;
     cfg["mqtt_master_mode"] = settings.config.mqtt_master_mode;
     cfg["brightness"] = settings.config.brightness;
+    cfg["display_dim_timeout_s"] = settings.config.display_dim_timeout_s;
 
     JsonObject h2 = doc["h2"].to<JsonObject>();
     h2["fw_version"] = g_h2_fw_version;
@@ -1763,6 +1762,20 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
 
     settings.saveConfiguration(settings.config_filename, settings.config);
     request->send(200, "application/json", "{\"status\": \"updated\"}");
+}
+
+static void handleSetDimTimeout(AsyncWebServerRequest *request) {
+    if (!request->hasParam("value", true)) {
+        request->send(400, "application/json", "{\"error\": \"Missing value\"}");
+        return;
+    }
+    long secs = request->getParam("value", true)->value().toInt();
+    if (secs < 0) secs = 0;
+    if (secs > 86400) secs = 86400;
+    settings.config.display_dim_timeout_s = (uint32_t)secs;
+    settings.saveConfiguration(settings.config_filename, settings.config);
+    request->send(200, "application/json",
+                  "{\"display_dim_timeout_s\": " + String((unsigned long)secs) + "}");
 }
 
 static void handleSetBrightness(AsyncWebServerRequest *request) {
@@ -2303,6 +2316,7 @@ server.addHandler(&g_ws_telnet);
     server.on("/status",             HTTP_GET,  handleStatus);
     server.on("/toggle",             HTTP_POST, handleToggleFeature);
     server.on("/setBrightness",      HTTP_POST, handleSetBrightness);
+    server.on("/setDimTimeout",      HTTP_POST, handleSetDimTimeout);
     server.on("/configureWireGuard",   HTTP_POST, handleConfigureWireGuard);
     server.on("/configureMQTT",        HTTP_POST, handleConfigureMQTT);
     server.on("/configureWiFiNetworks", HTTP_POST,

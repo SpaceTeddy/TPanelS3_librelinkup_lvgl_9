@@ -264,10 +264,20 @@ const char index_html[] PROGMEM = R"rawliteral(
 </div>
 
 <div class="container">
-    <h2>Brightness</h2>
+    <h2>Brightness &amp; Display</h2>
     <div class="brightness-container">
         <div class="brightness-label">Brightness: <span id="brightnessValue">50</span></div>
         <input type="range" id="brightnessSlider" min="0" max="255" value="50" oninput="updateBrightness(this.value)">
+    </div>
+    <div style="margin-top:14px;">
+        <div class="brightness-label">Dim timeout: <span id="dimTimeoutDisplay">--</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+            <input type="number" id="dimTimeoutInput" min="0" max="3600" step="30" value="300"
+                   style="width:90px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);">
+            <span style="color:var(--muted);font-size:0.9em;">seconds &nbsp;(0 = disabled)</span>
+            <button type="button" onclick="saveDimTimeout()">Apply</button>
+            <span id="dimTimeoutStatus" style="color:var(--muted);font-size:0.9em;"></span>
+        </div>
     </div>
 </div>
 
@@ -611,6 +621,26 @@ const char index_html[] PROGMEM = R"rawliteral(
             .catch(error => console.error('Error setting brightness:', error));
     }
 
+    function saveDimTimeout() {
+        const inp = document.getElementById('dimTimeoutInput');
+        const st  = document.getElementById('dimTimeoutStatus');
+        const disp = document.getElementById('dimTimeoutDisplay');
+        if (!inp) return;
+        const val = parseInt(inp.value, 10);
+        if (isNaN(val) || val < 0) { if(st) st.textContent = 'invalid'; return; }
+        if(st) st.textContent = '...';
+        const fd = new FormData();
+        fd.append('value', val);
+        fetch('/setDimTimeout', { method: 'POST', body: fd })
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(() => {
+                if(st) st.textContent = val === 0 ? 'disabled' : 'set to ' + val + ' s';
+                if(disp) disp.textContent = val === 0 ? 'disabled' : val + ' s';
+                setTimeout(() => { if(st) st.textContent = ''; }, 3000);
+            })
+            .catch(e => { if(st) st.textContent = 'error: ' + (e.message || e); });
+    }
+
     const FW_SPINNER = '<span class="spinner"></span> ';
 
     function setFwBtnsDisabled(disabled) {
@@ -890,6 +920,12 @@ const char index_html[] PROGMEM = R"rawliteral(
       if(bs && (cfg.brightness !== undefined && cfg.brightness !== null)){
         bs.value = String(cfg.brightness);
         if(bv) bv.textContent = String(cfg.brightness);
+      }
+      if(cfg.display_dim_timeout_s !== undefined && cfg.display_dim_timeout_s !== null){
+        const di = document.getElementById("dimTimeoutInput");
+        const dd = document.getElementById("dimTimeoutDisplay");
+        if(di) di.value = String(cfg.display_dim_timeout_s);
+        if(dd) dd.textContent = cfg.display_dim_timeout_s === 0 ? "disabled" : cfg.display_dim_timeout_s + " s";
       }
     }catch(e){}
   }

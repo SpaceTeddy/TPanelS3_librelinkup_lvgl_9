@@ -64,9 +64,10 @@ void SETTINGS::loadConfiguration(const char* filename, Config &config) {
     config.wgEndpointPort   = doc["wgEndpointPort"];
     config.wgAllowedIPs     = doc["wgAllowedIPs"].as<String>();
     config.sleep_timer      = doc["sleep_timer"];
-    config.ha_discovery     = doc["ha_discovery"] | (uint8_t)1;
-    config.ota_staging      = doc["ota_staging"]  | (uint8_t)0;
-    config.ota_force        = doc["ota_force"]    | (uint8_t)0;
+    config.ha_discovery           = doc["ha_discovery"]           | (uint8_t)1;
+    config.ota_staging            = doc["ota_staging"]            | (uint8_t)0;
+    config.ota_force              = doc["ota_force"]              | (uint8_t)0;
+    config.display_dim_timeout_s  = doc["display_dim_timeout_s"]  | (uint32_t)300;
 
     // Load wifi_networks array; migrate legacy fields if missing
     config.wifi_networks.clear();
@@ -188,9 +189,10 @@ void SETTINGS::saveConfiguration(const char *filename, Config &config) {
     doc["wgEndpointPort"]   = config.wgEndpointPort;
     doc["wgAllowedIPs"]     = config.wgAllowedIPs.c_str();
     doc["sleep_timer"]      = config.sleep_timer;
-    doc["ha_discovery"]     = config.ha_discovery;
-    doc["ota_staging"]      = config.ota_staging;
-    doc["ota_force"]        = config.ota_force;
+    doc["ha_discovery"]          = config.ha_discovery;
+    doc["ota_staging"]           = config.ota_staging;
+    doc["ota_force"]             = config.ota_force;
+    doc["display_dim_timeout_s"] = config.display_dim_timeout_s;
 
     // Save wifi_networks array; keep legacy fields in sync with first entry
     JsonArray nets = doc["wifi_networks"].to<JsonArray>();

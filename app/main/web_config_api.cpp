@@ -82,6 +82,7 @@ String web_get_config_json() {
   out += "\"wgAllowedIPs\":\"" + json_escape(settings.config.wgAllowedIPs) + "\",";
 
   out += "\"sleep_timer\":" + String((unsigned long long)settings.config.sleep_timer) + ",";
+  out += "\"display_dim_timeout_s\":" + String((unsigned long)settings.config.display_dim_timeout_s) + ",";
   out += "\"ha_discovery\":" + String((int)settings.config.ha_discovery) + ",";
   out += "\"ota_staging\":" + String((int)settings.config.ota_staging) + ",";
   out += "\"ota_force\":" + String((int)settings.config.ota_force);

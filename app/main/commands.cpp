@@ -426,6 +426,27 @@ void trgbBrightnessCommand(uuid::console::Shell &shell, const std::vector<std::s
 }
 
 /**
+ * @brief Handler for command: `dim_timeout <seconds>`
+ * @param shell Shell output.
+ * @param arguments arguments[0] = timeout in seconds (0 = disabled)
+ *
+ * Sets the display dim timeout. Changes take effect immediately; saves to flash.
+ */
+void dimTimeoutCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
+    if (arguments.empty()) {
+        shell.printfln(F("dim_timeout: current=%lu s (0=disabled)"), (unsigned long)settings.config.display_dim_timeout_s);
+        return;
+    }
+    uint32_t secs = (uint32_t)parseArgument(arguments, 0, (int)settings.config.display_dim_timeout_s);
+    settings.config.display_dim_timeout_s = secs;
+    settings.saveConfiguration(settings.config_filename, settings.config);
+    if (secs == 0)
+        shell.printfln(F("dim_timeout: disabled"));
+    else
+        shell.printfln(F("dim_timeout: set to %lu s"), (unsigned long)secs);
+}
+
+/**
  * @brief Handler for command: `list_json_files`
  * @param shell Shell output.
  *
@@ -1512,6 +1533,10 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("trgb_brightness")},
         uuid::flash_string_vector{F("<0-256>")},
         trgbBrightnessCommand);
+
+    commands->add_command(uuid::flash_string_vector{F("dim_timeout")},
+        uuid::flash_string_vector{F("[seconds]")},
+        dimTimeoutCommand);
 
     commands->add_command(uuid::flash_string_vector{F("print_json_file")},
         uuid::flash_string_vector{F("<filename>")},
