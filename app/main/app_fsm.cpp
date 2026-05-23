@@ -107,6 +107,7 @@ static const char* app_state_to_string(AppState s)
     case AppState::RUN_FETCH:       return "RUN_FETCH";
     case AppState::RUN_PUBLISH:     return "RUN_PUBLISH";
     case AppState::DISPLAY_DIM:     return "DISPLAY_DIM";
+    case AppState::DISPLAY_UNDIM:   return "DISPLAY_UNDIM";
     case AppState::INTERNET_CHECK:  return "INTERNET_CHECK";
     case AppState::BACKOFF:         return "BACKOFF";
     case AppState::OTA_MODE:        return "OTA_MODE";
@@ -395,7 +396,9 @@ static bool should_dim_display(const AppFsm &fsm)
 {
     if (fsm.display_dim_active)
         return false;
-    return (millis() - fsm.last_user_activity_ms) >= fsm.cfg.display_dim_timeout_ms;
+    if (settings.config.display_dim_timeout_s == 0)
+        return false; // disabled
+    return (millis() - fsm.last_user_activity_ms) >= (uint32_t)settings.config.display_dim_timeout_s * 1000UL;
 }
 
 /**
@@ -416,6 +419,26 @@ static void display_dim_step(AppFsm &fsm)
     if (settings.config.brightness == 0)
         return;
     settings.config.brightness--;
+    ledcWrite(0, settings.config.brightness);
+}
+
+/**
+ * @brief Increment backlight brightness by one step toward display_undim_target.
+ *
+ * Same rate-limiting as display_dim_step (cfg.display_dim_step_ms). Stops at target.
+ *
+ * @param fsm FSM instance; brightness and step timestamp are updated in-place.
+ */
+static void display_undim_step(AppFsm &fsm)
+{
+    const uint32_t step_ms = (fsm.cfg.display_dim_step_ms == 0) ? 30u : fsm.cfg.display_dim_step_ms;
+    const uint32_t now = millis();
+    if (fsm.last_dim_step_ms != 0 && (now - fsm.last_dim_step_ms) < step_ms)
+        return;
+    fsm.last_dim_step_ms = now;
+    if (settings.config.brightness >= fsm.display_undim_target)
+        return;
+    settings.config.brightness++;
     ledcWrite(0, settings.config.brightness);
 }
 
@@ -487,13 +510,11 @@ void app_fsm_notify_user_activity(AppFsm &fsm)
     {
         fsm.display_dim_active = false;
         fsm.last_dim_step_ms = 0;
-        // Restore brightness
-        uint8_t restore = fsm.brightness_before_dim;
-        if (restore == 0)
-            restore = 50;
-        ledcWrite(0, restore);
-        settings.config.brightness = restore;
-        enter_state(fsm, AppState::RUN_IDLE, "USER ACTIVITY");
+        uint8_t target = fsm.brightness_before_dim;
+        if (target == 0)
+            target = 50;
+        fsm.display_undim_target = target;
+        enter_state(fsm, AppState::DISPLAY_UNDIM, "USER ACTIVITY");
     }
 }
 
@@ -764,6 +785,13 @@ void app_fsm_poll(AppFsm &fsm)
             // Return to RUN_IDLE while staying dimmed until activity wakes it.
             enter_state(fsm, AppState::RUN_IDLE, "DIM DONE");
         }
+        break;
+    }
+    case AppState::DISPLAY_UNDIM:
+    {
+        display_undim_step(fsm);
+        if (settings.config.brightness >= fsm.display_undim_target)
+            enter_state(fsm, AppState::RUN_IDLE, "UNDIM DONE");
         break;
     }
     case AppState::INTERNET_CHECK:

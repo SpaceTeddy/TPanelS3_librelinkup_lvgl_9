@@ -385,33 +385,7 @@ void lv_tick_task(void *pvParameter)
 static void brightness_on_off_cb(lv_event_t *event)
 {
     logger.notice("Button Longpress for Brightness ON/OFF triggered!");
-    app_fsm_notify_user_activity(g_fsm); // Notify FSM of user activity for potential state changes
-
-    if (settings.config.brightness == 0)
-    {
-        logger.notice("Turn LCD backlight ON to %d", TRGB_STD_BACKLIGHT_BRIGHTNESS);
-
-        // Fade in backlight smoothly
-        for (uint8_t i = 0; i < TRGB_STD_BACKLIGHT_BRIGHTNESS; i++)
-        {
-            ledcWrite(0, i); // PWM channel 0, value 0-255
-            delay(10);
-        }
-        settings.config.brightness = TRGB_STD_BACKLIGHT_BRIGHTNESS;
-    }
-    else
-    {
-        logger.notice("Turn LCD backlight already ON");
-
-        /* Optional: Fade out code (currently disabled)
-        for(uint8_t i=settings.config.brightness; i>0; i--){
-            ledcWrite(0, i);
-            delay(10);
-        }
-        ledcWrite(0, 0);
-        settings.config.brightness = 0;
-        */
-    }
+    app_fsm_notify_user_activity(g_fsm);
 }
 
 /**

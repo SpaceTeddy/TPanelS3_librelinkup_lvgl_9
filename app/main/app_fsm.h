@@ -31,6 +31,7 @@ enum class AppState : uint8_t
   RUN_FETCH,      ///< Fetching glucose data from LibreLink API.
   RUN_PUBLISH,    ///< Publishing data to MQTT.
   DISPLAY_DIM,    ///< Non-blocking display fade-to-black on inactivity.
+  DISPLAY_UNDIM,  ///< Non-blocking display fade-up after user activity.
   INTERNET_CHECK, ///< Periodic TCP probe to verify internet reachability.
   BACKOFF,        ///< Exponential backoff after a recoverable failure.
   OTA_MODE,       ///< ElegantOTA web update in progress; FSM is suspended.
@@ -99,6 +100,7 @@ struct AppFsm
   uint32_t last_user_activity_ms = 0;
   uint32_t last_dim_step_ms = 0;
   uint8_t brightness_before_dim = 0;
+  uint8_t display_undim_target = 0;
   bool display_dim_active = false;
 
   uint8_t consecutive_failures = 0;
