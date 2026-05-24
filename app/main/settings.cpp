@@ -63,7 +63,6 @@ void SETTINGS::loadConfiguration(const char* filename, Config &config) {
     config.wgEndpoint       = doc["wgEndpoint"].as<String>();
     config.wgEndpointPort   = doc["wgEndpointPort"];
     config.wgAllowedIPs     = doc["wgAllowedIPs"].as<String>();
-    config.sleep_timer      = doc["sleep_timer"];
     config.ha_discovery           = doc["ha_discovery"]           | (uint8_t)1;
     config.ota_staging            = doc["ota_staging"]            | (uint8_t)0;
     config.ota_force              = doc["ota_force"]              | (uint8_t)0;
@@ -92,55 +91,6 @@ void SETTINGS::loadConfiguration(const char* filename, Config &config) {
     file.close();
     doc.clear();
     
-    Serial.printf("load:{login_email:%s, login_password:%s, wifi_bssid:%s, wifi_password:%s, timezone:%d, ota_update:%d, wg_mode:%d, mqtt_mode:%d, mqtt_master_mode:%d, brightness:%d, telnet_port:%d, mqttServer:%s, mqtt_port:%d, mqttUsername:%s, mqttPassword:%s, wgPrivateKey:%s, wgPublicKey:%s, wgPresharedKey:%s, wgIpAddress:%s, wgEndpoint:%s, wgEndpointPort:%d, wgAllowedIPs:%s, sleep_timer:%d}",
-       config.login_email.c_str(),
-       config.login_password.c_str(),
-       config.wifi_bssid.c_str(),
-       config.wifi_password.c_str(),
-       config.timezone,
-       config.ota_update,
-       config.wg_mode,
-       config.mqtt_mode,
-       config.mqtt_master_mode,
-       config.brightness,
-       config.telnet_port,
-       config.mqttServer.c_str(),
-       config.mqtt_port,
-       config.mqttUsername.c_str(),
-       config.mqttPassword.c_str(),
-       config.wgPrivateKey.c_str(),
-       config.wgPublicKey.c_str(),
-       config.wgPresharedKey.c_str(),
-       config.wgIpAddress.c_str(),
-       config.wgEndpoint.c_str(),
-       config.wgEndpointPort,
-       config.wgAllowedIPs.c_str(),
-       config.sleep_timer);
-    /*  
-    logger.notice("load:{login_email:%s, login_password:%s, wifi_bssid:%s, wifi_password:%s, timezone:%d, ota_update:%d, wg_mode:%d, mqtt_mode:%d, brightness:%d, telnet_port:%d, mqttServer:%s, mqtt_port:%d, mqttUsername:%s, mqttPassword:%s, wgPrivateKey:%s, wgPublicKey:%s, wgPresharedKey:%s, wgIpAddress:%s, wgEndpoint:%s, wgEndpointPort:%d, wgAllowedIPs:%s, sleep_timer:%d}",
-       config.login_email.c_str(),
-       config.login_password.c_str(),
-       config.wifi_bssid.c_str(),
-       config.wifi_password.c_str(),
-       config.timezone,
-       config.ota_update,
-       config.wg_mode,
-       config.mqtt_mode,
-       config.brightness,
-       config.telnet_port,
-       config.mqttServer.c_str(),
-       config.mqtt_port,
-       config.mqttUsername.c_str(),
-       config.mqttPassword.c_str(),
-       config.wgPrivateKey.c_str(),
-       config.wgPublicKey.c_str(),
-       config.wgPresharedKey.c_str(),
-       config.wgIpAddress.c_str(),
-       config.wgEndpoint.c_str(),
-       config.wgEndpointPort,
-       config.wgAllowedIPs.c_str(),
-       config.sleep_timer);
-    */
 }
 
 /**
@@ -188,7 +138,6 @@ void SETTINGS::saveConfiguration(const char *filename, Config &config) {
     doc["wgEndpoint"]       = config.wgEndpoint.c_str();
     doc["wgEndpointPort"]   = config.wgEndpointPort;
     doc["wgAllowedIPs"]     = config.wgAllowedIPs.c_str();
-    doc["sleep_timer"]      = config.sleep_timer;
     doc["ha_discovery"]          = config.ha_discovery;
     doc["ota_staging"]           = config.ota_staging;
     doc["ota_force"]             = config.ota_force;
@@ -214,54 +163,4 @@ void SETTINGS::saveConfiguration(const char *filename, Config &config) {
     file.close();
     doc.clear();
 
-    Serial.printf("save:{login_email:%s, login_password:%s, wifi_bssid:%s, wifi_password:%s, timezone:%d, ota_update:%d, wg_mode:%d, mqtt_mode:%d, mqtt_master_mode:%d, brightness:%d, telnet_port:%d, mqttServer:%s, mqtt_port:%d, mqttUsername:%s, mqttPassword:%s, wgPrivateKey:%s, wgPublicKey:%s, wgPresharedKey:%s, wgIpAddress:%s, wgEndpoint:%s, wgEndpointPort:%d, wgAllowedIPs:%s, sleep_timer:%d}",
-       config.login_email.c_str(),
-       config.login_password.c_str(),
-       config.wifi_bssid.c_str(),
-       config.wifi_password.c_str(),
-       config.timezone,
-       config.ota_update,
-       config.wg_mode,
-       config.mqtt_mode,
-       config.mqtt_master_mode,
-       config.brightness,
-       config.telnet_port,
-       config.mqttServer.c_str(),
-       config.mqtt_port,
-       config.mqttUsername.c_str(),
-       config.mqttPassword.c_str(),
-       config.wgPrivateKey.c_str(),
-       config.wgPublicKey.c_str(),
-       config.wgPresharedKey.c_str(),
-       config.wgIpAddress.c_str(),
-       config.wgEndpoint.c_str(),
-       config.wgEndpointPort,
-       config.wgAllowedIPs.c_str(),
-       config.sleep_timer);
-
-    /*
-    logger.notice("save:{login_email:%s, login_password:%s, wifi_bssid:%s, wifi_password:%s, timezone:%d, ota_update:%d, wg_mode:%d, mqtt_mode:%d, brightness:%d, telnet_port:%d, mqttServer:%s, mqtt_port:%d, mqttUsername:%s, mqttPassword:%s, wgPrivateKey:%s, wgPublicKey:%s, wgPresharedKey:%s, wgIpAddress:%s, wgEndpoint:%s, wgEndpointPort:%d, wgAllowedIPs:%s, sleep_timer:%d}",
-       config.login_email.c_str(),
-       config.login_password.c_str(),
-       config.wifi_bssid.c_str(),
-       config.wifi_password.c_str(),
-       config.timezone,
-       config.ota_update,
-       config.wg_mode,
-       config.mqtt_mode,
-       config.brightness,
-       config.telnet_port,
-       config.mqttServer.c_str(),
-       config.mqtt_port,
-       config.mqttUsername.c_str(),
-       config.mqttPassword.c_str(),
-       config.wgPrivateKey.c_str(),
-       config.wgPublicKey.c_str(),
-       config.wgPresharedKey.c_str(),
-       config.wgIpAddress.c_str(),
-       config.wgEndpoint.c_str(),
-       config.wgEndpointPort,
-       config.wgAllowedIPs.c_str(),
-       config.sleep_timer);
-    */
 }

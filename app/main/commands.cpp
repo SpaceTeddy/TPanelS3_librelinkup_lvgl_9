@@ -312,7 +312,7 @@ void configSettingCommand(uuid::console::Shell &shell, const std::vector<std::st
             settings.loadConfiguration(settings.config_filename, settings.config);
             shell.println(F("Configuration loaded."));
             shell.printfln(
-                "load:{login_email:%s, login_password:%s, wifi_bssid:%s, wifi_password:%s, timezone:%d, ota_update:%d, wg_mode:%d, mqtt_mode:%d, mqtt_master_mode:%d, brightness:%d, telnet_port:%d, mqttServer:%s, mqtt_port:%d, mqttUsername:%s, mqttPassword:%s, wgPrivateKey:%s, wgPublicKey:%s, wgPresharedKey:%s, wgIpAddress:%s, wgEndpoint:%s, wgEndpointPort:%d, wgAllowedIPs:%s, sleep_timer:%d}",
+                "load:{login_email:%s, login_password:%s, wifi_bssid:%s, wifi_password:%s, timezone:%d, ota_update:%d, wg_mode:%d, mqtt_mode:%d, mqtt_master_mode:%d, brightness:%d, telnet_port:%d, mqttServer:%s, mqtt_port:%d, mqttUsername:%s, mqttPassword:%s, wgPrivateKey:%s, wgPublicKey:%s, wgPresharedKey:%s, wgIpAddress:%s, wgEndpoint:%s, wgEndpointPort:%d, wgAllowedIPs:%s, display_dim_timeout_s:%lu}",
                 settings.config.login_email.c_str(),
                 settings.config.login_password.c_str(),
                 settings.config.wifi_bssid.c_str(),
@@ -335,13 +335,13 @@ void configSettingCommand(uuid::console::Shell &shell, const std::vector<std::st
                 settings.config.wgEndpoint.c_str(),
                 settings.config.wgEndpointPort,
                 settings.config.wgAllowedIPs.c_str(),
-                settings.config.sleep_timer
+                (unsigned long)settings.config.display_dim_timeout_s
             );
         } else if ((config_argument == "save")) {
             settings.saveConfiguration(settings.config_filename, settings.config);
             shell.println(F("Configuration saved."));
             shell.printfln(
-                "save:{login_email:%s, login_password:%s, wifi_bssid:%s, wifi_password:%s, timezone:%d, ota_update:%d, wg_mode:%d, mqtt_mode:%d, mqtt_master_mode:%d, brightness:%d, telnet_port:%d, mqttServer:%s, mqtt_port:%d, mqttUsername:%s, mqttPassword:%s, wgPrivateKey:%s, wgPublicKey:%s, wgPresharedKey:%s, wgIpAddress:%s, wgEndpoint:%s, wgEndpointPort:%d, wgAllowedIPs:%s, sleep_timer:%d}",
+                "save:{login_email:%s, login_password:%s, wifi_bssid:%s, wifi_password:%s, timezone:%d, ota_update:%d, wg_mode:%d, mqtt_mode:%d, mqtt_master_mode:%d, brightness:%d, telnet_port:%d, mqttServer:%s, mqtt_port:%d, mqttUsername:%s, mqttPassword:%s, wgPrivateKey:%s, wgPublicKey:%s, wgPresharedKey:%s, wgIpAddress:%s, wgEndpoint:%s, wgEndpointPort:%d, wgAllowedIPs:%s, display_dim_timeout_s:%lu}",
                 settings.config.login_email.c_str(),
                 settings.config.login_password.c_str(),
                 settings.config.wifi_bssid.c_str(),
@@ -364,7 +364,7 @@ void configSettingCommand(uuid::console::Shell &shell, const std::vector<std::st
                 settings.config.wgEndpoint.c_str(),
                 settings.config.wgEndpointPort,
                 settings.config.wgAllowedIPs.c_str(),
-                settings.config.sleep_timer
+                (unsigned long)settings.config.display_dim_timeout_s
             );
         } else {
             shell.printfln("invalid argument: %s", config_argument.c_str());
