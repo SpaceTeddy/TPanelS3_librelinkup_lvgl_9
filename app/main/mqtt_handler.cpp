@@ -40,7 +40,6 @@ extern bool              ota_in_progress;
 extern IPAddress         local_ip;
 extern AppFsm            g_fsm;
 extern bool              flag_mqtt_master_rx;
-extern uint64_t          config_sleep_timer_backup;
 extern TPanelS3          tpanels3;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -375,7 +374,6 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         else if (strcmp(cmd, "brightness") == 0)
         {
             settings.config.brightness = tpanels3.set_backlight_brightness(parameter1);
-            config_sleep_timer_backup  = millis();
             app_fsm_notify_user_activity(g_fsm);
             cmd_ok     = true;
             needs_save = true;
