@@ -195,16 +195,6 @@ TaskHandle_t scanTaskHandle; ///< WiFi scan task handle
 
 ///////////////////// SOFTWARE TIMERS ////////////////////
 
-/// @name Timer Intervals (milliseconds)
-/// @{
-const uint64_t config_sleep_timer = 120000; ///< 60 minute (1 hour) sleep timer
-/// @}
-
-/// @name Timer Backup Variables (last trigger time)
-/// @{
-uint64_t config_sleep_timer_backup = 0;
-/// @}
-
 ///////////////////// JSON CONFIGURATION ////////////////////
 
 /// Enable double precision for JSON parsing
@@ -671,7 +661,6 @@ static void btn_login_event_cb(lv_event_t *event)
         librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
 
         Serial.printf("Entered Email: %s\n", settings.config.login_email);
-        Serial.printf("Entered Password: %s\n", settings.config.login_password); // TODO: Remove in production
 
         // Save configuration to file
         settings.saveConfiguration(settings.config_filename, settings.config);
@@ -683,8 +672,6 @@ static void btn_login_event_cb(lv_event_t *event)
 
 ///////////////////// CHART INTERACTION CALLBACKS ////////////////////
 
-/// Last X-coordinate of touch on chart (for tracking drag operations)
-static int last_x = -1;
 
 /**
  * @brief Touch event callback for glucose chart interaction
@@ -795,8 +782,6 @@ static void touch_event_cb(lv_event_t *e)
     logger.notice("Touch X (rel): %d, Index: %d, Value: %d, Y: %d",
                   relative_x, index, value, y_pos);
 
-    // Store last X position for potential drag tracking
-    last_x = relative_x;
 }
 
 /**
@@ -955,11 +940,6 @@ void handle_invalid_timestamp()
         librelinkup.reconnect_flag() = 1;
     }
     
-    /*
-    if(librelinkup.status().timestamp_status == SENSOR_LOST){
-        logger.notice("glucoseMeasurement: sensor lost?!");
-    }*/
-
     static uint8_t invalid_timestamp_counter = 0;
 
     if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_ERROR &&
