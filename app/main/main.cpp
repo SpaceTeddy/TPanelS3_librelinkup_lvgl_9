@@ -2051,6 +2051,9 @@ void setup_librelinkup()
 void setup_uuid_console()
 {
     registerCommands(commands);
+    telnet.maximum_connections(3);
+    telnet.initial_idle_timeout(3600);
+    telnet.default_write_timeout(0);
     telnet.start();
 }
 
