@@ -271,6 +271,10 @@ void create_sensor_valid_progress_bar(ProgressBarUI *ui, lv_obj_t *parent,
  */
 void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining_raw)
 {
+    if (ui == NULL || ui->label == NULL) {
+        return;
+    }
+
     bool sensor_expired = (remaining_raw < 0);
     int remaining = remaining_raw;
 
@@ -314,9 +318,12 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining_raw)
     //lv_timer_handler();
 
     // Sensor expired -> hide label and clear text
+    // Note: lv_timer_handler() intentionally NOT called here. The main loop
+    // (loop() in main.cpp) already pumps LVGL once per iteration; calling it
+    // from inside a deeply-nested bar update added redundant redraw work and
+    // an extra reentry point into LVGL on every bar transition.
     if (sensor_expired) {
         lv_obj_add_flag(ui->label, LV_OBJ_FLAG_HIDDEN);
-        lv_timer_handler();
         return;
     }
 
@@ -344,7 +351,7 @@ void update_sensor_valid_progress_bar(ProgressBarUI *ui, int remaining_raw)
     } else {
         lv_obj_clear_flag(ui->label, LV_OBJ_FLAG_HIDDEN);
     }
-    lv_timer_handler();
+    // No lv_timer_handler() here either - the main loop pumps LVGL.
 }
 
 /**
@@ -376,6 +383,9 @@ void switch_sensor_valid_progress_bar(ProgressBarUI *ui)
     if (dayBar14.label != NULL) {
         lv_obj_add_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN);
     }
+    if (dayBar15.label != NULL) {
+        lv_obj_add_flag(dayBar15.label, LV_OBJ_FLAG_HIDDEN);
+    }
     if (hourBar.label != NULL) {
         lv_obj_add_flag(hourBar.label, LV_OBJ_FLAG_HIDDEN);
     }
@@ -395,8 +405,8 @@ void switch_sensor_valid_progress_bar(ProgressBarUI *ui)
         }
     } else if (ui->bar == dayBar15.bar) {
         lv_obj_clear_flag(dayBar15.bar, LV_OBJ_FLAG_HIDDEN);
-        if (dayBar14.label != NULL) {
-            lv_obj_clear_flag(dayBar14.label, LV_OBJ_FLAG_HIDDEN);
+        if (dayBar15.label != NULL) {
+            lv_obj_clear_flag(dayBar15.label, LV_OBJ_FLAG_HIDDEN);
         }
     } else if (ui->bar == hourBar.bar) {
         lv_obj_clear_flag(hourBar.bar, LV_OBJ_FLAG_HIDDEN);

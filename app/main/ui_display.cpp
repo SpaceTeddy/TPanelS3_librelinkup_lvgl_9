@@ -222,6 +222,10 @@ void draw_chart_sensor_valid()
                    (sensorState == SENSOR_NOT_AVAILABLE) ||
                    (sensorState == SENSOR_STARTING);
 
+    // Note: update_chart_valid_values() invokes switch_sensor_valid_progress_bar()
+    // internally for non-expired bars, so we don't call it here too. The
+    // expired branch keeps its explicit switch because update_chart_valid_values()
+    // does not switch in the expired path (it greys out all bars instead).
     if (expired)
     {
         bool is14day = (librelinkup.sensor_data().sensor_runtime == 14 * 86400);
@@ -239,17 +243,11 @@ void draw_chart_sensor_valid()
     {
         if (librelinkup.sensor_data().sensor_runtime == 14 * 86400)
         {
-            switch_sensor_valid_progress_bar(&dayBar14);
             update_chart_valid_values(&dayBar14, days);
-        }
-        else if (librelinkup.sensor_data().sensor_runtime == 15 * 86400)
-        {
-            switch_sensor_valid_progress_bar(&dayBar15);
-            update_chart_valid_values(&dayBar15, days);
         }
         else
         {
-            switch_sensor_valid_progress_bar(&dayBar15);
+            // 15-day runtime, or unknown runtime (fall through to 15-day bar)
             update_chart_valid_values(&dayBar15, days);
         }
         return;
@@ -257,14 +255,12 @@ void draw_chart_sensor_valid()
 
     if (rawHours > 0)
     {
-        switch_sensor_valid_progress_bar(&hourBar);
         update_chart_valid_values(&hourBar, hours);
         return;
     }
 
     if (rawMinutes >= 0)
     {
-        switch_sensor_valid_progress_bar(&minuteBar);
         update_chart_valid_values(&minuteBar, minutes);
         return;
     }

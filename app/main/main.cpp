@@ -1297,16 +1297,12 @@ void update_glucose_data()
 
     lcd_status_indication(0, 1); // Hide activity indicator
 
-    // Check sensor type and create appropriate progress bars
-    int sensor_type = librelinkup.check_sensor_type();
-    if (sensor_type == 1)
-    {
-        switch_sensor_valid_progress_bar(&dayBar15); // 15-day sensor
-    }
-    else if (sensor_type == -1)
-    {
-        switch_sensor_valid_progress_bar(&dayBar14); // 14-day sensor
-    }
+    // Refresh cached sensor_runtime from the sensor type. We deliberately do
+    // NOT switch the visible bar here - draw_chart_sensor_valid() below picks
+    // the correct bar (days/hours/minutes) for the current remaining lifetime.
+    // The previous unconditional dayBar switch caused a visible flicker each
+    // cycle once remaining lifetime fell into hours/minutes mode.
+    (void)librelinkup.check_sensor_type();
 
     // Read sensor status and timestamp
     librelinkup.status().sensor_state = librelinkup.check_sensor_lifetime(
