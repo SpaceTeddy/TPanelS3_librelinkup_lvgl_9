@@ -1151,7 +1151,10 @@ void fwUpdateCommand(uuid::console::Shell &shell, const std::vector<std::string>
 
     if (arg == "check") {
         fw_update_request_check_now();
-        shell.printfln("FW check requested. Current status: %s", fw_update_get_status());
+        shell.printfln("FW check requested. Current: %s  Available: %s  Status: %s",
+                       fw_update_get_current_version(),
+                       fw_update_get_latest_version(),
+                       fw_update_get_status());
 
     } else if (arg == "install") {
         String message;
