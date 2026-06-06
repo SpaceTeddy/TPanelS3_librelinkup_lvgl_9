@@ -591,11 +591,19 @@ void app_fsm_poll(AppFsm &fsm)
         if (!ensure_wifi_connected(fsm.cfg.wifi_connect_timeout_ms))
         {
             fsm.consecutive_failures++;
+            fsm.wifi_fail_count++;
+            if (fsm.wifi_fail_count >= fsm.cfg.wifi_ap_threshold)
+            {
+                logger.warning("[WiFi] %u consecutive failures — AP fallback", fsm.wifi_fail_count);
+                start_ap_mode();
+            }
             fsm.last_backoff_ms = compute_backoff_ms(fsm);
             fsm.backoff_until_ms = millis() + fsm.last_backoff_ms;
             enter_state(fsm, AppState::BACKOFF, "WIFI FAIL");
             break;
         }
+        fsm.wifi_fail_count = 0;
+        fsm.consecutive_failures = 0;
         enter_state(fsm, AppState::VPN_CHECK, "WIFI OK");
         break;
     }

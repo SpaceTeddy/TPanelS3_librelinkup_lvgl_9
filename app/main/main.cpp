@@ -1766,8 +1766,10 @@ void setup_wifi()
         return;
     }
 
-    // --- AP ONLY fallback -------------------------------------------------
-    start_ap_mode();
+    // WiFi connect failed — return without starting AP mode.
+    // The FSM (WIFI_CONNECT state) tracks consecutive failures and triggers
+    // start_ap_mode() only after wifi_ap_threshold attempts, so a single
+    // transient failure (e.g. router IP change) does not lock the device.
 }
 
 /**
