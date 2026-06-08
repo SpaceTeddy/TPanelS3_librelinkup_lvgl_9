@@ -83,12 +83,12 @@ static void h2_pair_task(void* arg) {
  * Intended to be called when a user opens a telnet/console session.
  */
 void displayWelcomeBanner(uuid::console::Shell &shell) {
-    shell.println(F("╔══════════════════════════════════════════╗"));
-    shell.println(F("║       LibreLinkUp ESP32 Console          ║"));
-    shell.printfln(F("║  FW : %-34s║"), fw_update_get_current_version());
-    shell.printfln(F("║  IP : %-34s║"), WiFi.localIP().toString().c_str());
-    shell.println(F("║  Type 'help' for available commands      ║"));
-    shell.println(F("╚══════════════════════════════════════════╝"));
+    shell.println(F("+------------------------------------------+"));
+    shell.println(F("|       LibreLinkUp ESP32 Console          |"));
+    shell.printfln(F("|  FW : %-35s|"), fw_update_get_current_version());
+    shell.printfln(F("|  IP : %-35s|"), WiFi.localIP().toString().c_str());
+    shell.println(F("|  Type 'help' for available commands      |"));
+    shell.println(F("+------------------------------------------+"));
 }
 
 /**
