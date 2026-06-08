@@ -110,11 +110,23 @@ using uuid::console::Commands;
 using uuid::console::Shell;
 using LogFacility = ::uuid::log::Facility;
 
+/// Custom shell: overrides display_banner() to show a welcome screen on connect.
+class AppTelnetShell : public uuid::console::Shell {
+public:
+    using uuid::console::Shell::Shell;
+protected:
+    void display_banner() override { displayWelcomeBanner(*this); }
+};
+
 /// Console command handler instance
 static std::shared_ptr<uuid::console::Commands> commands = std::make_shared<uuid::console::Commands>();
 
-/// Telnet service for remote console access
-static uuid::telnet::TelnetService telnet{commands};
+/// Telnet service: shell factory so display_banner() fires on each new connection.
+static uuid::telnet::TelnetService telnet{
+    [](Stream &stream, IPAddress, uint16_t) -> std::shared_ptr<uuid::console::Shell> {
+        return std::make_shared<AppTelnetShell>(stream, commands);
+    }
+};
 
 /// Logger instance for this module
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};

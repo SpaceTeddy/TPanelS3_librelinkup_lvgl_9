@@ -52,6 +52,12 @@
 void registerCommands(std::shared_ptr<uuid::console::Commands> commands);
 
 /**
+ * @brief Print a welcome banner to the shell on telnet connect.
+ * @param shell Shell instance to write to.
+ */
+void displayWelcomeBanner(uuid::console::Shell &shell);
+
+/**
  * @brief Parse an integer argument from a vector of command arguments.
  *
  * This helper reads the argument at @p index and converts it to an integer.
