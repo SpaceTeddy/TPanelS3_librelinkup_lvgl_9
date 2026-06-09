@@ -1,5 +1,4 @@
 name: OTA Staging Deploy
-
 on:
   workflow_dispatch:
     inputs:
@@ -10,19 +9,15 @@ on:
       version:
         description: "Staging version label (e.g. 1.0.27-test)"
         required: true
-
 permissions:
   contents: read
   pages: write
   id-token: write
-
 concurrency:
   group: "pages"
   cancel-in-progress: false
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -32,15 +27,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
       - name: Setup Pages
         uses: actions/configure-pages@v5
-
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-
       - name: Cache PlatformIO
         uses: actions/cache@v5
         with:
@@ -51,15 +43,12 @@ jobs:
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: |
             pio-${{ runner.os }}-
-
       - name: Install PlatformIO Core
         run: pip install --upgrade platformio
-
       - name: Build staging firmware
         env:
           FIRMWARE_VERSION: ${{ github.event.inputs.version }}
         run: pio run -e "${{ github.event.inputs.environment }}"
-
       - name: Prepare OTA pages
         shell: bash
         env:
@@ -76,7 +65,6 @@ jobs:
           fi
           BASE_URL="https://${OWNER}.github.io/${REPO}"
           mkdir -p dist/ota dist/ota/staging
-
           echo "Fetching prod channel from ${BASE_URL}/ota/ ..."
           if curl -sf --max-time 20 "${BASE_URL}/ota/firmware.bin" -o dist/ota/firmware.bin \
           && curl -sf --max-time 10 "${BASE_URL}/ota/manifest.json" -o dist/ota/manifest.json; then
@@ -89,20 +77,16 @@ jobs:
               "$VERSION" "$BASE_URL" > dist/ota/manifest.json
             PROD_VERSION="$VERSION (fallback)"
           fi
-
           cp "$FW" dist/ota/staging/firmware.bin
           printf '{\n  "version": "%s",\n  "url": "%s/ota/staging/firmware.bin"\n}\n' \
             "$VERSION" "$BASE_URL" > dist/ota/staging/manifest.json
-
           echo ""
           echo "PROD    → v${PROD_VERSION}  (${BASE_URL}/ota/manifest.json)"
           echo "STAGING → v${VERSION}  (${BASE_URL}/ota/staging/manifest.json)"
-
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
