@@ -20,6 +20,9 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -28,13 +31,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4          # v4 = Node 20/24-kompatibel, v6 existiert nicht
+        uses: actions/checkout@v6
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Setup Python
-        uses: actions/setup-python@v5      # v5 statt v6 (existiert nicht)
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -73,6 +76,7 @@ jobs:
           fi
           BASE_URL="https://${OWNER}.github.io/${REPO}"
           mkdir -p dist/ota dist/ota/staging
+
           echo "Fetching prod channel from ${BASE_URL}/ota/ ..."
           if curl -sf --max-time 20 "${BASE_URL}/ota/firmware.bin" -o dist/ota/firmware.bin \
           && curl -sf --max-time 10 "${BASE_URL}/ota/manifest.json" -o dist/ota/manifest.json; then
@@ -85,9 +89,11 @@ jobs:
               "$VERSION" "$BASE_URL" > dist/ota/manifest.json
             PROD_VERSION="$VERSION (fallback)"
           fi
+
           cp "$FW" dist/ota/staging/firmware.bin
           printf '{\n  "version": "%s",\n  "url": "%s/ota/staging/firmware.bin"\n}\n' \
             "$VERSION" "$BASE_URL" > dist/ota/staging/manifest.json
+
           echo ""
           echo "PROD    → v${PROD_VERSION}  (${BASE_URL}/ota/manifest.json)"
           echo "STAGING → v${VERSION}  (${BASE_URL}/ota/staging/manifest.json)"
