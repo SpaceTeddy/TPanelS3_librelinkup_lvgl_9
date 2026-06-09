@@ -31,6 +31,9 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -40,7 +43,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4          # v6 existiert nicht
+        uses: actions/checkout@v6
 
       - name: Resolve build metadata
         id: meta
@@ -63,7 +66,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Setup Python
-        uses: actions/setup-python@v5      # v6 existiert nicht
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -128,7 +131,7 @@ jobs:
           fi
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5   # v6 existiert nicht
+        uses: actions/configure-pages@v5
 
       - name: Prepare OTA pages
         shell: bash
@@ -151,6 +154,7 @@ jobs:
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
+
         with:
           path: dist
 
