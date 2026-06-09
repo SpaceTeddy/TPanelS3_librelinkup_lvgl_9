@@ -153,7 +153,7 @@ jobs:
           echo "STAGING manifest: ${BASE_URL}/ota/staging/manifest.json → v${VERSION}"
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
 
         with:
           path: dist
