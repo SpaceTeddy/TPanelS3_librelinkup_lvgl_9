@@ -1,16 +1,5 @@
 name: OTA Staging Deploy
 
-# Manual trigger: deploys a test build to the staging OTA channel.
-#
-# How it works:
-#   - Builds the firmware from the current branch with your version label
-#   - Prod channel  (ota/)         → restored from the LIVE GitHub Pages URL (unchanged)
-#   - Staging channel (ota/staging/) → your fresh test build
-#
-# Device manifest URLs:
-#   Prod:    https://<owner>.github.io/<repo>/ota/manifest.json
-#   Staging: https://<owner>.github.io/<repo>/ota/staging/manifest.json
-
 on:
   workflow_dispatch:
     inputs:
@@ -31,25 +20,21 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4          # v4 = Node 20/24-kompatibel, v6 existiert nicht
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5      # v5 statt v6 (existiert nicht)
         with:
           python-version: "3.11"
 
@@ -86,11 +71,8 @@ jobs:
             echo "Firmware not found: $FW"
             exit 1
           fi
-
           BASE_URL="https://${OWNER}.github.io/${REPO}"
           mkdir -p dist/ota dist/ota/staging
-
-          # ── Prod channel: restore from live GitHub Pages (devices on prod are unaffected) ──
           echo "Fetching prod channel from ${BASE_URL}/ota/ ..."
           if curl -sf --max-time 20 "${BASE_URL}/ota/firmware.bin" -o dist/ota/firmware.bin \
           && curl -sf --max-time 10 "${BASE_URL}/ota/manifest.json" -o dist/ota/manifest.json; then
@@ -103,12 +85,9 @@ jobs:
               "$VERSION" "$BASE_URL" > dist/ota/manifest.json
             PROD_VERSION="$VERSION (fallback)"
           fi
-
-          # ── Staging channel: freshly built firmware ──
           cp "$FW" dist/ota/staging/firmware.bin
           printf '{\n  "version": "%s",\n  "url": "%s/ota/staging/firmware.bin"\n}\n' \
             "$VERSION" "$BASE_URL" > dist/ota/staging/manifest.json
-
           echo ""
           echo "PROD    → v${PROD_VERSION}  (${BASE_URL}/ota/manifest.json)"
           echo "STAGING → v${VERSION}  (${BASE_URL}/ota/staging/manifest.json)"
