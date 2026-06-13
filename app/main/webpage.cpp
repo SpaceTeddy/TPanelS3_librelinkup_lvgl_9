@@ -1253,11 +1253,14 @@ document.getElementById("h2LastSeen").textContent = `Last seen: ${h2SeenTxt} | l
 
 // --- Telnet terminal (WebSocket bridge) ---
 let tnWs = null;
-function tnLog(line){
+function tnLog(data){
   const pre=document.getElementById("tnOut");
   if(!pre) return;
-  pre.textContent += line;
-  // keep last ~20k chars
+  // Strip ANSI/VT100 escape sequences (color codes, cursor movement, erase)
+  let s = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  // Normalise CRLF -> LF, then drop bare CR (used by shell to overwrite prompt line)
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '');
+  pre.textContent += s;
   if(pre.textContent.length>20000) pre.textContent = pre.textContent.slice(-20000);
   pre.scrollTop = pre.scrollHeight;
 }
