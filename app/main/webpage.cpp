@@ -1299,30 +1299,10 @@ function tnOpen(){
   tnWs.onclose = ()=>{ tnStatus("WS closed"); tnSetState("WS closed","off"); };
   tnWs.onerror = ()=>{ tnStatus("WS error"); tnSetState("WS error","bad"); };
   tnWs.onmessage = (ev)=>{
-    // AsyncWebSocket may coalesce rapid sends into one frame with concatenated
-    // JSON objects. Walk through all JSON objects in the frame.
-    let text = ev.data, i = 0, n = text.length;
-    while (i < n) {
-      while (i < n && text[i] !== '{') i++;
-      if (i >= n) break;
-      // Find end of this JSON object (track depth + skip strings)
-      let depth=0, inStr=false, j=i;
-      for (; j < n; j++) {
-        const c = text[j];
-        if (inStr) { if (c==='\\') j++; else if (c==='"') inStr=false; }
-        else if (c==='"') inStr=true;
-        else if (c==='{') depth++;
-        else if (c==='}' && --depth===0) { j++; break; }
-      }
-      const frag = text.slice(i, j);
-      i = j;
-      try {
-        const o = JSON.parse(frag);
-        if(o && o.type==="status") tnStatus(o.msg || "status");
-        else if(o && o.type==="data") tnLog(o.data || "");
-        else tnLog(frag);
-      } catch(e) { tnLog(frag); }
-    }
+    const data = ev.data;
+    // '\x01' prefix = status message; everything else = raw terminal data
+    if(data.charCodeAt(0) === 1) tnStatus(data.slice(1));
+    else tnLog(data);
   };
 }
 function tnEnsureOpen(cb){
@@ -1934,24 +1914,20 @@ struct TelnetSession {
 
 static std::map<uint32_t, TelnetSession> g_telnet_sessions;
 
+// Protocol: status messages are prefixed with '\x01' (SOH); everything else
+// is raw terminal data forwarded as-is.  No JSON — this avoids parse failures
+// when the terminal output itself contains JSON-like characters, and ensures
+// the browser sees actual CR/LF and ANSI bytes rather than JSON escape sequences.
 static void telnet_send_status(AsyncWebSocketClient* c, const String& msg) {
     if (!c) return;
-    JsonDocument d;
-    d["type"] = "status";
-    d["msg"] = msg;
-    String out;
-    serializeJson(d, out);
+    String out("\x01");
+    out += msg;
     c->text(out);
 }
 
 static void telnet_send_data(AsyncWebSocketClient* c, const String& data) {
     if (!c) return;
-    JsonDocument d;
-    d["type"] = "data";
-    d["data"] = data;
-    String out;
-    serializeJson(d, out);
-    c->text(out);
+    c->text(data);   // raw terminal bytes — no encoding
 }
 
 static void telnet_service() {
