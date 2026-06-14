@@ -933,6 +933,9 @@ static const char debug_html[] PROGMEM = R"rawliteral(
     white-space:pre;
   }
   body.dark pre{ background: rgba(255,255,255,0.06); }
+  #tnOut{height:340px;overflow-y:auto;cursor:text;user-select:text;outline:none;}
+  .tn-cur::after{content:'▌';animation:tn-blink 1s step-end infinite;}
+  @keyframes tn-blink{50%{opacity:0}}
 </style>
 </head>
 <body>
@@ -1037,14 +1040,13 @@ static const char debug_html[] PROGMEM = R"rawliteral(
       <button class="btn" id="tnSelf">This device</button>
       <span class="badge" id="tnState" style="margin-left:8px;">--</span>
       <button class="btn" id="tnDisconnect">Disconnect</button>
+      <button class="btn" id="tnClear">Clear</button>
     </div>
   </div>
-  <pre id="tnOut" style="height:260px; overflow:auto;"></pre>
-  <div class="row" style="margin-top:10px;">
-    <input id="tnIn" placeholder="Eingabe… (Enter zum Senden)" style="flex:1;"/>
-    <button class="btn" id="tnSend">Send</button>
-    <button class="btn" id="tnClear">Clear</button>
-  </div>
+  <!-- Terminal area: click anywhere to focus hidden input (mobile keyboard) -->
+  <pre id="tnOut" tabindex="0" onclick="document.getElementById('tnHidIn').focus()"></pre>
+  <input id="tnHidIn" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;"
+         autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"/>
 </div>
 
 </div>
@@ -1253,126 +1255,133 @@ document.getElementById("h2LastSeen").textContent = `Last seen: ${h2SeenTxt} | l
 
 // --- Telnet terminal (WebSocket bridge) ---
 let tnWs = null;
-function tnLog(data){
-  const pre=document.getElementById("tnOut");
+let tnOutText = '';   // server output accumulated here
+let tnInBuf  = '';   // what the user is currently typing
+
+function tnEscHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function tnRender(scroll){
+  const pre = document.getElementById('tnOut');
   if(!pre) return;
-  // Strip ANSI/VT100 escape sequences (color codes, cursor movement, erase)
-  let s = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-  // Normalise CRLF -> LF, then drop bare CR (used by shell to overwrite prompt line)
-  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '');
-  pre.textContent += s;
-  if(pre.textContent.length>20000) pre.textContent = pre.textContent.slice(-20000);
-  pre.scrollTop = pre.scrollHeight;
+  const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
+  pre.innerHTML = tnEscHtml(tnOutText) + '<span class="tn-cur">' + tnEscHtml(tnInBuf) + '</span>';
+  if(scroll || atBottom) pre.scrollTop = pre.scrollHeight;
+}
+function tnLog(data){
+  let s = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
+  s = s.replace(/\r\n/g,'\n').replace(/\r/g,'');
+  tnOutText += s;
+  if(tnOutText.length > 20000) tnOutText = tnOutText.slice(-20000);
+  tnRender(true);
 }
 function tnSetState(label, mode){
   const el=document.getElementById("tnState");
   if(!el) return;
   el.textContent = label || "--";
-  // modes: ok|warn|bad|off
   let bg="rgba(148,163,184,0.15)", bd="rgba(148,163,184,0.28)", fg="rgba(226,232,240,0.9)";
   if(mode==="ok"){ bg="rgba(34,197,94,0.18)"; bd="rgba(34,197,94,0.45)"; }
   if(mode==="warn"){ bg="rgba(245,158,11,0.18)"; bd="rgba(245,158,11,0.45)"; }
   if(mode==="bad"){ bg="rgba(239,68,68,0.18)"; bd="rgba(239,68,68,0.45)"; }
-  el.style.background = bg;
-  el.style.borderColor = bd;
-  el.style.color = fg;
+  el.style.background=bg; el.style.borderColor=bd; el.style.color=fg;
 }
-
 function tnStatus(msg){
-  tnLog(`
-[${new Date().toLocaleTimeString()}] ${msg}
-`);
-  // Heuristics based on status text coming from ESP
+  tnLog('\n['+new Date().toLocaleTimeString()+'] '+msg+'\n');
   const m=(msg||"").toLowerCase();
   if(m.includes("ws connected")) tnSetState("WS connected","warn");
-  else if(m.includes("ready")) tnSetState("Ready","off");
-  else if(m.includes("connecting")) tnSetState("Connecting…","warn");
-  else if(m.includes("connected")) tnSetState("Connected","ok");
+  else if(m.includes("ready"))        tnSetState("Ready","off");
+  else if(m.includes("connecting"))   tnSetState("Connecting…","warn");
+  else if(m.includes("connected"))    tnSetState("Connected","ok");
   else if(m.includes("disconnected")) tnSetState("Disconnected","off");
-  else if(m.includes("failed") || m.includes("error") || m.includes("bad")) tnSetState("Error","bad");
+  else if(m.includes("failed")||m.includes("error")||m.includes("bad")) tnSetState("Error","bad");
 }
 function tnOpen(){
-  if(tnWs && (tnWs.readyState===0 || tnWs.readyState===1)) return;
-  const proto = (location.protocol==="https:") ? "wss://" : "ws://";
-  tnWs = new WebSocket(proto + location.host + "/ws/telnet");
-  tnWs.onopen = ()=>{ tnStatus("WS connected"); };
-  tnWs.onclose = ()=>{ tnStatus("WS closed"); tnSetState("WS closed","off"); };
-  tnWs.onerror = ()=>{ tnStatus("WS error"); tnSetState("WS error","bad"); };
+  if(tnWs && (tnWs.readyState===0||tnWs.readyState===1)) return;
+  const proto=(location.protocol==="https:")?"wss://":"ws://";
+  tnWs = new WebSocket(proto+location.host+"/ws/telnet");
+  tnWs.onopen  = ()=>{ tnStatus("WS connected"); };
+  tnWs.onclose = ()=>{ tnStatus("WS closed");  tnSetState("WS closed","off"); };
+  tnWs.onerror = ()=>{ tnStatus("WS error");   tnSetState("WS error","bad"); };
   tnWs.onmessage = (ev)=>{
-    const data = ev.data;
-    // '\x01' prefix = status message; everything else = raw terminal data
-    if(data.charCodeAt(0) === 1) tnStatus(data.slice(1));
-    else tnLog(data);
+    if(ev.data.charCodeAt(0)===1) tnStatus(ev.data.slice(1));
+    else tnLog(ev.data);
   };
 }
 function tnEnsureOpen(cb){
   tnOpen();
-  const start = Date.now();
-  (function waitOpen(){
-    if(!tnWs) { setTimeout(waitOpen, 50); return; }
-    if(tnWs.readyState===1){ cb(); return; }
-    // timeout after 3s
-    if(Date.now()-start > 3000){ tnStatus("WS not open"); tnSetState("WS error","bad"); return; }
-    setTimeout(waitOpen, 50);
-  })();
+  const t0=Date.now();
+  (function w(){ if(!tnWs){setTimeout(w,50);return;} if(tnWs.readyState===1){cb();return;}
+    if(Date.now()-t0>3000){tnStatus("WS not open");tnSetState("WS error","bad");return;}
+    setTimeout(w,50); })();
 }
-
+function tnSendLine(line){
+  tnEnsureOpen(()=>{
+    try{ tnWs.send(JSON.stringify({cmd:"send",data:line+"\r\n"})); }
+    catch(e){ tnStatus("send failed"); }
+  });
+}
 function tnConnect(){
   const host=(document.getElementById("tnHost").value||"").trim();
   const port=Number((document.getElementById("tnPort").value||"23").trim())||23;
-  localStorage.setItem("tnHost", host);
-  localStorage.setItem("tnPort", String(port));
+  localStorage.setItem("tnHost",host); localStorage.setItem("tnPort",String(port));
   if(!host){ tnStatus("Host fehlt"); tnSetState("Error","bad"); return; }
   tnSetState("Connecting…","warn");
-  tnEnsureOpen(()=> {
-    try{ tnWs.send(JSON.stringify({cmd:"connect", host, port})); }
-    catch(e){ tnStatus("send failed: " + (e && e.message ? e.message : e)); }
-  });
+  tnEnsureOpen(()=>{ try{ tnWs.send(JSON.stringify({cmd:"connect",host,port})); }
+    catch(e){ tnStatus("send failed"); } });
 }
-
 function tnDisconnect(){
-  tnEnsureOpen(()=> {
-    try{ tnWs.send(JSON.stringify({cmd:"disconnect"})); }
-    catch(e){ tnStatus("send failed: " + (e && e.message ? e.message : e)); }
-  });
+  tnEnsureOpen(()=>{ try{ tnWs.send(JSON.stringify({cmd:"disconnect"})); }
+    catch(e){ tnStatus("send failed"); } });
 }
-
-function tnSend(){
-  const inp=document.getElementById("tnIn");
-  const txt=(inp && inp.value) ? inp.value : "";
-  if(!txt) return;
-  tnEnsureOpen(()=> {
-        try{ tnWs.send(JSON.stringify({cmd:"send", data: txt + "\r\n"})); }
-    catch(e){ tnStatus("send failed: " + (e && e.message ? e.message : e)); }
-  });
-  if(inp) inp.value="";
-}
-
 function tnInit(){
   const hostEl=document.getElementById("tnHost");
   const portEl=document.getElementById("tnPort");
-
   const h=localStorage.getItem("tnHost")||"";
   const p=localStorage.getItem("tnPort")||"23";
-
-  // Prefer last used, otherwise default to "this device"
-  if(hostEl){
-    hostEl.value = h || window.location.hostname;
-  }
-  if(portEl){
-    portEl.value = p || "23";
-  }
+  if(hostEl) hostEl.value = h||window.location.hostname;
+  if(portEl) portEl.value = p||"23";
 
   document.getElementById("tnConnect")?.addEventListener("click", tnConnect);
   document.getElementById("tnDisconnect")?.addEventListener("click", tnDisconnect);
-  document.getElementById("tnSend")?.addEventListener("click", tnSend);
-  document.getElementById("tnClear")?.addEventListener("click", ()=>{ document.getElementById("tnOut").textContent=""; });
-
-  document.getElementById("tnIn")?.addEventListener("keydown", (e)=>{
-    if(e.key==="Enter"){ e.preventDefault(); tnSend(); }
+  document.getElementById("tnClear")?.addEventListener("click", ()=>{
+    tnOutText=''; tnInBuf=''; tnRender(true);
   });
 
-  // Open WS eagerly so it's ready when you hit connect
+  // Inline keyboard input — hidden <input> captures keys (needed for mobile)
+  const hidIn = document.getElementById("tnHidIn");
+  if(hidIn){
+    hidIn.addEventListener("keydown",(e)=>{
+      if(e.key==="Enter"){
+        e.preventDefault();
+        const line=tnInBuf; tnInBuf=''; tnRender();
+        tnSendLine(line);
+      } else if(e.key==="Backspace"){
+        e.preventDefault();
+        tnInBuf=tnInBuf.slice(0,-1); tnRender();
+      } else if(e.ctrlKey && e.key==="c"){
+        e.preventDefault();
+        tnInBuf=''; tnRender();
+        tnEnsureOpen(()=>{ try{ tnWs.send(JSON.stringify({cmd:"send",data:"\x03"})); }catch(e){} });
+      }
+    });
+    // 'input' event is more reliable on mobile for printable chars
+    hidIn.addEventListener("input",()=>{
+      const v=hidIn.value; hidIn.value='';
+      if(!v) return;
+      // split on newline in case mobile keyboard sends Enter via input
+      const parts=v.split(/\r?\n/);
+      tnInBuf+=parts[0];
+      if(parts.length>1){ const line=tnInBuf; tnInBuf=''; tnRender(); tnSendLine(line); }
+      else tnRender();
+    });
+    // Focus hidden input on click/tap anywhere in the pre
+    document.getElementById("tnOut")?.addEventListener("click",()=>hidIn.focus());
+  }
+
+  document.getElementById("tnSelf")?.addEventListener("click",()=>{
+    const h=document.getElementById("tnHost"); if(h) h.value=window.location.hostname;
+  });
+
   tnOpen();
 }
 tnInit();
