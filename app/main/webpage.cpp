@@ -1431,7 +1431,9 @@ static bool ensureConfigAuth(AsyncWebServerRequest *request) {
 // -------------------- Debug handlers --------------------
 static void handleDebugPage(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
-    request->send(200, "text/html; charset=utf-8", debug_html);
+    AsyncWebServerResponse* resp = request->beginResponse(200, "text/html; charset=utf-8", debug_html);
+    resp->addHeader("Cache-Control", "no-store");
+    request->send(resp);
 }
 
 static void handleApiDebug(AsyncWebServerRequest *request) {
