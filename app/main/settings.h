@@ -84,6 +84,7 @@ class SETTINGS {
             String wgAllowedIPs = "";         /**< WireGuard allowed IPs */
 
             uint64_t sleep_timer = 3600000;   /**< Sleep timer in milliseconds (default: 1 hour) */
+            uint32_t display_dim_timeout_s = 300; /**< Display dim timeout in seconds (0 = disabled, default: 5 min) */
             uint8_t ha_discovery = 1;         /**< Publish Home Assistant MQTT auto-discovery (1=on, 0=off) */
             uint8_t ota_staging = 0;          /**< Use staging OTA channel (1=staging, 0=release) */
             uint8_t ota_force = 0;            /**< Bypass version check — install any manifest version (enables downgrade) */

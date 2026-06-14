@@ -41,11 +41,8 @@ HELPER helper; ///< Helper class instance for time and utility functions
 
 ///////////////////// UART IPC COMMUNICATION ////////////////////
 
-#include <HardwareSerial.h>
-
-/// UART2 instance for IPC communication between ESP32-H2 and ESP32-S3
-HardwareSerial SerialPort(2);
-char UART_IPC_DATA1 = 0; ///< Buffer for received UART data
+#include "zigbee_h2.h"
+#include "h2_ota.h"
 
 ///////////////////// CONFIGURATION ////////////////////
 
@@ -154,6 +151,7 @@ LIBRELINKUP librelinkup; ///< LibreLinkUp API client instance
 
 int16_t glucose_delta = 0;              ///< Change from last reading (mg/dL)
 uint16_t glucoseMeasurement_backup = 0; ///< Previous glucose measurement
+bool g_littlefs_ok = false;
 
 ///////////////////// UI COMPONENTS ////////////////////
 
@@ -1537,22 +1535,6 @@ void setup_serial()
     Serial.println(F("Libre Link Up Api client with lvgl"));
 }
 
-/**
- * @brief Initializes UART for IPC communication
- *
- * Sets up UART2 for Inter-Processor Communication between
- * ESP32-H2 and ESP32-S3.
- *
- * @note Uses 115200 baud, 8N1 configuration
- * @note Currently commented out in main setup()
- */
-void setup_UART_IPC()
-{
-    SerialPort.begin(115200, SERIAL_8N1, ESP32H2_RX, ESP32H2_TX);
-    Serial.println();
-    DBGprint;
-    Serial.println(F("Init SerialPort for IPC"));
-}
 
 /**
  * @brief Initializes LittleFS filesystem
@@ -1570,9 +1552,13 @@ void setup_littlefs()
     if (!LittleFS.begin())
     {
         DBGprint;
-        Serial.println("An Error has occurred while mounting SPIFFS");
+        Serial.println("[LittleFS] mount FAILED — run 'pio run -t uploadfs'");
         return;
     }
+    g_littlefs_ok = true;
+    Serial.printf("[LittleFS] mounted OK  totalBytes=%u  usedBytes=%u\n",
+                  (unsigned)LittleFS.totalBytes(),
+                  (unsigned)LittleFS.usedBytes());
 }
 
 /**
@@ -2247,12 +2233,7 @@ void loop()
         // Keep this loop short to maintain UI responsiveness.
 
         // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
-        if (SerialPort.available() > 0)
-        {
-            UART_IPC_DATA1 = SerialPort.read();
-            DBGprint; Serial.print(UART_IPC_DATA1);
-            logger.notice("UART_IPC: %c", UART_IPC_DATA1);
-        }
+        zigbee_h2_poll_uart();
 
         // --- LVGL: let the GUI process pending work ------------------------------
         lv_timer_handler();

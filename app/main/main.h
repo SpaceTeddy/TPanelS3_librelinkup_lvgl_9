@@ -15,6 +15,7 @@
 
 extern int16_t glucose_delta;               ///< Change from last reading
 extern uint16_t glucoseMeasurement_backup;  ///< Previous measurement
+extern bool g_littlefs_ok;                  ///< true after LittleFS.begin() succeeds
 
 
 /**

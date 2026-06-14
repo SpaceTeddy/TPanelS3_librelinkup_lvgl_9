@@ -40,6 +40,7 @@
 #include "http_update.h"
 #include "mqtt_handler.h"
 #include "h2_ota.h"
+#include "zigbee_h2.h"
 
 //------------------------[ uuid logger ]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -101,12 +102,62 @@ static bool ensureConfigAuth(AsyncWebServerRequest *request) {
     return true;
 }
 
+// ESPAsyncWebServer ≥2.x calls send(NULL) when the file is missing, which
+// results in a 501 "Handler did not handle the request" instead of a 404.
+// This helper guards against that by checking beforehand.
+static void sendLittleFS(AsyncWebServerRequest *request,
+                          const char *path,
+                          const char *contentType,
+                          const char *cacheControl = nullptr)
+{
+    if (!g_littlefs_ok) {
+        request->send(503, "text/plain",
+                      "LittleFS mount failed — run 'pio run -t uploadfs' then reboot");
+        return;
+    }
+    if (!LittleFS.exists(path)) {
+        String msg = "File not found on LittleFS: ";
+        msg += path;
+        msg += " — run 'pio run -t uploadfs'";
+        request->send(404, "text/plain", msg);
+        return;
+    }
+    AsyncWebServerResponse *resp = request->beginResponse(LittleFS, path, contentType);
+    if (!resp) {
+        request->send(503, "text/plain", "beginResponse failed (internal error)");
+        return;
+    }
+    if (cacheControl) resp->addHeader("Cache-Control", cacheControl);
+    request->send(resp);
+}
+
+static void handleApiFsList(AsyncWebServerRequest *request) {
+    JsonDocument doc;
+    doc["littlefs_ok"] = g_littlefs_ok;
+    if (g_littlefs_ok) {
+        doc["total_bytes"] = (uint32_t)LittleFS.totalBytes();
+        doc["used_bytes"]  = (uint32_t)LittleFS.usedBytes();
+        JsonArray files = doc["files"].to<JsonArray>();
+        File root = LittleFS.open("/");
+        File f = root.openNextFile();
+        while (f) {
+            JsonObject entry = files.add<JsonObject>();
+            entry["name"] = String(f.name());
+            entry["size"] = (uint32_t)f.size();
+            f.close();
+            f = root.openNextFile();
+        }
+        root.close();
+    }
+    String out;
+    serializeJson(doc, out);
+    request->send(200, "application/json; charset=utf-8", out);
+}
+
 // -------------------- Debug handlers --------------------
 static void handleDebugPage(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
-    AsyncWebServerResponse* resp = request->beginResponse(LittleFS, "/debug.html", "text/html; charset=utf-8");
-    resp->addHeader("Cache-Control", "no-store");
-    request->send(resp);
+    sendLittleFS(request, "/debug.html", "text/html; charset=utf-8", "no-store");
 }
 
 static void handleApiDebug(AsyncWebServerRequest *request) {
@@ -246,7 +297,7 @@ __attribute__((weak)) String web_get_config_json() { return String("{\"ok\":fals
 
 // -------------------- Handlers: Dashboard + Config --------------------
 static void handleDashboard(AsyncWebServerRequest *request) {
-    request->send(LittleFS, "/dashboard.html", "text/html; charset=utf-8");
+    sendLittleFS(request, "/dashboard.html", "text/html; charset=utf-8");
 }
 
 static void handleConfiguration(AsyncWebServerRequest *request) {
@@ -255,7 +306,7 @@ static void handleConfiguration(AsyncWebServerRequest *request) {
 
     // If no credentials configured, leave open
     if (user.length() == 0 || pass.length() == 0) {
-        request->send(LittleFS, "/index.html", "text/html; charset=utf-8");
+        sendLittleFS(request, "/index.html", "text/html; charset=utf-8");
         return;
     }
 
@@ -263,7 +314,7 @@ static void handleConfiguration(AsyncWebServerRequest *request) {
         return request->requestAuthentication();
     }
 
-    request->send(LittleFS, "/index.html", "text/html; charset=utf-8");
+    sendLittleFS(request, "/index.html", "text/html; charset=utf-8");
 }
 
 static void handleConfigRedirect(AsyncWebServerRequest *request) {
@@ -794,7 +845,7 @@ static void handleH2OtaStatus(AsyncWebServerRequest *request)
 
 static void handleH2OtaPage(AsyncWebServerRequest *request)
 {
-    request->send(LittleFS, "/ota_h2.html", "text/html; charset=utf-8");
+    sendLittleFS(request, "/ota_h2.html", "text/html; charset=utf-8");
 }
 
 static void handleH2OtaUploadDone(AsyncWebServerRequest *request)
@@ -864,8 +915,9 @@ server.addHandler(&g_ws_telnet);
 
 
     // Debug page
-    server.on("/debug",     HTTP_GET, handleDebugPage);
-    server.on("/api/debug", HTTP_GET, handleApiDebug);
+    server.on("/debug",      HTTP_GET, handleDebugPage);
+    server.on("/api/debug",  HTTP_GET, handleApiDebug);
+    server.on("/api/fs/list", HTTP_GET, handleApiFsList);
 
     // Dashboard APIs (order matters: longer first)
     server.on("/api/glucose/history", HTTP_GET, handleApiGlucoseHistory);
