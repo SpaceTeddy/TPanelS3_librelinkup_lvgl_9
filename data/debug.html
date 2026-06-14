@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Debug</title>
+<style>
+  :root{
+    --bg:#ffffff;
+    --fg:#0b0f14;
+    --muted:#6b7280;
+    --card:#ffffff;
+    --border:#e5e7eb;
+    --ok:#16a34a;
+    --warn:#eab308;
+    --bad:#dc2626;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  body.dark{
+    --bg:#0b0f14;
+    --fg:#e7eaf0;
+    --muted: rgba(231,234,240,.75);
+    --card:#0f1620;
+    --border:#1e2a3a;
+  }
+  @media (prefers-color-scheme: dark) {
+    body:not(.light){
+      --bg:#0b0f14;
+      --fg:#e7eaf0;
+      --muted: rgba(231,234,240,.75);
+      --card:#0f1620;
+      --border:#1e2a3a;
+    }
+  }
+
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--fg);
+    padding:18px;
+  }
+
+  .topbar{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;}
+  .btn{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:var(--card);
+    color:var(--fg);
+    text-decoration:none;
+    cursor:pointer;
+    user-select:none;
+  }
+  .row{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;}
+  .pill{padding:6px 10px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--muted); font-size:13px;}
+  .card{border:1px solid var(--border); background:var(--card); border-radius:16px; padding:14px; margin-top:12px;}
+  .grid{display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px;}
+  @media (max-width: 800px){ .grid{grid-template-columns:1fr;} }
+
+  .k{color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em;}
+  .v{font-size:18px; font-weight:700; margin-top:4px; word-break:break-word;}
+  .small{font-size:13px; color:var(--muted); margin-top:6px; word-break:break-word;}
+  .hr{ height:1px; background: var(--border); margin:10px 0; }
+  .badge{display:inline-flex; align-items:center; gap:8px;}
+  .dot{width:10px; height:10px; border-radius:999px; background:var(--warn);}
+  .dot.ok{background:var(--ok);}
+  .dot.bad{background:var(--bad);}
+
+  details summary{cursor:pointer; color:var(--muted); user-select:none;}
+  pre{
+    margin:10px 0 0 0;
+    padding:12px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    background:rgba(0,0,0,0.06);
+    color:var(--fg);
+    overflow:auto;
+    font-family:var(--mono);
+    font-size:12px;
+    line-height:1.45;
+    white-space:pre;
+  }
+  body.dark pre{ background: rgba(255,255,255,0.06); }
+  #tnOut{height:340px;overflow-y:auto;cursor:text;user-select:text;outline:none;}
+  .tn-cur::after{content:'▌';animation:tn-blink 1s step-end infinite;}
+  @keyframes tn-blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="btn" href="/">Dashboard</a>
+  <div class="row">
+    <span class="pill" id="updated">Updated: --</span>
+        <span class="pill" id="status">Status: --</span>
+<button class="btn" id="refreshBtn">Refresh</button>
+    <a class="btn" href="/configuration">Config</a>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="k">Time</div>
+    <div class="small" id="timeEpoch">Local epoch: --</div>
+    <div class="small" id="timeHuman">--</div>
+    <div class="small" id="millis">Uptime: --</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Wi‑Fi</div>
+    <div class="v badge"><span class="dot" id="wifiDot"></span><span id="wifiState">--</span></div>
+    <div class="small" id="wifiSsid">SSID: --</div>
+    <div class="small" id="wifiRssi">RSSI: --</div>
+    <div class="small" id="wifiIp">IP: --</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Heap</div>
+    <div class="small" id="heapFree">--</div>
+    <div class="small" id="heapLargest">Largest free block: --</div>
+    <div class="small" id="heapInternal">Internal RAM (DMA capable): --</div>
+    <div class="small" id="heapPsram">PSRAM available: --</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Glucose</div>
+    <div class="v" id="gMain">--</div>
+    <div class="small" id="gMeta">--</div>
+    <div class="small" id="gLife">--</div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="k">LibreLinkUp Status</div>
+    <div class="v badge"><span class="dot" id="lluTsDot"></span><span id="lluTsState">--</span></div>
+    <div class="small" id="lluLastTs">Last ts: --</div>
+    <div class="small" id="lluSensorState">Sensor state: --</div>
+  </div>
+
+  <div class="card">
+    <div class="k">LibreLinkUp Sensor</div>
+    <div class="v" id="lluActive">--</div>
+    <div class="small" id="lluSensorType">Type: --</div>
+    <div class="small" id="lluInactive">--</div>
+    <div class="small" id="lluActivation">--</div>
+    <div class="small" id="lluExpires">--</div>
+    <div class="small" id="lluRemaining">--</div>
+  </div>
+
+  <div class="card">
+    <div class="k">LibreLinkUp Login</div>
+    <div class="v badge"><span class="dot" id="lluLoginDot"></span><span id="lluLoginState">--</span></div>
+    <div class="small" id="lluEmail">Email: --</div>
+    <div class="small" id="lluAccount">Account: --</div>
+    <div class="small" id="lluRegion">Region: --</div>
+    <div class="small" id="lluToken">Token: --</div>
+    <div class="small" id="lluTokenExp">Expires: --</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Config Snapshot</div>
+    <div class="small" id="cfgMain">--</div>
+    <div class="small" id="cfgMore">--</div>
+  </div>
+
+  <div class="card">
+    <div class="k">H2 Co-Processor</div>
+    <div class="v" id="h2Fw">FW: --</div>
+    <div class="small" id="h2ChipModel">Model: --</div>
+    <div class="small" id="h2ChipPerf">CPU: -- | Cores: -- | XTAL: --</div>
+    <div class="small" id="h2ChipRadio">Features: --</div>
+    <div class="small" id="h2ChipMac">MAC: --</div>
+    <div class="small" id="h2LastSeen">Last seen: --</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row" style="margin-bottom:10px;">
+    <div>
+      <div class="k">Telnet Terminal</div>
+      <div class="small">WebSocket bridge. Nur im eigenen LAN verwenden.</div>
+    </div>
+    <div class="row">
+      <input id="tnHost" placeholder="Host (z.B. 192.168.178.20)" style="width:220px;"/>
+      <input id="tnPort" placeholder="Port" style="width:90px;" inputmode="numeric"/>
+      <button class="btn" id="tnConnect">Connect</button>
+      <button class="btn" id="tnSelf">This device</button>
+      <span class="badge" id="tnState" style="margin-left:8px;">--</span>
+      <button class="btn" id="tnDisconnect">Disconnect</button>
+      <button class="btn" id="tnClear">Clear</button>
+    </div>
+  </div>
+  <!-- Terminal area: click anywhere to focus hidden input (mobile keyboard) -->
+  <pre id="tnOut" tabindex="0" onclick="document.getElementById('tnHidIn').focus()"></pre>
+  <input id="tnHidIn" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;"
+         autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"/>
+</div>
+
+</div>
+
+<div class="card">
+  <details>
+    <summary>Raw JSON</summary>
+    <pre id="raw">{}</pre>
+  </details>
+</div>
+
+<script>
+function pad2(n){ return String(n).padStart(2,'0'); }
+function applyThemeFromStorage(){
+  const v = localStorage.getItem("theme"); // dark|light|null
+  document.body.classList.remove("dark","light");
+  if (v==="dark") document.body.classList.add("dark");
+  if (v==="light") document.body.classList.add("light");
+}
+applyThemeFromStorage();
+
+function fmtDateTime(ts){
+  if(!Number.isFinite(ts) || ts<=0) return "--";
+  const d=new Date(ts*1000);
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+function fmtUptime(ms){
+  if(!Number.isFinite(ms) || ms < 0) return "--";
+  let s = Math.floor(ms/1000);
+  const days = Math.floor(s/86400); s -= days*86400;
+  const hours = Math.floor(s/3600); s -= hours*3600;
+  const minutes = Math.floor(s/60); s -= minutes*60;
+  const seconds = s;
+  let out = "";
+  if(days > 0) out += days + "d ";
+  out += pad2(hours) + "h " + pad2(minutes) + "m " + pad2(seconds) + "s";
+  return out.trim();
+}
+
+function setDot(el, ok){
+  el.classList.remove("ok","bad");
+  if(ok===true) el.classList.add("ok");
+  else if(ok===false) el.classList.add("bad");
+}
+
+async function load(){
+  const btn=document.getElementById("refreshBtn");
+  if(btn) btn.disabled=true;
+  try{
+    const resp = await fetch("/api/debug", {cache:"no-store", credentials:"include"});
+    if(!resp.ok){ throw new Error(`HTTP ${resp.status}`); }
+    let j;
+    try{ j = await resp.json(); }
+    catch(e){ const t = await resp.text(); throw new Error("Invalid JSON: "+t.slice(0,120)); }
+
+
+    document.getElementById("updated").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+    document.getElementById("status").textContent = "Status: OK";
+    document.getElementById("raw").textContent = JSON.stringify(j, null, 2);
+
+    const epoch = Number(j.time_epoch);
+    document.getElementById("timeEpoch").textContent = Number.isFinite(epoch) ? (`Local epoch: ${epoch}`) : "Local epoch: --";
+    document.getElementById("timeHuman").textContent = `Local: ${fmtDateTime(epoch)}`;
+    document.getElementById("millis").textContent = `Uptime: ${fmtUptime(Number(j.millis) || 0)}`;
+
+    const w = j.wifi || {};
+    const wConn = (w.connected === true);
+    setDot(document.getElementById("wifiDot"), wConn);
+    document.getElementById("wifiState").textContent = wConn ? "Connected" : "Disconnected";
+    document.getElementById("wifiSsid").textContent = `SSID: ${w.ssid ?? "--"}`;
+    document.getElementById("wifiRssi").textContent = `RSSI: ${Number.isFinite(Number(w.rssi)) ? w.rssi + " dBm" : "--"}`;
+    document.getElementById("wifiIp").textContent = `IP: ${w.ip ?? "--"}`;
+
+    const h = j.heap || {};
+    // Show a richer heap breakdown when available (ESP32)
+    if (h.total_free != null) {
+      document.getElementById("heapFree").textContent = `Total free heap: ${h.total_free} Bytes`;
+      document.getElementById("heapLargest").textContent = `Largest free block: ${h.largest_free_block ?? "--"} Bytes`;
+      document.getElementById("heapInternal").textContent = `Internal RAM (DMA capable): ${h.internal_dma ?? "--"} Bytes`;
+      document.getElementById("heapPsram").textContent = `PSRAM available: ${h.psram ?? "--"} Bytes`;
+    } else {
+      // Fallback (older payload)
+      document.getElementById("heapFree").textContent = (h.free != null) ? `Total free heap: ${h.free} Bytes` : "--";
+      document.getElementById("heapLargest").textContent = `Largest free block: --`;
+      document.getElementById("heapInternal").textContent = `Internal RAM (DMA capable): --`;
+      document.getElementById("heapPsram").textContent = `PSRAM available: --`;
+    }
+
+
+    const g = j.glucose || {};
+    const tsOk = (g.ts_ok === true);
+    const state = Number(g.sensor_state);
+    const warm = (g.warmup_active === true);
+    document.getElementById("gMain").textContent = tsOk ? `${g.mgdl ?? "--"} mg/dL` : "-- (invalid)";
+    document.getElementById("gMeta").textContent =
+      `Δ ${g.delta ?? "--"} • Trend ${g.trend ?? "--"} • State ${Number.isFinite(state)?state:"--"}${warm ? " • Warmup" : ""}`;
+    document.getElementById("gLife").textContent =
+      `Life: ${g.life_days ?? "--"}d ${g.life_hours ?? "--"}h ${g.life_minutes ?? "--"}m ${g.life_seconds ?? "--"}s`;
+
+const llu = j.llu || {};
+const st = llu.status || {};
+const se = llu.sensor || {};
+const lo = llu.login || {};
+
+const tsStatus = Number(st.timestamp_status);
+// timestamp_status: 0=unknown/invalid, 1=ok (assuming your logic)
+const tsOk2 = (tsStatus === 1 || tsStatus === 2 || tsStatus === 0x01);
+setDot(document.getElementById("lluTsDot"), tsOk2);
+document.getElementById("lluTsState").textContent = tsOk2 ? "Timestamp OK" : `Timestamp status ${Number.isFinite(tsStatus)?tsStatus:"--"}`;
+document.getElementById("lluLastTs").textContent = `Last ts: ${Number(st.last_timestamp_unixtime)||0} (${fmtDateTime(Number(st.last_timestamp_unixtime)||0)})`;
+document.getElementById("lluSensorState").textContent = `Sensor state: ${Number(st.sensor_state) ?? "--"} / ${Number(se.sensor_state) ?? "--"}`;
+
+const activeId = se.sensor_id || "--";
+const activeSn = se.sensor_sn || "--";
+document.getElementById("lluActive").textContent = `Active: ${activeSn} (${activeId})`;
+const sensorTypeName = se.sensor_type_name || "Unknown";
+const sensorSnSrc    = se.sensor_type_sn_src || "--";
+document.getElementById("lluSensorType").textContent = `Type: ${sensorTypeName} (SN: ${sensorSnSrc})`;
+
+const inactId = se.sensor_id_non_active || "--";
+const inactSn = se.sensor_sn_non_active || "--";
+const inactTs = Number(se.sensor_non_activ_unixtime)||0;
+document.getElementById("lluInactive").textContent = `Inactive: ${inactSn} (${inactId}) • last try: ${inactTs?fmtDateTime(inactTs):"--"}`;
+
+const actTs = Number(se.sensor_activation_time)||0;
+const runtimeSec = Number(se.sensor_runtime)||0;
+
+let activatedStr = actTs ? fmtDateTime(actTs) : "--";
+let expiresStr = "--";
+let remainingStr = "--";
+
+if (actTs && runtimeSec) {
+  const now = Math.floor(Date.now()/1000);
+  const expires = actTs + runtimeSec;
+  expiresStr = fmtDateTime(expires);
+
+  let rem = expires - now;
+  if (rem > 0) {
+    const d = Math.floor(rem/86400); rem -= d*86400;
+    const h = Math.floor(rem/3600);  rem -= h*3600;
+    const min = Math.floor(rem/60);
+    remainingStr = `${d}d ${h}h ${min}m`;
+  } else {
+    remainingStr = "expired";
+  }
+}
+
+document.getElementById("lluActivation").textContent = `Activated: ${activatedStr}`;
+document.getElementById("lluExpires").textContent    = `Expires:   ${expiresStr}`;
+document.getElementById("lluRemaining").textContent  = `Remaining: ${remainingStr}`;
+
+// Green dot if account + user data is present (more reliable than numeric status)
+const hasUserData = !!(lo.account_id && String(lo.account_id).length && lo.user_id && String(lo.user_id).length);
+setDot(document.getElementById("lluLoginDot"), hasUserData);
+document.getElementById("lluLoginState").textContent = hasUserData ? "Logged in" : "Not logged in";
+document.getElementById("lluEmail").textContent = `Email: ${lo.email || "--"}`;
+document.getElementById("lluAccount").textContent = `Account: ${lo.account_id || "--"} • User: ${lo.user_id || "--"}`;
+document.getElementById("lluRegion").textContent = `User region: ${lo.user_country || "--"} • Connection: ${lo.connection_country || "--"} • Conn status: ${Number(lo.connection_status) ?? "--"}`;
+document.getElementById("lluToken").textContent = `Token: ${lo.token_present ? (lo.token_preview || "(present)") : "(none)"} • Password set: ${lo.password_set ? "yes" : "no"}`;
+const exp = Number(lo.user_token_expires)||0;
+document.getElementById("lluTokenExp").textContent = `Expires: ${exp?fmtDateTime(exp):"--"}`;
+
+const cfg = j.config || {};
+const brVal = (cfg.brightness ?? "--");
+const dimTout = (cfg.display_dim_timeout_s != null) ? (cfg.display_dim_timeout_s === 0 ? "disabled" : cfg.display_dim_timeout_s + " s") : "--";
+const onOff = (v)=> (Number(v) ? "ON" : "OFF");
+const cfgLines = [
+  `OTA: ${onOff(cfg.ota_update ?? 0)} | Channel: ${(cfg.ota_staging ?? 0) ? "Staging" : "Release"} | Force: ${onOff(cfg.ota_force ?? 0)}`,
+  `WG: ${onOff(cfg.wg_mode ?? 0)}`,
+  `MQTT: ${onOff(cfg.mqtt_mode ?? 0)}`,
+  `Master: ${onOff(cfg.mqtt_master_mode ?? 0)}`,
+  `Brightness: ${brVal}`,
+  `Dim timeout: ${dimTout}`
+];
+document.getElementById("cfgMain").innerHTML = cfgLines.join("<br>");
+document.getElementById("cfgMore").textContent = "";
+
+const h2 = j.h2 || {};
+const h2Fw = h2.fw_version || "--";
+const h2ChipModel = h2.chip_model || "--";
+const h2ChipRev = h2.chip_revision || "--";
+const h2ChipMac = h2.chip_mac || "--";
+const h2ChipCores = h2.chip_cores || "--";
+const h2ChipCpu = h2.chip_cpu_mhz || "--";
+const h2Features = h2.chip_features || "--";
+const h2Xtal = h2.chip_xtal_mhz || "--";
+const h2SeenAgo = Number(h2.last_seen_ms_ago || 0);
+const h2SeenTxt = h2.has_data ? (Math.round(h2SeenAgo / 1000) + " s ago") : "--";
+document.getElementById("h2Fw").textContent = `FW: ${h2Fw}`;
+document.getElementById("h2ChipModel").textContent = `Model: ${h2ChipModel} | Rev: ${h2ChipRev}`;
+document.getElementById("h2ChipPerf").textContent = `CPU: ${h2ChipCpu} MHz | Cores: ${h2ChipCores} | XTAL: ${h2Xtal} MHz`;
+document.getElementById("h2ChipRadio").textContent = `Features: ${h2Features}`;
+document.getElementById("h2ChipMac").textContent = `MAC: ${h2ChipMac}`;
+document.getElementById("h2LastSeen").textContent = `Last seen: ${h2SeenTxt} | last type: ${h2.last_type || "--"}`;
+
+  }catch(e){
+    document.getElementById("raw").textContent = "Failed to fetch /api/debug: " + (e && e.message ? e.message : e);
+    const stEl=document.getElementById("status");
+    if(stEl) stEl.textContent = "Status: FAIL (" + (e && e.message ? e.message : e) + ")";
+    document.getElementById("updated").textContent = "Updated: --";
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
+
+
+// --- Telnet terminal (WebSocket bridge) ---
+let tnWs = null;
+let tnOutText = '';   // server output accumulated here
+let tnInBuf   = '';   // current input line
+let tnCurPos  = 0;    // cursor position within tnInBuf
+let tnHistory = [];   // sent command history (newest first)
+let tnHistIdx = -1;   // -1 = not browsing history
+let tnHistSaved='';   // saved draft while browsing history
+let tnSearch  = false;// ctrl-r search mode
+let tnSrchBuf = '';   // search query
+let tnSrchHit = '';   // current match
+let tnSrchFrom= 0;    // start index in history for next ctrl-r
+
+function tnEscHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Find the next history match for tnSrchBuf starting at tnSrchFrom
+function tnDoSearch(){
+  tnSrchHit='';
+  if(!tnSrchBuf) return;
+  for(let i=tnSrchFrom;i<tnHistory.length;i++){
+    if(tnHistory[i].includes(tnSrchBuf)){ tnSrchHit=tnHistory[i]; tnSrchFrom=i+1; return; }
+  }
+}
+
+function tnRender(scroll){
+  const pre=document.getElementById('tnOut');
+  if(!pre) return;
+  const atBottom=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-4;
+  let inp;
+  if(tnSearch){
+    // show reverse-i-search prompt with highlighted match
+    const q=tnEscHtml(tnSrchBuf);
+    let m='';
+    if(tnSrchHit){
+      const idx=tnSrchHit.indexOf(tnSrchBuf);
+      m=tnEscHtml(tnSrchHit.slice(0,idx))+'<mark>'+tnEscHtml(tnSrchBuf)+'</mark>'+tnEscHtml(tnSrchHit.slice(idx+tnSrchBuf.length));
+    }
+    inp='<span style="color:var(--muted)">(reverse-i-search)`'+q+"': "+m+'</span><span class="tn-cur"></span>';
+  } else {
+    const b=tnEscHtml(tnInBuf.slice(0,tnCurPos));
+    const c=tnEscHtml(tnInBuf.slice(tnCurPos));
+    inp=b+'<span class="tn-cur">'+c+'</span>';
+  }
+  pre.innerHTML=tnEscHtml(tnOutText)+inp;
+  if(scroll||atBottom) pre.scrollTop=pre.scrollHeight;
+}
+
+function tnLog(data){
+  let s=data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
+  for(let i=0;i<s.length;i++){
+    if(s[i]==='\r'&&s[i+1]==='\n'){
+      tnOutText+='\n';i++;
+    }else if(s[i]==='\r'){
+      const nl=tnOutText.lastIndexOf('\n');
+      tnOutText=tnOutText.slice(0,nl+1);
+    }else{
+      tnOutText+=s[i];
+    }
+  }
+  if(tnOutText.length>20000) tnOutText=tnOutText.slice(-20000);
+  tnRender(true);
+}
+function tnSetState(label,mode){
+  const el=document.getElementById("tnState");
+  if(!el) return;
+  el.textContent=label||"--";
+  let bg="rgba(148,163,184,0.15)",bd="rgba(148,163,184,0.28)",fg="rgba(226,232,240,0.9)";
+  if(mode==="ok"){  bg="rgba(34,197,94,0.18)";  bd="rgba(34,197,94,0.45)"; }
+  if(mode==="warn"){bg="rgba(245,158,11,0.18)"; bd="rgba(245,158,11,0.45)";}
+  if(mode==="bad"){ bg="rgba(239,68,68,0.18)";  bd="rgba(239,68,68,0.45)"; }
+  el.style.background=bg; el.style.borderColor=bd; el.style.color=fg;
+}
+function tnStatus(msg){
+  tnLog('\n['+new Date().toLocaleTimeString()+'] '+msg+'\n');
+  const m=(msg||"").toLowerCase();
+  if(m.includes("ws connected")) tnSetState("WS connected","warn");
+  else if(m.includes("ready"))        tnSetState("Ready","off");
+  else if(m.includes("connecting"))   tnSetState("Connecting…","warn");
+  else if(m.includes("connected"))    tnSetState("Connected","ok");
+  else if(m.includes("disconnected")) tnSetState("Disconnected","off");
+  else if(m.includes("failed")||m.includes("error")||m.includes("bad")) tnSetState("Error","bad");
+}
+function tnOpen(){
+  if(tnWs&&(tnWs.readyState===0||tnWs.readyState===1)) return;
+  const proto=(location.protocol==="https:")?"wss://":"ws://";
+  tnWs=new WebSocket(proto+location.host+"/ws/telnet");
+  tnWs.onopen  =()=>{ tnStatus("WS connected"); };
+  tnWs.onclose =()=>{ tnStatus("WS closed"); tnSetState("WS closed","off"); };
+  tnWs.onerror =()=>{ tnStatus("WS error");  tnSetState("WS error","bad"); };
+  tnWs.onmessage=(ev)=>{
+    if(ev.data.charCodeAt(0)===1) tnStatus(ev.data.slice(1));
+    else tnLog(ev.data);
+  };
+}
+function tnEnsureOpen(cb){
+  tnOpen();
+  const t0=Date.now();
+  (function w(){if(!tnWs){setTimeout(w,50);return;}if(tnWs.readyState===1){cb();return;}
+    if(Date.now()-t0>3000){tnStatus("WS not open");tnSetState("WS error","bad");return;}
+    setTimeout(w,50);})();
+}
+function tnSendRaw(data){
+  tnEnsureOpen(()=>{ try{tnWs.send(JSON.stringify({cmd:"send",data}));}catch(e){tnStatus("send failed");} });
+}
+function tnCommit(line){
+  if(line){tnHistory.unshift(line);if(tnHistory.length>200)tnHistory.pop();}
+  tnInBuf=''; tnCurPos=0; tnHistIdx=-1; tnHistSaved='';
+  tnSearch=false; tnSrchBuf=''; tnSrchHit=''; tnSrchFrom=0;
+  tnRender();
+  tnSendRaw(line+"\r\n");
+}
+function tnConnect(){
+  const host=(document.getElementById("tnHost").value||"").trim();
+  const port=Number((document.getElementById("tnPort").value||"23").trim())||23;
+  localStorage.setItem("tnHost",host); localStorage.setItem("tnPort",String(port));
+  if(!host){tnStatus("Host fehlt");tnSetState("Error","bad");return;}
+  tnSetState("Connecting…","warn");
+  tnEnsureOpen(()=>{try{tnWs.send(JSON.stringify({cmd:"connect",host,port}));}catch(e){tnStatus("send failed");}});
+}
+function tnDisconnect(){
+  tnEnsureOpen(()=>{try{tnWs.send(JSON.stringify({cmd:"disconnect"}));}catch(e){tnStatus("send failed");}});
+}
+
+// Insert text at cursor
+function tnInsert(ch){
+  tnInBuf=tnInBuf.slice(0,tnCurPos)+ch+tnInBuf.slice(tnCurPos);
+  tnCurPos+=ch.length;
+}
+
+function tnInit(){
+  const hostEl=document.getElementById("tnHost");
+  const portEl=document.getElementById("tnPort");
+  const h=localStorage.getItem("tnHost")||"";
+  const p=localStorage.getItem("tnPort")||"23";
+  if(hostEl) hostEl.value=h||window.location.hostname;
+  if(portEl) portEl.value=p||"23";
+
+  document.getElementById("tnConnect")?.addEventListener("click",tnConnect);
+  document.getElementById("tnDisconnect")?.addEventListener("click",tnDisconnect);
+  document.getElementById("tnClear")?.addEventListener("click",()=>{
+    tnOutText=''; tnInBuf=''; tnCurPos=0; tnRender(true);
+  });
+  document.getElementById("tnSelf")?.addEventListener("click",()=>{
+    const h=document.getElementById("tnHost"); if(h) h.value=window.location.hostname;
+  });
+
+  const hidIn=document.getElementById("tnHidIn");
+  if(hidIn){
+    hidIn.addEventListener("keydown",(e)=>{
+      if(tnSearch){
+        // --- search mode keys ---
+        if(e.key==="Enter"||e.key==="Escape"||(e.ctrlKey&&e.key==="g")){
+          e.preventDefault();
+          tnSearch=false;
+          if(e.key==="Enter"&&tnSrchHit){ tnInBuf=tnSrchHit; tnCurPos=tnInBuf.length; }
+          tnSrchBuf=''; tnSrchHit=''; tnSrchFrom=0; tnRender();
+        } else if(e.key==="Backspace"){
+          e.preventDefault();
+          tnSrchBuf=tnSrchBuf.slice(0,-1); tnSrchFrom=0; tnDoSearch(); tnRender();
+        } else if(e.ctrlKey&&e.key==="r"){
+          e.preventDefault(); tnDoSearch(); tnRender(); // cycle to next match
+        }
+        return;
+      }
+      // --- normal mode keys ---
+      if(e.key==="Tab"){
+        e.preventDefault();
+        const buf=tnInBuf; tnInBuf=''; tnCurPos=0; tnRender();
+        tnSendRaw(buf+"\t");
+      } else if(e.key==="Enter"){
+        e.preventDefault(); tnCommit(tnInBuf);
+      } else if(e.key==="Backspace"){
+        e.preventDefault();
+        if(tnCurPos>0){tnInBuf=tnInBuf.slice(0,tnCurPos-1)+tnInBuf.slice(tnCurPos);tnCurPos--;tnRender();}
+      } else if(e.key==="Delete"){
+        e.preventDefault();
+        if(tnCurPos<tnInBuf.length){tnInBuf=tnInBuf.slice(0,tnCurPos)+tnInBuf.slice(tnCurPos+1);tnRender();}
+      } else if(e.key==="ArrowLeft"){
+        e.preventDefault(); if(tnCurPos>0){tnCurPos--;tnRender();}
+      } else if(e.key==="ArrowRight"){
+        e.preventDefault(); if(tnCurPos<tnInBuf.length){tnCurPos++;tnRender();}
+      } else if(e.key==="Home"){
+        e.preventDefault(); tnCurPos=0; tnRender();
+      } else if(e.key==="End"){
+        e.preventDefault(); tnCurPos=tnInBuf.length; tnRender();
+      } else if(e.key==="ArrowUp"){
+        e.preventDefault();
+        if(tnHistIdx===-1) tnHistSaved=tnInBuf;
+        if(tnHistIdx<tnHistory.length-1){tnHistIdx++;tnInBuf=tnHistory[tnHistIdx];tnCurPos=tnInBuf.length;tnRender();}
+      } else if(e.key==="ArrowDown"){
+        e.preventDefault();
+        if(tnHistIdx>0){tnHistIdx--;tnInBuf=tnHistory[tnHistIdx];tnCurPos=tnInBuf.length;}
+        else if(tnHistIdx===0){tnHistIdx=-1;tnInBuf=tnHistSaved;tnCurPos=tnInBuf.length;}
+        tnRender();
+      } else if(e.ctrlKey){
+        e.preventDefault();
+        switch(e.key){
+          case 'a': tnCurPos=0; tnRender(); break;
+          case 'e': tnCurPos=tnInBuf.length; tnRender(); break;
+          case 'k': tnInBuf=tnInBuf.slice(0,tnCurPos); tnRender(); break;
+          case 'u': tnInBuf=tnInBuf.slice(tnCurPos); tnCurPos=0; tnRender(); break;
+          case 'c': tnInBuf=''; tnCurPos=0; tnRender();
+            tnEnsureOpen(()=>{try{tnWs.send(JSON.stringify({cmd:"send",data:"\x03"}));}catch(e){}});
+            break;
+          case 'r': tnSearch=true; tnSrchBuf=''; tnSrchHit=''; tnSrchFrom=0; tnRender(); break;
+        }
+      }
+    });
+    // mobile: printable chars arrive via input event
+    hidIn.addEventListener("input",()=>{
+      const v=hidIn.value; hidIn.value='';
+      if(!v) return;
+      const parts=v.split(/\r?\n/);
+      if(tnSearch){
+        tnSrchBuf+=parts[0]; tnSrchFrom=0; tnDoSearch(); tnRender();
+        if(parts.length>1){ // Enter on mobile keyboard
+          tnSearch=false;
+          if(tnSrchHit){tnInBuf=tnSrchHit;tnCurPos=tnInBuf.length;}
+          tnSrchBuf='';tnSrchHit='';tnSrchFrom=0;tnRender();
+        }
+      } else {
+        tnInsert(parts[0]); tnRender();
+        if(parts.length>1) tnCommit(tnInBuf); // Enter on mobile keyboard
+      }
+    });
+    document.getElementById("tnOut")?.addEventListener("click",()=>hidIn.focus());
+  }
+
+  tnOpen();
+}
+tnInit();
+
+window.addEventListener("load", ()=>{
+  try{
+    const st=document.getElementById("status");
+    if(st) st.textContent="Status: JS ok";
+    document.getElementById("refreshBtn")?.addEventListener("click", load);
+    load();
+    setInterval(load, 5000);
+  }catch(e){
+    const st=document.getElementById("status");
+    if(st) st.textContent="Status: JS init error: "+(e && e.message ? e.message : e);
+    console.error(e);
+  }
+});
+</script>
+
+</body>
+</html>

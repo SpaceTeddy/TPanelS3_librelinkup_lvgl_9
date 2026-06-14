@@ -1,0 +1,780 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<script>
+(function(){
+  // Theme is controlled on the Dashboard. Config page only reads localStorage.
+  const v = localStorage.getItem("theme"); // "dark" | "light" | null
+  document.documentElement.classList.remove("dark","light");
+  if(v==="dark") document.documentElement.classList.add("dark");
+  if(v==="light") document.documentElement.classList.add("light");
+})();
+</script>
+
+    <title>LibreLinkup Client User Login and Settings</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+  :root{
+    --bg:#ffffff;
+    --fg:#0b0f14;
+    --muted:#6b7280;
+    --card:#ffffff;
+    --border:#e5e7eb;
+
+    --ok:#16a34a;
+    --warn:#eab308;
+    --bad:#dc2626;
+
+    --btnBg: var(--card);
+    --btnFg: var(--fg);
+  }
+  html.dark{
+    --bg:#0b0f14;
+    --fg:#e7eaf0;
+    --muted: rgba(231,234,240,.75);
+    --card:#0f1620;
+    --border:#1e2a3a;
+    --btnBg: var(--card);
+    --btnFg: var(--fg);
+  }
+  @media (prefers-color-scheme: dark){
+    html:not(.light){
+      --bg:#0b0f14;
+      --fg:#e7eaf0;
+      --muted: rgba(231,234,240,.75);
+      --card:#0f1620;
+      --border:#1e2a3a;
+      --btnBg: var(--card);
+      --btnFg: var(--fg);
+    }
+  }
+
+  body{
+    margin:0;
+    padding:18px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--fg);
+  }
+
+  /* Old layout uses .container blocks */
+  .container{
+    max-width: 780px;
+    margin: 0 auto 14px auto;
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    box-shadow: none;
+  }
+
+  h1,h2{
+    margin: 0 0 12px 0;
+    letter-spacing: -0.2px;
+  }
+  p, label{
+    color: var(--muted);
+  }
+
+  input, select, textarea{
+    width:100%;
+    box-sizing:border-box;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--fg);
+    outline: none;
+  }
+
+  button, .btn, a.button, input[type="submit"]{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding:10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--btnBg);
+    color: var(--btnFg);
+    cursor:pointer;
+    text-decoration:none;
+  }
+
+  button:disabled{ opacity:0.5; cursor:not-allowed; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .spinner{
+    display:inline-block; width:11px; height:11px;
+    border:2px solid currentColor; border-top-color:transparent;
+    border-radius:50%; animation:spin 0.7s linear infinite;
+    vertical-align:middle;
+  }
+
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .pill{
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    color:var(--muted);
+    font-size:13px;
+  }
+
+  /* Slider */
+  input[type="range"]{ width: 100%; }
+
+  /* Remove Config-page appearance toggle (theme is controlled on dashboard only) */
+  #darkModeToggle{ display:none !important; }
+  label[for="darkModeToggle"]{ display:none !important; }
+
+  /* Make links look like dashboard buttons */
+  a{ color: inherit; }
+
+
+  /* iPhone-like switches (restore original UX) */
+  .switch-container{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    margin: 10px 0;
+  }
+  .switch-label{
+    color: var(--fg);
+    font-weight: 400;
+  }
+  .switch{
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    flex: 0 0 auto;
+  }
+  .switch input{
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .slider{
+    position:absolute;
+    cursor:pointer;
+    top:0; left:0; right:0; bottom:0;
+    background: var(--used, #c8ced8);
+    transition: .2s;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+  }
+  .slider:before{
+    position:absolute;
+    content:"";
+    height:14px; width:14px;
+    left:3px; top:50%;
+    transform: translateY(-50%);
+    background: var(--card);
+    transition: .2s;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+  }
+  input:checked + .slider{
+    background: var(--ok);
+    border-color: rgba(0,0,0,0);
+  }
+  input:checked + .slider:before{
+    transform: translate(16px,-50%);
+    border-color: rgba(0,0,0,0);
+  }
+
+
+  .topbar{
+    max-width: 780px;
+    margin: 0 auto 14px auto;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+  }
+  .topbar h1{
+    margin:0;
+    font-size: 22px;
+    letter-spacing:-0.2px;
+  }
+</style>
+</head>
+<body id="body">
+<div class="topbar">
+  <h1>Config</h1>
+  <a class="btn" href="/">Dashboard</a>
+</div>
+
+<div class="container">
+    <h2>LibreLinkup User Login</h2>
+    <form action="/login" method="post">
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username">
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password">
+        <input type="submit" value="Login">
+    </form>
+</div>
+
+<div class="container">
+    <h2>WiFi Networks</h2>
+    <p>Up to 5 networks. The device tries all of them on connect.</p>
+
+    <div id="wifiNetworksList" style="margin-bottom:12px;"></div>
+
+    <div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px;">
+        <label style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;">Add network</label>
+        <div class="row" style="margin-top:8px;margin-bottom:8px;">
+            <input type="text" id="wifiAddSsid" placeholder="SSID" style="flex:1;">
+            <button type="button" onclick="scanWifiForAdd()">Scan</button>
+            <select id="wifiScanSelect" style="flex:1;" onchange="document.getElementById('wifiAddSsid').value=this.value"></select>
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+            <input type="password" id="wifiAddPassword" placeholder="Password (leave empty for open networks)" style="flex:1;">
+        </div>
+        <button type="button" onclick="addManualNetwork()">+ Add</button>
+    </div>
+    <div class="row">
+        <button type="button" id="btnSaveWifi" onclick="saveWifiNetworks()">Save &amp; Reboot</button>
+        <span id="wifiSaveStatus" class="pill"></span>
+    </div>
+</div>
+
+<div class="container">
+    <h2>Brightness</h2>
+    <div class="brightness-container">
+        <div class="brightness-label">Brightness: <span id="brightnessValue">50</span></div>
+        <input type="range" id="brightnessSlider" min="0" max="255" value="50" oninput="updateBrightness(this.value)">
+    </div>
+</div>
+
+<div class="container">
+    <h2>Firmware Update</h2>
+    <div class="switch-container">
+        <span class="switch-label">OTA Update</span>
+        <label class="switch">
+            <input type="checkbox" id="otaToggle" onchange="toggleFeature('ota_update', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <div class="switch-container">
+        <span class="switch-label">OTA Staging Channel <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enabled: checks staging manifest; disabled: checks release manifest)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="otaStagingToggle" onchange="toggleFeature('ota_staging', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <div class="switch-container">
+        <span class="switch-label">Force update / allow downgrade <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enabled: installs manifest version regardless of version direction)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="otaForceToggle" onchange="toggleFeature('ota_force', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <p class="hint">Checks GitHub manifest for a newer firmware and installs it after confirmation.</p>
+    <div class="row" style="margin-bottom:10px;">
+        <button type="button" id="btnCheck" onclick="checkFirmwareUpdate()">Check now</button>
+        <button type="button" id="btnInstall" onclick="installFirmwareUpdate()">Install update</button>
+    </div>
+    <div class="pill">Current: <span id="fwCurrent">--</span></div>
+    <div class="pill">Latest: <span id="fwLatest">--</span></div>
+    <div class="pill">Available: <span id="fwAvailable">--</span></div>
+    <div class="pill">Status: <span id="fwStatus">--</span></div>
+    <div class="pill">Error: <span id="fwError">--</span></div>
+</div>
+
+<div class="container">
+    <h2>WireGuard Configuration</h2>
+    <div class="switch-container">
+        <span class="switch-label">WireGuard</span>
+        <label class="switch">
+            <input type="checkbox" id="wireguardToggle" onchange="toggleFeature('wg_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <form id="wireguardForm">
+        <label for="wgPrivateKey">Private Key:</label>
+        <input type="text" id="wgPrivateKey" name="wgPrivateKey">
+
+        <label for="wgPublicKey">Public Key:</label>
+        <input type="text" id="wgPublicKey" name="wgPublicKey">
+
+        <label for="wgPresharedKey">Preshared Key:</label>
+        <input type="text" id="wgPresharedKey" name="wgPresharedKey">
+
+        <label for="wgIpAddress">IP Address:</label>
+        <input type="text" id="wgIpAddress" name="wgIpAddress">
+
+        <label for="wgEndpoint">Endpoint:</label>
+        <input type="text" id="wgEndpoint" name="wgEndpoint">
+
+        <label for="wgEndpointPort">Endpoint Port:</label>
+        <input type="number" id="wgEndpointPort" name="wgEndpointPort" min="1" max="65535">
+
+        <label for="wgAllowedIPs">Allowed IPs:</label>
+        <input type="text" id="wgAllowedIPs" name="wgAllowedIPs">
+
+        <button type="button" onclick="configureWireGuard()">Save WireGuard Config</button>
+    </form>
+</div>
+
+<div class="container">
+    <h2>MQTT Configuration</h2>
+    <div class="switch-container">
+        <span class="switch-label">MQTT <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enable general MQTT functionality)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="mqttToggle" onchange="toggleFeature('mqtt_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <div class="switch-container">
+        <span class="switch-label">MQTT Master Mode <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enabled: ESP32 fetches LibreLinkUp data and publishes to MQTT; disabled: LLU data is provided by external source)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="mqttMasterToggle" onchange="toggleFeature('mqtt_master_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <div class="switch-container">
+        <span class="switch-label">Home Assistant Discovery <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(ESP32 device is announced to Home Assistant via MQTT Auto-Discovery)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="haDiscoveryToggle" onchange="toggleFeature('ha_discovery', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <form id="mqttForm">
+        <label for="mqttServer">Server Address:</label>
+        <input type="text" id="mqttServer" name="mqttServer">
+
+        <label for="mqttPort">Port:</label>
+        <input type="number" id="mqttPort" name="mqttPort" min="1" max="65535">
+
+        <label for="mqttUsername">Username:</label>
+        <input type="text" id="mqttUsername" name="mqttUsername">
+
+        <label for="mqttPassword">Password:</label>
+        <input type="password" id="mqttPassword" name="mqttPassword">
+
+        <button type="button" onclick="configureMQTT()">Save MQTT Config</button>
+    </form>
+</div>
+
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', (event) => {
+        fetch('/status')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('otaToggle').checked = data.ota_update === 1;
+                if (document.getElementById('otaStagingToggle')) document.getElementById('otaStagingToggle').checked = data.ota_staging === 1;
+                if (document.getElementById('otaForceToggle')) document.getElementById('otaForceToggle').checked = data.ota_force === 1;
+                document.getElementById('wireguardToggle').checked = data.wg_mode === 1;
+                document.getElementById('mqttToggle').checked = data.mqtt_mode === 1;
+                if (document.getElementById('mqttMasterToggle')) document.getElementById('mqttMasterToggle').checked = data.mqtt_master_mode === 1;
+                document.getElementById('brightnessSlider').value = data.brightness;
+                document.getElementById('brightnessValue').textContent = data.brightness;
+            })
+            .catch(error => console.error('Error loading status:', error));
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        refreshFirmwareUpdateStatus();
+        setInterval(refreshFirmwareUpdateStatus, 15000);
+    });
+
+    // --- SSID manual override: if wifiSsidManual is not empty, submit that as "networks" ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('wifiConnectForm');
+        const manual = document.getElementById('wifiSsidManual');
+        const select = document.getElementById('networks');
+
+        if (!form || !manual || !select) return;
+
+        form.addEventListener('submit', () => {
+            const overrideSsid = (manual.value || '').trim();
+            if (overrideSsid.length > 0) {
+                // Ensure the posted field "networks" becomes the manual SSID
+                let found = false;
+                for (let i = 0; i < select.options.length; i++) {
+                    if (select.options[i].value === overrideSsid) {
+                        found = true;
+                        select.selectedIndex = i;
+                        break;
+                    }
+                }
+                if (!found) {
+                    const opt = document.createElement('option');
+                    opt.value = overrideSsid;
+                    opt.textContent = `${overrideSsid} (manual)`;
+                    select.appendChild(opt);
+                    select.value = overrideSsid;
+                }
+            }
+        });
+
+        // Optional UX: if user selects dropdown, clear manual override
+        select.addEventListener('change', () => {
+            manual.value = '';
+        });
+    });
+
+    function toggleDarkMode(isEnabled) {
+        document.getElementById('body').classList.toggle('dark-mode', isEnabled);
+    }
+
+    // ---- Multi-WiFi management ----
+    let wifiNetworks = []; // [{ssid, password}]
+
+    function renderWifiList() {
+        const container = document.getElementById('wifiNetworksList');
+        if (!container) return;
+        if (wifiNetworks.length === 0) {
+            container.innerHTML = '<p style="color:var(--muted);font-size:13px;">No networks saved yet.</p>';
+            return;
+        }
+        container.innerHTML = wifiNetworks.map((n, i) =>
+            `<div class="row" style="margin-bottom:6px;">
+               <span style="flex:1;">${escHtml(n.ssid)}</span>
+               <span style="color:var(--muted);font-size:13px;flex:1;">${n.password.length > 0 ? '********' : '(open)'}</span>
+               <button type="button" onclick="removeNetwork(${i})">Remove</button>
+             </div>`
+        ).join('');
+    }
+
+    function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function removeNetwork(i) {
+        wifiNetworks.splice(i, 1);
+        renderWifiList();
+    }
+
+    function addNetwork(ssid, password) {
+        ssid = (ssid || '').trim();
+        if (!ssid) { alert('SSID darf nicht leer sein.'); return; }
+        if (wifiNetworks.length >= 5) { alert('Maximal 5 Netzwerke möglich.'); return; }
+        if (wifiNetworks.find(n => n.ssid === ssid)) { alert('Dieses Netzwerk ist bereits in der Liste.'); return; }
+        wifiNetworks.push({ ssid, password: password || '' });
+        renderWifiList();
+    }
+
+    function addManualNetwork() {
+        const ssid = (document.getElementById('wifiAddSsid').value || '').trim();
+        const pw   = document.getElementById('wifiAddPassword').value || '';
+        addNetwork(ssid, pw);
+        document.getElementById('wifiAddSsid').value = '';
+        document.getElementById('wifiAddPassword').value = '';
+    }
+
+    function addScannedNetwork() {
+        const sel = document.getElementById('wifiScanSelect');
+        if (!sel || !sel.value) { alert('Bitte zuerst scannen und ein Netzwerk auswählen.'); return; }
+        const pw = document.getElementById('wifiAddPassword').value || '';
+        addNetwork(sel.value, pw);
+        document.getElementById('wifiAddPassword').value = '';
+    }
+
+    async function scanWifiForAdd() {
+        const sel = document.getElementById('wifiScanSelect');
+        if (!sel) return;
+        sel.innerHTML = '<option>Scanning...</option>';
+        for (let attempt = 0; attempt < 12; attempt++) {
+            try {
+                const data = await fetch('/scan', {cache:'no-store'}).then(r => r.json());
+                if (data.scanning) {
+                    await new Promise(r => setTimeout(r, 1500));
+                    continue;
+                }
+                sel.innerHTML = '';
+                if (!data.length) { sel.innerHTML = '<option>No networks found</option>'; return; }
+                data.forEach(n => {
+                    const opt = document.createElement('option');
+                    opt.value = n.ssid;
+                    opt.textContent = n.ssid + ' (' + n.rssi + ' dBm)';
+                    sel.appendChild(opt);
+                });
+                // Pre-fill SSID field with first result so Add works without manual change
+                const ssidField = document.getElementById('wifiAddSsid');
+                if (ssidField && data.length) ssidField.value = data[0].ssid;
+                return;
+            } catch(e) {
+                sel.innerHTML = '<option>Scan failed</option>';
+                return;
+            }
+        }
+        sel.innerHTML = '<option>Scan timeout</option>';
+    }
+
+    async function saveWifiNetworks() {
+        const btn = document.getElementById('btnSaveWifi');
+        const status = document.getElementById('wifiSaveStatus');
+        if (btn) btn.disabled = true;
+        if (status) status.textContent = 'Saving...';
+        try {
+            const r = await fetch('/configureWiFiNetworks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ networks: wifiNetworks })
+            });
+            const data = await r.json();
+            if (r.ok) {
+                if (status) status.textContent = 'Saved ' + data.count + ' network(s). Rebooting...';
+            } else {
+                if (status) status.textContent = 'Error: ' + (data.error || r.status);
+            }
+        } catch(e) {
+            if (status) status.textContent = 'Request failed.';
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    function scanWifi() { scanWifiForAdd(); } // legacy alias
+
+    function toggleFeature(feature, isEnabled) {
+        fetch(`/toggle?feature=${feature}&status=${isEnabled ? 1 : 0}`, { method: 'POST' })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => console.log(`Feature ${feature} set to: ${data.status}`))
+            .catch(error => console.error('Error toggling feature:', error));
+    }
+
+    function updateBrightness(value) {
+        document.getElementById('brightnessValue').textContent = value;
+        fetch(`/setBrightness?value=${value}`, { method: 'POST' })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => console.log(`Brightness set to: ${data.brightness}`))
+            .catch(error => console.error('Error setting brightness:', error));
+    }
+
+    const FW_SPINNER = '<span class="spinner"></span> ';
+
+    function setFwBtnsDisabled(disabled) {
+        ['btnCheck','btnInstall'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+        });
+    }
+
+    function setFwBtnLabel(id, html) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = html;
+    }
+
+    function renderFwStatus(data) {
+        const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = (value === undefined || value === null || value === "") ? "--" : String(value);
+        };
+        setText("fwCurrent", data.current_version);
+        setText("fwLatest", data.latest_version);
+        setText("fwAvailable", data.update_available ? "yes" : "no");
+        setText("fwStatus", data.status);
+        setText("fwError", data.last_error);
+
+    }
+
+    async function pollFwStatus(whileStatus, intervalMs, maxMs) {
+        const deadline = Date.now() + maxMs;
+        while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, intervalMs));
+            try {
+                const r = await fetch('/api/fw/status', {cache:'no-store'});
+                if (!r.ok) break;
+                const data = await r.json();
+                renderFwStatus(data);
+                if (data.status !== whileStatus) break;
+            } catch(e) { break; }
+        }
+    }
+
+    async function refreshFirmwareUpdateStatus() {
+        try {
+            const r = await fetch('/api/fw/status', {cache: 'no-store'});
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            renderFwStatus(await r.json());
+        } catch (e) {
+            console.error('Error loading firmware status:', e);
+        }
+    }
+
+    async function checkFirmwareUpdate() {
+        setFwBtnsDisabled(true);
+        setFwBtnLabel('btnCheck', FW_SPINNER + 'Checking...');
+        try {
+            const r = await fetch('/api/fw/check', {method: 'POST'});
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            await pollFwStatus('checking', 1000, 30000);
+        } catch (e) {
+            console.error('Error requesting firmware check:', e);
+            alert('Firmware check request failed.');
+        } finally {
+            setFwBtnsDisabled(false);
+            setFwBtnLabel('btnCheck', 'Check now');
+        }
+    }
+
+    async function installFirmwareUpdate() {
+        if (!confirm('Install available firmware update now? Device will reboot on success.')) return;
+        setFwBtnsDisabled(true);
+        setFwBtnLabel('btnInstall', FW_SPINNER + 'Installing...');
+        try {
+            const r = await fetch('/api/fw/install', {method: 'POST'});
+            const body = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(body.message || `HTTP ${r.status}`);
+            await pollFwStatus('installing', 2000, 120000);
+        } catch (e) {
+            console.error('Error requesting firmware install:', e);
+            alert(`Firmware install request failed: ${e.message || e}`);
+        } finally {
+            setFwBtnsDisabled(false);
+            setFwBtnLabel('btnInstall', 'Install update');
+        }
+    }
+
+    function configureWireGuard() {
+        const privateKey = document.getElementById('wgPrivateKey').value;
+        const publicKey = document.getElementById('wgPublicKey').value;
+        const presharedKey = document.getElementById('wgPresharedKey').value;
+        const ipAddress = document.getElementById('wgIpAddress').value;
+        const endpoint = document.getElementById('wgEndpoint').value;
+        const endpointPort = document.getElementById('wgEndpointPort').value;
+        const allowedIPs = document.getElementById('wgAllowedIPs').value;
+
+        const formData = new URLSearchParams();
+        formData.append("privateKey", privateKey);
+        formData.append("publicKey", publicKey);
+        formData.append("presharedKey", presharedKey);
+        formData.append("ipAddress", ipAddress);
+        formData.append("endpoint", endpoint);
+        formData.append("endpointPort", endpointPort);
+        formData.append("allowedIPs", allowedIPs);
+
+        fetch('/configureWireGuard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData.toString()
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            console.log('WireGuard configuration saved:', data);
+            alert('WireGuard configuration saved successfully.');
+        })
+        .catch(error => console.error('Error saving WireGuard configuration:', error));
+    }
+
+    function configureMQTT() {
+        const server = document.getElementById('mqttServer').value;
+        const port = document.getElementById('mqttPort').value;
+        const username = document.getElementById('mqttUsername').value;
+        const password = document.getElementById('mqttPassword').value;
+
+        const formData = new URLSearchParams();
+        formData.append("server", server);
+        formData.append("port", port);
+        formData.append("username", username);
+        formData.append("password", password);
+
+        fetch('/configureMQTT', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData.toString()
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            console.log('MQTT configuration saved:', data);
+            alert('MQTT configuration saved successfully.');
+        })
+        .catch(error => console.error('Error saving MQTT configuration:', error));
+    }
+</script>
+
+<script>
+(function(){
+  function setVal(id, v){
+    const el = document.getElementById(id);
+    if(!el) return;
+    if(v === undefined || v === null) return;
+    // Don't overwrite password fields with empty strings
+    if(el.type === "password" && String(v).length === 0) return;
+    el.value = String(v);
+  }
+  function setCheck(id, v){
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.checked = (Number(v) === 1 || v === true);
+  }
+
+  async function prefill(){
+    try{
+      const r = await fetch("/api/config", {cache:"no-store"});
+      if(!r.ok) return;
+      const cfg = await r.json();
+
+      // LLU login
+      setVal("username", cfg.login_email);
+      setVal("password", cfg.login_password);
+
+      // Multi-WiFi: populate from wifi_networks array (or migrate legacy)
+      if (Array.isArray(cfg.wifi_networks) && cfg.wifi_networks.length > 0) {
+        wifiNetworks = cfg.wifi_networks.map(n => ({ ssid: n.ssid || '', password: n.password || '' }));
+      } else if (cfg.wifi_bssid) {
+        wifiNetworks = [{ ssid: cfg.wifi_bssid, password: cfg.wifi_password || '' }];
+      }
+      renderWifiList();
+
+      // MQTT
+      setVal("mqttServer", cfg.mqttServer);
+      setVal("mqttPort", cfg.mqttPort);
+      setVal("mqttUsername", cfg.mqttUsername);
+      setVal("mqttPassword", cfg.mqttPassword);
+
+      // WireGuard
+      setVal("wgPrivateKey", cfg.wgPrivateKey);
+      setVal("wgPublicKey", cfg.wgPublicKey);
+      setVal("wgPresharedKey", cfg.wgPresharedKey);
+      setVal("wgIpAddress", cfg.wgIpAddress);
+      setVal("wgEndpoint", cfg.wgEndpoint);
+      setVal("wgEndpointPort", cfg.wgEndpointPort);
+      setVal("wgAllowedIPs", cfg.wgAllowedIPs);
+
+      // Toggles + brightness (existing /status logic may also update these)
+      setCheck("otaToggle", cfg.ota_update);
+      setCheck("otaStagingToggle", cfg.ota_staging);
+      setCheck("otaForceToggle", cfg.ota_force);
+      setCheck("wireguardToggle", cfg.wg_mode);
+      setCheck("mqttToggle", cfg.mqtt_mode);
+      setCheck("mqttMasterToggle", cfg.mqtt_master_mode);
+      setCheck("haDiscoveryToggle", cfg.ha_discovery !== undefined ? cfg.ha_discovery : 1);
+
+      const bs = document.getElementById("brightnessSlider");
+      const bv = document.getElementById("brightnessValue");
+      if(bs && (cfg.brightness !== undefined && cfg.brightness !== null)){
+        bs.value = String(cfg.brightness);
+        if(bv) bv.textContent = String(cfg.brightness);
+      }
+    }catch(e){}
+  }
+
+  document.addEventListener("DOMContentLoaded", () => { prefill(); renderWifiList(); });
+})();
+</script>
+
+</body>
+</html>
