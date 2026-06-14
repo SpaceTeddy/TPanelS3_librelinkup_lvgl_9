@@ -1256,33 +1256,67 @@ document.getElementById("h2LastSeen").textContent = `Last seen: ${h2SeenTxt} | l
 // --- Telnet terminal (WebSocket bridge) ---
 let tnWs = null;
 let tnOutText = '';   // server output accumulated here
-let tnInBuf  = '';   // what the user is currently typing
+let tnInBuf   = '';   // current input line
+let tnCurPos  = 0;    // cursor position within tnInBuf
+let tnHistory = [];   // sent command history (newest first)
+let tnHistIdx = -1;   // -1 = not browsing history
+let tnHistSaved='';   // saved draft while browsing history
+let tnSearch  = false;// ctrl-r search mode
+let tnSrchBuf = '';   // search query
+let tnSrchHit = '';   // current match
+let tnSrchFrom= 0;    // start index in history for next ctrl-r
 
 function tnEscHtml(s){
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
-function tnRender(scroll){
-  const pre = document.getElementById('tnOut');
-  if(!pre) return;
-  const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
-  pre.innerHTML = tnEscHtml(tnOutText) + '<span class="tn-cur">' + tnEscHtml(tnInBuf) + '</span>';
-  if(scroll || atBottom) pre.scrollTop = pre.scrollHeight;
+
+// Find the next history match for tnSrchBuf starting at tnSrchFrom
+function tnDoSearch(){
+  tnSrchHit='';
+  if(!tnSrchBuf) return;
+  for(let i=tnSrchFrom;i<tnHistory.length;i++){
+    if(tnHistory[i].includes(tnSrchBuf)){ tnSrchHit=tnHistory[i]; tnSrchFrom=i+1; return; }
+  }
 }
+
+function tnRender(scroll){
+  const pre=document.getElementById('tnOut');
+  if(!pre) return;
+  const atBottom=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-4;
+  let inp;
+  if(tnSearch){
+    // show reverse-i-search prompt with highlighted match
+    const q=tnEscHtml(tnSrchBuf);
+    let m='';
+    if(tnSrchHit){
+      const idx=tnSrchHit.indexOf(tnSrchBuf);
+      m=tnEscHtml(tnSrchHit.slice(0,idx))+'<mark>'+tnEscHtml(tnSrchBuf)+'</mark>'+tnEscHtml(tnSrchHit.slice(idx+tnSrchBuf.length));
+    }
+    inp='<span style="color:var(--muted)">(reverse-i-search)`'+q+"': "+m+'</span><span class="tn-cur"></span>';
+  } else {
+    const b=tnEscHtml(tnInBuf.slice(0,tnCurPos));
+    const c=tnEscHtml(tnInBuf.slice(tnCurPos));
+    inp=b+'<span class="tn-cur">'+c+'</span>';
+  }
+  pre.innerHTML=tnEscHtml(tnOutText)+inp;
+  if(scroll||atBottom) pre.scrollTop=pre.scrollHeight;
+}
+
 function tnLog(data){
-  let s = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
-  s = s.replace(/\r\n/g,'\n').replace(/\r/g,'');
-  tnOutText += s;
-  if(tnOutText.length > 20000) tnOutText = tnOutText.slice(-20000);
+  let s=data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
+  s=s.replace(/\r\n/g,'\n').replace(/\r/g,'');
+  tnOutText+=s;
+  if(tnOutText.length>20000) tnOutText=tnOutText.slice(-20000);
   tnRender(true);
 }
-function tnSetState(label, mode){
+function tnSetState(label,mode){
   const el=document.getElementById("tnState");
   if(!el) return;
-  el.textContent = label || "--";
-  let bg="rgba(148,163,184,0.15)", bd="rgba(148,163,184,0.28)", fg="rgba(226,232,240,0.9)";
-  if(mode==="ok"){ bg="rgba(34,197,94,0.18)"; bd="rgba(34,197,94,0.45)"; }
-  if(mode==="warn"){ bg="rgba(245,158,11,0.18)"; bd="rgba(245,158,11,0.45)"; }
-  if(mode==="bad"){ bg="rgba(239,68,68,0.18)"; bd="rgba(239,68,68,0.45)"; }
+  el.textContent=label||"--";
+  let bg="rgba(148,163,184,0.15)",bd="rgba(148,163,184,0.28)",fg="rgba(226,232,240,0.9)";
+  if(mode==="ok"){  bg="rgba(34,197,94,0.18)";  bd="rgba(34,197,94,0.45)"; }
+  if(mode==="warn"){bg="rgba(245,158,11,0.18)"; bd="rgba(245,158,11,0.45)";}
+  if(mode==="bad"){ bg="rgba(239,68,68,0.18)";  bd="rgba(239,68,68,0.45)"; }
   el.style.background=bg; el.style.borderColor=bd; el.style.color=fg;
 }
 function tnStatus(msg){
@@ -1296,13 +1330,13 @@ function tnStatus(msg){
   else if(m.includes("failed")||m.includes("error")||m.includes("bad")) tnSetState("Error","bad");
 }
 function tnOpen(){
-  if(tnWs && (tnWs.readyState===0||tnWs.readyState===1)) return;
+  if(tnWs&&(tnWs.readyState===0||tnWs.readyState===1)) return;
   const proto=(location.protocol==="https:")?"wss://":"ws://";
-  tnWs = new WebSocket(proto+location.host+"/ws/telnet");
-  tnWs.onopen  = ()=>{ tnStatus("WS connected"); };
-  tnWs.onclose = ()=>{ tnStatus("WS closed");  tnSetState("WS closed","off"); };
-  tnWs.onerror = ()=>{ tnStatus("WS error");   tnSetState("WS error","bad"); };
-  tnWs.onmessage = (ev)=>{
+  tnWs=new WebSocket(proto+location.host+"/ws/telnet");
+  tnWs.onopen  =()=>{ tnStatus("WS connected"); };
+  tnWs.onclose =()=>{ tnStatus("WS closed"); tnSetState("WS closed","off"); };
+  tnWs.onerror =()=>{ tnStatus("WS error");  tnSetState("WS error","bad"); };
+  tnWs.onmessage=(ev)=>{
     if(ev.data.charCodeAt(0)===1) tnStatus(ev.data.slice(1));
     else tnLog(ev.data);
   };
@@ -1310,77 +1344,132 @@ function tnOpen(){
 function tnEnsureOpen(cb){
   tnOpen();
   const t0=Date.now();
-  (function w(){ if(!tnWs){setTimeout(w,50);return;} if(tnWs.readyState===1){cb();return;}
+  (function w(){if(!tnWs){setTimeout(w,50);return;}if(tnWs.readyState===1){cb();return;}
     if(Date.now()-t0>3000){tnStatus("WS not open");tnSetState("WS error","bad");return;}
-    setTimeout(w,50); })();
+    setTimeout(w,50);})();
 }
-function tnSendLine(line){
-  tnEnsureOpen(()=>{
-    try{ tnWs.send(JSON.stringify({cmd:"send",data:line+"\r\n"})); }
-    catch(e){ tnStatus("send failed"); }
-  });
+function tnSendRaw(data){
+  tnEnsureOpen(()=>{ try{tnWs.send(JSON.stringify({cmd:"send",data}));}catch(e){tnStatus("send failed");} });
+}
+function tnCommit(line){
+  if(line){tnHistory.unshift(line);if(tnHistory.length>200)tnHistory.pop();}
+  tnInBuf=''; tnCurPos=0; tnHistIdx=-1; tnHistSaved='';
+  tnSearch=false; tnSrchBuf=''; tnSrchHit=''; tnSrchFrom=0;
+  tnRender();
+  tnSendRaw(line+"\r\n");
 }
 function tnConnect(){
   const host=(document.getElementById("tnHost").value||"").trim();
   const port=Number((document.getElementById("tnPort").value||"23").trim())||23;
   localStorage.setItem("tnHost",host); localStorage.setItem("tnPort",String(port));
-  if(!host){ tnStatus("Host fehlt"); tnSetState("Error","bad"); return; }
+  if(!host){tnStatus("Host fehlt");tnSetState("Error","bad");return;}
   tnSetState("Connecting…","warn");
-  tnEnsureOpen(()=>{ try{ tnWs.send(JSON.stringify({cmd:"connect",host,port})); }
-    catch(e){ tnStatus("send failed"); } });
+  tnEnsureOpen(()=>{try{tnWs.send(JSON.stringify({cmd:"connect",host,port}));}catch(e){tnStatus("send failed");}});
 }
 function tnDisconnect(){
-  tnEnsureOpen(()=>{ try{ tnWs.send(JSON.stringify({cmd:"disconnect"})); }
-    catch(e){ tnStatus("send failed"); } });
+  tnEnsureOpen(()=>{try{tnWs.send(JSON.stringify({cmd:"disconnect"}));}catch(e){tnStatus("send failed");}});
 }
+
+// Insert text at cursor
+function tnInsert(ch){
+  tnInBuf=tnInBuf.slice(0,tnCurPos)+ch+tnInBuf.slice(tnCurPos);
+  tnCurPos+=ch.length;
+}
+
 function tnInit(){
   const hostEl=document.getElementById("tnHost");
   const portEl=document.getElementById("tnPort");
   const h=localStorage.getItem("tnHost")||"";
   const p=localStorage.getItem("tnPort")||"23";
-  if(hostEl) hostEl.value = h||window.location.hostname;
-  if(portEl) portEl.value = p||"23";
+  if(hostEl) hostEl.value=h||window.location.hostname;
+  if(portEl) portEl.value=p||"23";
 
-  document.getElementById("tnConnect")?.addEventListener("click", tnConnect);
-  document.getElementById("tnDisconnect")?.addEventListener("click", tnDisconnect);
-  document.getElementById("tnClear")?.addEventListener("click", ()=>{
-    tnOutText=''; tnInBuf=''; tnRender(true);
+  document.getElementById("tnConnect")?.addEventListener("click",tnConnect);
+  document.getElementById("tnDisconnect")?.addEventListener("click",tnDisconnect);
+  document.getElementById("tnClear")?.addEventListener("click",()=>{
+    tnOutText=''; tnInBuf=''; tnCurPos=0; tnRender(true);
   });
-
-  // Inline keyboard input — hidden <input> captures keys (needed for mobile)
-  const hidIn = document.getElementById("tnHidIn");
-  if(hidIn){
-    hidIn.addEventListener("keydown",(e)=>{
-      if(e.key==="Enter"){
-        e.preventDefault();
-        const line=tnInBuf; tnInBuf=''; tnRender();
-        tnSendLine(line);
-      } else if(e.key==="Backspace"){
-        e.preventDefault();
-        tnInBuf=tnInBuf.slice(0,-1); tnRender();
-      } else if(e.ctrlKey && e.key==="c"){
-        e.preventDefault();
-        tnInBuf=''; tnRender();
-        tnEnsureOpen(()=>{ try{ tnWs.send(JSON.stringify({cmd:"send",data:"\x03"})); }catch(e){} });
-      }
-    });
-    // 'input' event is more reliable on mobile for printable chars
-    hidIn.addEventListener("input",()=>{
-      const v=hidIn.value; hidIn.value='';
-      if(!v) return;
-      // split on newline in case mobile keyboard sends Enter via input
-      const parts=v.split(/\r?\n/);
-      tnInBuf+=parts[0];
-      if(parts.length>1){ const line=tnInBuf; tnInBuf=''; tnRender(); tnSendLine(line); }
-      else tnRender();
-    });
-    // Focus hidden input on click/tap anywhere in the pre
-    document.getElementById("tnOut")?.addEventListener("click",()=>hidIn.focus());
-  }
-
   document.getElementById("tnSelf")?.addEventListener("click",()=>{
     const h=document.getElementById("tnHost"); if(h) h.value=window.location.hostname;
   });
+
+  const hidIn=document.getElementById("tnHidIn");
+  if(hidIn){
+    hidIn.addEventListener("keydown",(e)=>{
+      if(tnSearch){
+        // --- search mode keys ---
+        if(e.key==="Enter"||e.key==="Escape"||(e.ctrlKey&&e.key==="g")){
+          e.preventDefault();
+          tnSearch=false;
+          if(e.key==="Enter"&&tnSrchHit){ tnInBuf=tnSrchHit; tnCurPos=tnInBuf.length; }
+          tnSrchBuf=''; tnSrchHit=''; tnSrchFrom=0; tnRender();
+        } else if(e.key==="Backspace"){
+          e.preventDefault();
+          tnSrchBuf=tnSrchBuf.slice(0,-1); tnSrchFrom=0; tnDoSearch(); tnRender();
+        } else if(e.ctrlKey&&e.key==="r"){
+          e.preventDefault(); tnDoSearch(); tnRender(); // cycle to next match
+        }
+        return;
+      }
+      // --- normal mode keys ---
+      if(e.key==="Enter"){
+        e.preventDefault(); tnCommit(tnInBuf);
+      } else if(e.key==="Backspace"){
+        e.preventDefault();
+        if(tnCurPos>0){tnInBuf=tnInBuf.slice(0,tnCurPos-1)+tnInBuf.slice(tnCurPos);tnCurPos--;tnRender();}
+      } else if(e.key==="Delete"){
+        e.preventDefault();
+        if(tnCurPos<tnInBuf.length){tnInBuf=tnInBuf.slice(0,tnCurPos)+tnInBuf.slice(tnCurPos+1);tnRender();}
+      } else if(e.key==="ArrowLeft"){
+        e.preventDefault(); if(tnCurPos>0){tnCurPos--;tnRender();}
+      } else if(e.key==="ArrowRight"){
+        e.preventDefault(); if(tnCurPos<tnInBuf.length){tnCurPos++;tnRender();}
+      } else if(e.key==="Home"){
+        e.preventDefault(); tnCurPos=0; tnRender();
+      } else if(e.key==="End"){
+        e.preventDefault(); tnCurPos=tnInBuf.length; tnRender();
+      } else if(e.key==="ArrowUp"){
+        e.preventDefault();
+        if(tnHistIdx===-1) tnHistSaved=tnInBuf;
+        if(tnHistIdx<tnHistory.length-1){tnHistIdx++;tnInBuf=tnHistory[tnHistIdx];tnCurPos=tnInBuf.length;tnRender();}
+      } else if(e.key==="ArrowDown"){
+        e.preventDefault();
+        if(tnHistIdx>0){tnHistIdx--;tnInBuf=tnHistory[tnHistIdx];tnCurPos=tnInBuf.length;}
+        else if(tnHistIdx===0){tnHistIdx=-1;tnInBuf=tnHistSaved;tnCurPos=tnInBuf.length;}
+        tnRender();
+      } else if(e.ctrlKey){
+        e.preventDefault();
+        switch(e.key){
+          case 'a': tnCurPos=0; tnRender(); break;
+          case 'e': tnCurPos=tnInBuf.length; tnRender(); break;
+          case 'k': tnInBuf=tnInBuf.slice(0,tnCurPos); tnRender(); break;
+          case 'u': tnInBuf=tnInBuf.slice(tnCurPos); tnCurPos=0; tnRender(); break;
+          case 'c': tnInBuf=''; tnCurPos=0; tnRender();
+            tnEnsureOpen(()=>{try{tnWs.send(JSON.stringify({cmd:"send",data:"\x03"}));}catch(e){}});
+            break;
+          case 'r': tnSearch=true; tnSrchBuf=''; tnSrchHit=''; tnSrchFrom=0; tnRender(); break;
+        }
+      }
+    });
+    // mobile: printable chars arrive via input event
+    hidIn.addEventListener("input",()=>{
+      const v=hidIn.value; hidIn.value='';
+      if(!v) return;
+      const parts=v.split(/\r?\n/);
+      if(tnSearch){
+        tnSrchBuf+=parts[0]; tnSrchFrom=0; tnDoSearch(); tnRender();
+        if(parts.length>1){ // Enter on mobile keyboard
+          tnSearch=false;
+          if(tnSrchHit){tnInBuf=tnSrchHit;tnCurPos=tnInBuf.length;}
+          tnSrchBuf='';tnSrchHit='';tnSrchFrom=0;tnRender();
+        }
+      } else {
+        tnInsert(parts[0]); tnRender();
+        if(parts.length>1) tnCommit(tnInBuf); // Enter on mobile keyboard
+      }
+    });
+    document.getElementById("tnOut")?.addEventListener("click",()=>hidIn.focus());
+  }
 
   tnOpen();
 }
