@@ -715,11 +715,14 @@ void app_fsm_poll(AppFsm &fsm)
         const int internet_status = app_check_internet_status(IPAddress(192, 168, 0, 202), 1883);
         if (internet_status != 1)
         {
-            app_recover_offline();
-            enter_state(fsm, AppState::WIFI_CONNECT, "INET FAIL");
+            fsm.consecutive_failures++;
+            fsm.last_backoff_ms = compute_backoff_ms(fsm);
+            fsm.backoff_until_ms = millis() + fsm.last_backoff_ms;
+            enter_state(fsm, AppState::BACKOFF, "INET FAIL");
             break;
         }
-    
+
+        fsm.consecutive_failures = 0;
         enter_state(fsm, AppState::RUN_IDLE, "INET OK");
         break;
     }
