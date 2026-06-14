@@ -1303,9 +1303,17 @@ function tnRender(scroll){
 }
 
 function tnLog(data){
-  let s=data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
-  s=s.replace(/\r\n/g,'\n').replace(/\r/g,'');
-  tnOutText+=s;
+  // \033[G (cursor-to-col-1) is the server's erase_current_line — treat as \r
+  let s=data.replace(/\x1b\[G/g,'\r');
+  s=s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'').replace(/\x08/g,'');
+  s=s.replace(/\r\n/g,'\n');
+  const chunks=s.split('\r');
+  let result=tnOutText+chunks[0];
+  for(let i=1;i<chunks.length;i++){
+    const nl=result.lastIndexOf('\n');
+    result=result.slice(0,nl+1)+chunks[i];
+  }
+  tnOutText=result;
   if(tnOutText.length>20000) tnOutText=tnOutText.slice(-20000);
   tnRender(true);
 }
