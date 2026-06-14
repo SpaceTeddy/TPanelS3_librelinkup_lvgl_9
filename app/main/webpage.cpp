@@ -38,6 +38,7 @@
 #include "main.h"
 #include "http_update.h"
 #include "mqtt_handler.h"
+#include "h2_ota.h"
 
 //------------------------[ uuid logger ]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -47,6 +48,18 @@ extern SETTINGS settings;
 extern TPanelS3 tpanels3;
 
 extern LIBRELINKUP librelinkup;
+extern String g_h2_fw_version;
+extern String g_h2_fw_build;
+extern String g_h2_chip_model;
+extern String g_h2_chip_rev;
+extern String g_h2_chip_mac;
+extern String g_h2_chip_cores;
+extern String g_h2_chip_cpu_mhz;
+extern String g_h2_chip_xtal_mhz;
+extern String g_h2_chip_features;
+extern String g_h2_last_type;
+extern String g_h2_last_json;
+extern uint32_t g_h2_last_seen_ms;
 
 
 // int16_t fix (used by debug endpoint)
@@ -62,6 +75,18 @@ static String username;
 static String password;
 static String wifi_bssid;
 static String wifi_password;
+static uint32_t g_h2_info_req_last_ms = 0;
+
+static void maybe_request_h2_info()
+{
+    if (h2_ota_in_progress()) return;
+    const uint32_t now = millis();
+    if ((now - g_h2_info_req_last_ms) < 15000U)
+        return;
+    g_h2_info_req_last_ms = now;
+    h2_send("{\"cmd\":\"version\"}");
+    h2_send("{\"cmd\":\"chipinfo\"}");
+}
 
 static const char dashboard_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -908,6 +933,9 @@ static const char debug_html[] PROGMEM = R"rawliteral(
     white-space:pre;
   }
   body.dark pre{ background: rgba(255,255,255,0.06); }
+  #tnOut{height:340px;overflow-y:auto;cursor:text;user-select:text;outline:none;}
+  .tn-cur::after{content:'▌';animation:tn-blink 1s step-end infinite;}
+  @keyframes tn-blink{50%{opacity:0}}
 </style>
 </head>
 <body>
@@ -987,6 +1015,16 @@ static const char debug_html[] PROGMEM = R"rawliteral(
     <div class="small" id="cfgMain">--</div>
     <div class="small" id="cfgMore">--</div>
   </div>
+
+  <div class="card">
+    <div class="k">H2 Co-Processor</div>
+    <div class="v" id="h2Fw">FW: --</div>
+    <div class="small" id="h2ChipModel">Model: --</div>
+    <div class="small" id="h2ChipPerf">CPU: -- | Cores: -- | XTAL: --</div>
+    <div class="small" id="h2ChipRadio">Features: --</div>
+    <div class="small" id="h2ChipMac">MAC: --</div>
+    <div class="small" id="h2LastSeen">Last seen: --</div>
+  </div>
 </div>
 
 <div class="card">
@@ -1002,14 +1040,13 @@ static const char debug_html[] PROGMEM = R"rawliteral(
       <button class="btn" id="tnSelf">This device</button>
       <span class="badge" id="tnState" style="margin-left:8px;">--</span>
       <button class="btn" id="tnDisconnect">Disconnect</button>
+      <button class="btn" id="tnClear">Clear</button>
     </div>
   </div>
-  <pre id="tnOut" style="height:260px; overflow:auto;"></pre>
-  <div class="row" style="margin-top:10px;">
-    <input id="tnIn" placeholder="Eingabe… (Enter zum Senden)" style="flex:1;"/>
-    <button class="btn" id="tnSend">Send</button>
-    <button class="btn" id="tnClear">Clear</button>
-  </div>
+  <!-- Terminal area: click anywhere to focus hidden input (mobile keyboard) -->
+  <pre id="tnOut" tabindex="0" onclick="document.getElementById('tnHidIn').focus()"></pre>
+  <input id="tnHidIn" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;"
+         autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"/>
 </div>
 
 </div>
@@ -1125,9 +1162,9 @@ document.getElementById("lluSensorState").textContent = `Sensor state: ${Number(
 const activeId = se.sensor_id || "--";
 const activeSn = se.sensor_sn || "--";
 document.getElementById("lluActive").textContent = `Active: ${activeSn} (${activeId})`;
-const dtid = Number(se.sensor_type_dtid) || 0;
 const sensorTypeName = se.sensor_type_name || "Unknown";
-document.getElementById("lluSensorType").textContent = `Type: ${sensorTypeName} (dtid: ${dtid || "--"})`;
+const sensorSnSrc    = se.sensor_type_sn_src || "--";
+document.getElementById("lluSensorType").textContent = `Type: ${sensorTypeName} (SN: ${sensorSnSrc})`;
 
 const inactId = se.sensor_id_non_active || "--";
 const inactSn = se.sensor_sn_non_active || "--";
@@ -1173,21 +1210,37 @@ const exp = Number(lo.user_token_expires)||0;
 document.getElementById("lluTokenExp").textContent = `Expires: ${exp?fmtDateTime(exp):"--"}`;
 
 const cfg = j.config || {};
-const otaTxt = cfg.ota_update ? "on" : "off";
-const wgVal = (cfg.wg_mode ?? 0);
-const mqVal = (cfg.mqtt_mode ?? 0);
-const msVal = (cfg.mqtt_master_mode ?? 0);
 const brVal = (cfg.brightness ?? "--");
+const dimTout = (cfg.display_dim_timeout_s != null) ? (cfg.display_dim_timeout_s === 0 ? "disabled" : cfg.display_dim_timeout_s + " s") : "--";
 const onOff = (v)=> (Number(v) ? "ON" : "OFF");
 const cfgLines = [
   `OTA: ${onOff(cfg.ota_update ?? 0)} | Channel: ${(cfg.ota_staging ?? 0) ? "Staging" : "Release"} | Force: ${onOff(cfg.ota_force ?? 0)}`,
   `WG: ${onOff(cfg.wg_mode ?? 0)}`,
   `MQTT: ${onOff(cfg.mqtt_mode ?? 0)}`,
   `Master: ${onOff(cfg.mqtt_master_mode ?? 0)}`,
-  `Brightness: ${brVal}`
+  `Brightness: ${brVal}`,
+  `Dim timeout: ${dimTout}`
 ];
 document.getElementById("cfgMain").innerHTML = cfgLines.join("<br>");
 document.getElementById("cfgMore").textContent = "";
+
+const h2 = j.h2 || {};
+const h2Fw = h2.fw_version || "--";
+const h2ChipModel = h2.chip_model || "--";
+const h2ChipRev = h2.chip_revision || "--";
+const h2ChipMac = h2.chip_mac || "--";
+const h2ChipCores = h2.chip_cores || "--";
+const h2ChipCpu = h2.chip_cpu_mhz || "--";
+const h2Features = h2.chip_features || "--";
+const h2Xtal = h2.chip_xtal_mhz || "--";
+const h2SeenAgo = Number(h2.last_seen_ms_ago || 0);
+const h2SeenTxt = h2.has_data ? (Math.round(h2SeenAgo / 1000) + " s ago") : "--";
+document.getElementById("h2Fw").textContent = `FW: ${h2Fw}`;
+document.getElementById("h2ChipModel").textContent = `Model: ${h2ChipModel} | Rev: ${h2ChipRev}`;
+document.getElementById("h2ChipPerf").textContent = `CPU: ${h2ChipCpu} MHz | Cores: ${h2ChipCores} | XTAL: ${h2Xtal} MHz`;
+document.getElementById("h2ChipRadio").textContent = `Features: ${h2Features}`;
+document.getElementById("h2ChipMac").textContent = `MAC: ${h2ChipMac}`;
+document.getElementById("h2LastSeen").textContent = `Last seen: ${h2SeenTxt} | last type: ${h2.last_type || "--"}`;
 
   }catch(e){
     document.getElementById("raw").textContent = "Failed to fetch /api/debug: " + (e && e.message ? e.message : e);
@@ -1202,127 +1255,230 @@ document.getElementById("cfgMore").textContent = "";
 
 // --- Telnet terminal (WebSocket bridge) ---
 let tnWs = null;
-function tnLog(line){
-  const pre=document.getElementById("tnOut");
-  if(!pre) return;
-  pre.textContent += line;
-  // keep last ~20k chars
-  if(pre.textContent.length>20000) pre.textContent = pre.textContent.slice(-20000);
-  pre.scrollTop = pre.scrollHeight;
-}
-function tnSetState(label, mode){
-  const el=document.getElementById("tnState");
-  if(!el) return;
-  el.textContent = label || "--";
-  // modes: ok|warn|bad|off
-  let bg="rgba(148,163,184,0.15)", bd="rgba(148,163,184,0.28)", fg="rgba(226,232,240,0.9)";
-  if(mode==="ok"){ bg="rgba(34,197,94,0.18)"; bd="rgba(34,197,94,0.45)"; }
-  if(mode==="warn"){ bg="rgba(245,158,11,0.18)"; bd="rgba(245,158,11,0.45)"; }
-  if(mode==="bad"){ bg="rgba(239,68,68,0.18)"; bd="rgba(239,68,68,0.45)"; }
-  el.style.background = bg;
-  el.style.borderColor = bd;
-  el.style.color = fg;
+let tnOutText = '';   // server output accumulated here
+let tnInBuf   = '';   // current input line
+let tnCurPos  = 0;    // cursor position within tnInBuf
+let tnHistory = [];   // sent command history (newest first)
+let tnHistIdx = -1;   // -1 = not browsing history
+let tnHistSaved='';   // saved draft while browsing history
+let tnSearch  = false;// ctrl-r search mode
+let tnSrchBuf = '';   // search query
+let tnSrchHit = '';   // current match
+let tnSrchFrom= 0;    // start index in history for next ctrl-r
+
+function tnEscHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// Find the next history match for tnSrchBuf starting at tnSrchFrom
+function tnDoSearch(){
+  tnSrchHit='';
+  if(!tnSrchBuf) return;
+  for(let i=tnSrchFrom;i<tnHistory.length;i++){
+    if(tnHistory[i].includes(tnSrchBuf)){ tnSrchHit=tnHistory[i]; tnSrchFrom=i+1; return; }
+  }
+}
+
+function tnRender(scroll){
+  const pre=document.getElementById('tnOut');
+  if(!pre) return;
+  const atBottom=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-4;
+  let inp;
+  if(tnSearch){
+    // show reverse-i-search prompt with highlighted match
+    const q=tnEscHtml(tnSrchBuf);
+    let m='';
+    if(tnSrchHit){
+      const idx=tnSrchHit.indexOf(tnSrchBuf);
+      m=tnEscHtml(tnSrchHit.slice(0,idx))+'<mark>'+tnEscHtml(tnSrchBuf)+'</mark>'+tnEscHtml(tnSrchHit.slice(idx+tnSrchBuf.length));
+    }
+    inp='<span style="color:var(--muted)">(reverse-i-search)`'+q+"': "+m+'</span><span class="tn-cur"></span>';
+  } else {
+    const b=tnEscHtml(tnInBuf.slice(0,tnCurPos));
+    const c=tnEscHtml(tnInBuf.slice(tnCurPos));
+    inp=b+'<span class="tn-cur">'+c+'</span>';
+  }
+  pre.innerHTML=tnEscHtml(tnOutText)+inp;
+  if(scroll||atBottom) pre.scrollTop=pre.scrollHeight;
+}
+
+function tnLog(data){
+  let s=data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
+  for(let i=0;i<s.length;i++){
+    if(s[i]==='\r'&&s[i+1]==='\n'){
+      tnOutText+='\n';i++;
+    }else if(s[i]==='\r'){
+      const nl=tnOutText.lastIndexOf('\n');
+      tnOutText=tnOutText.slice(0,nl+1);
+    }else{
+      tnOutText+=s[i];
+    }
+  }
+  if(tnOutText.length>20000) tnOutText=tnOutText.slice(-20000);
+  tnRender(true);
+}
+function tnSetState(label,mode){
+  const el=document.getElementById("tnState");
+  if(!el) return;
+  el.textContent=label||"--";
+  let bg="rgba(148,163,184,0.15)",bd="rgba(148,163,184,0.28)",fg="rgba(226,232,240,0.9)";
+  if(mode==="ok"){  bg="rgba(34,197,94,0.18)";  bd="rgba(34,197,94,0.45)"; }
+  if(mode==="warn"){bg="rgba(245,158,11,0.18)"; bd="rgba(245,158,11,0.45)";}
+  if(mode==="bad"){ bg="rgba(239,68,68,0.18)";  bd="rgba(239,68,68,0.45)"; }
+  el.style.background=bg; el.style.borderColor=bd; el.style.color=fg;
+}
 function tnStatus(msg){
-  tnLog(`
-[${new Date().toLocaleTimeString()}] ${msg}
-`);
-  // Heuristics based on status text coming from ESP
+  tnLog('\n['+new Date().toLocaleTimeString()+'] '+msg+'\n');
   const m=(msg||"").toLowerCase();
   if(m.includes("ws connected")) tnSetState("WS connected","warn");
-  else if(m.includes("ready")) tnSetState("Ready","off");
-  else if(m.includes("connecting")) tnSetState("Connecting…","warn");
-  else if(m.includes("connected")) tnSetState("Connected","ok");
+  else if(m.includes("ready"))        tnSetState("Ready","off");
+  else if(m.includes("connecting"))   tnSetState("Connecting…","warn");
+  else if(m.includes("connected"))    tnSetState("Connected","ok");
   else if(m.includes("disconnected")) tnSetState("Disconnected","off");
-  else if(m.includes("failed") || m.includes("error") || m.includes("bad")) tnSetState("Error","bad");
+  else if(m.includes("failed")||m.includes("error")||m.includes("bad")) tnSetState("Error","bad");
 }
 function tnOpen(){
-  if(tnWs && (tnWs.readyState===0 || tnWs.readyState===1)) return;
-  const proto = (location.protocol==="https:") ? "wss://" : "ws://";
-  tnWs = new WebSocket(proto + location.host + "/ws/telnet");
-  tnWs.onopen = ()=>{ tnStatus("WS connected"); };
-  tnWs.onclose = ()=>{ tnStatus("WS closed"); tnSetState("WS closed","off"); };
-  tnWs.onerror = ()=>{ tnStatus("WS error"); tnSetState("WS error","bad"); };
-  tnWs.onmessage = (ev)=>{
-    try{
-      const o = JSON.parse(ev.data);
-      if(o && o.type==="status") tnStatus(o.msg || "status");
-      else if(o && o.type==="data") tnLog(o.data || "");
-      else tnLog(ev.data);
-    }catch(e){
-      tnLog(ev.data);
-    }
+  if(tnWs&&(tnWs.readyState===0||tnWs.readyState===1)) return;
+  const proto=(location.protocol==="https:")?"wss://":"ws://";
+  tnWs=new WebSocket(proto+location.host+"/ws/telnet");
+  tnWs.onopen  =()=>{ tnStatus("WS connected"); };
+  tnWs.onclose =()=>{ tnStatus("WS closed"); tnSetState("WS closed","off"); };
+  tnWs.onerror =()=>{ tnStatus("WS error");  tnSetState("WS error","bad"); };
+  tnWs.onmessage=(ev)=>{
+    if(ev.data.charCodeAt(0)===1) tnStatus(ev.data.slice(1));
+    else tnLog(ev.data);
   };
 }
 function tnEnsureOpen(cb){
   tnOpen();
-  const start = Date.now();
-  (function waitOpen(){
-    if(!tnWs) { setTimeout(waitOpen, 50); return; }
-    if(tnWs.readyState===1){ cb(); return; }
-    // timeout after 3s
-    if(Date.now()-start > 3000){ tnStatus("WS not open"); tnSetState("WS error","bad"); return; }
-    setTimeout(waitOpen, 50);
-  })();
+  const t0=Date.now();
+  (function w(){if(!tnWs){setTimeout(w,50);return;}if(tnWs.readyState===1){cb();return;}
+    if(Date.now()-t0>3000){tnStatus("WS not open");tnSetState("WS error","bad");return;}
+    setTimeout(w,50);})();
 }
-
+function tnSendRaw(data){
+  tnEnsureOpen(()=>{ try{tnWs.send(JSON.stringify({cmd:"send",data}));}catch(e){tnStatus("send failed");} });
+}
+function tnCommit(line){
+  if(line){tnHistory.unshift(line);if(tnHistory.length>200)tnHistory.pop();}
+  tnInBuf=''; tnCurPos=0; tnHistIdx=-1; tnHistSaved='';
+  tnSearch=false; tnSrchBuf=''; tnSrchHit=''; tnSrchFrom=0;
+  tnRender();
+  tnSendRaw(line+"\r\n");
+}
 function tnConnect(){
   const host=(document.getElementById("tnHost").value||"").trim();
   const port=Number((document.getElementById("tnPort").value||"23").trim())||23;
-  localStorage.setItem("tnHost", host);
-  localStorage.setItem("tnPort", String(port));
-  if(!host){ tnStatus("Host fehlt"); tnSetState("Error","bad"); return; }
+  localStorage.setItem("tnHost",host); localStorage.setItem("tnPort",String(port));
+  if(!host){tnStatus("Host fehlt");tnSetState("Error","bad");return;}
   tnSetState("Connecting…","warn");
-  tnEnsureOpen(()=> {
-    try{ tnWs.send(JSON.stringify({cmd:"connect", host, port})); }
-    catch(e){ tnStatus("send failed: " + (e && e.message ? e.message : e)); }
-  });
+  tnEnsureOpen(()=>{try{tnWs.send(JSON.stringify({cmd:"connect",host,port}));}catch(e){tnStatus("send failed");}});
 }
-
 function tnDisconnect(){
-  tnEnsureOpen(()=> {
-    try{ tnWs.send(JSON.stringify({cmd:"disconnect"})); }
-    catch(e){ tnStatus("send failed: " + (e && e.message ? e.message : e)); }
-  });
+  tnEnsureOpen(()=>{try{tnWs.send(JSON.stringify({cmd:"disconnect"}));}catch(e){tnStatus("send failed");}});
 }
 
-function tnSend(){
-  const inp=document.getElementById("tnIn");
-  const txt=(inp && inp.value) ? inp.value : "";
-  if(!txt) return;
-  tnEnsureOpen(()=> {
-        try{ tnWs.send(JSON.stringify({cmd:"send", data: txt + "\r\n"})); }
-    catch(e){ tnStatus("send failed: " + (e && e.message ? e.message : e)); }
-  });
-  if(inp) inp.value="";
+// Insert text at cursor
+function tnInsert(ch){
+  tnInBuf=tnInBuf.slice(0,tnCurPos)+ch+tnInBuf.slice(tnCurPos);
+  tnCurPos+=ch.length;
 }
 
 function tnInit(){
   const hostEl=document.getElementById("tnHost");
   const portEl=document.getElementById("tnPort");
-
   const h=localStorage.getItem("tnHost")||"";
   const p=localStorage.getItem("tnPort")||"23";
+  if(hostEl) hostEl.value=h||window.location.hostname;
+  if(portEl) portEl.value=p||"23";
 
-  // Prefer last used, otherwise default to "this device"
-  if(hostEl){
-    hostEl.value = h || window.location.hostname;
-  }
-  if(portEl){
-    portEl.value = p || "23";
-  }
-
-  document.getElementById("tnConnect")?.addEventListener("click", tnConnect);
-  document.getElementById("tnDisconnect")?.addEventListener("click", tnDisconnect);
-  document.getElementById("tnSend")?.addEventListener("click", tnSend);
-  document.getElementById("tnClear")?.addEventListener("click", ()=>{ document.getElementById("tnOut").textContent=""; });
-
-  document.getElementById("tnIn")?.addEventListener("keydown", (e)=>{
-    if(e.key==="Enter"){ e.preventDefault(); tnSend(); }
+  document.getElementById("tnConnect")?.addEventListener("click",tnConnect);
+  document.getElementById("tnDisconnect")?.addEventListener("click",tnDisconnect);
+  document.getElementById("tnClear")?.addEventListener("click",()=>{
+    tnOutText=''; tnInBuf=''; tnCurPos=0; tnRender(true);
+  });
+  document.getElementById("tnSelf")?.addEventListener("click",()=>{
+    const h=document.getElementById("tnHost"); if(h) h.value=window.location.hostname;
   });
 
-  // Open WS eagerly so it's ready when you hit connect
+  const hidIn=document.getElementById("tnHidIn");
+  if(hidIn){
+    hidIn.addEventListener("keydown",(e)=>{
+      if(tnSearch){
+        // --- search mode keys ---
+        if(e.key==="Enter"||e.key==="Escape"||(e.ctrlKey&&e.key==="g")){
+          e.preventDefault();
+          tnSearch=false;
+          if(e.key==="Enter"&&tnSrchHit){ tnInBuf=tnSrchHit; tnCurPos=tnInBuf.length; }
+          tnSrchBuf=''; tnSrchHit=''; tnSrchFrom=0; tnRender();
+        } else if(e.key==="Backspace"){
+          e.preventDefault();
+          tnSrchBuf=tnSrchBuf.slice(0,-1); tnSrchFrom=0; tnDoSearch(); tnRender();
+        } else if(e.ctrlKey&&e.key==="r"){
+          e.preventDefault(); tnDoSearch(); tnRender(); // cycle to next match
+        }
+        return;
+      }
+      // --- normal mode keys ---
+      if(e.key==="Enter"){
+        e.preventDefault(); tnCommit(tnInBuf);
+      } else if(e.key==="Backspace"){
+        e.preventDefault();
+        if(tnCurPos>0){tnInBuf=tnInBuf.slice(0,tnCurPos-1)+tnInBuf.slice(tnCurPos);tnCurPos--;tnRender();}
+      } else if(e.key==="Delete"){
+        e.preventDefault();
+        if(tnCurPos<tnInBuf.length){tnInBuf=tnInBuf.slice(0,tnCurPos)+tnInBuf.slice(tnCurPos+1);tnRender();}
+      } else if(e.key==="ArrowLeft"){
+        e.preventDefault(); if(tnCurPos>0){tnCurPos--;tnRender();}
+      } else if(e.key==="ArrowRight"){
+        e.preventDefault(); if(tnCurPos<tnInBuf.length){tnCurPos++;tnRender();}
+      } else if(e.key==="Home"){
+        e.preventDefault(); tnCurPos=0; tnRender();
+      } else if(e.key==="End"){
+        e.preventDefault(); tnCurPos=tnInBuf.length; tnRender();
+      } else if(e.key==="ArrowUp"){
+        e.preventDefault();
+        if(tnHistIdx===-1) tnHistSaved=tnInBuf;
+        if(tnHistIdx<tnHistory.length-1){tnHistIdx++;tnInBuf=tnHistory[tnHistIdx];tnCurPos=tnInBuf.length;tnRender();}
+      } else if(e.key==="ArrowDown"){
+        e.preventDefault();
+        if(tnHistIdx>0){tnHistIdx--;tnInBuf=tnHistory[tnHistIdx];tnCurPos=tnInBuf.length;}
+        else if(tnHistIdx===0){tnHistIdx=-1;tnInBuf=tnHistSaved;tnCurPos=tnInBuf.length;}
+        tnRender();
+      } else if(e.ctrlKey){
+        e.preventDefault();
+        switch(e.key){
+          case 'a': tnCurPos=0; tnRender(); break;
+          case 'e': tnCurPos=tnInBuf.length; tnRender(); break;
+          case 'k': tnInBuf=tnInBuf.slice(0,tnCurPos); tnRender(); break;
+          case 'u': tnInBuf=tnInBuf.slice(tnCurPos); tnCurPos=0; tnRender(); break;
+          case 'c': tnInBuf=''; tnCurPos=0; tnRender();
+            tnEnsureOpen(()=>{try{tnWs.send(JSON.stringify({cmd:"send",data:"\x03"}));}catch(e){}});
+            break;
+          case 'r': tnSearch=true; tnSrchBuf=''; tnSrchHit=''; tnSrchFrom=0; tnRender(); break;
+        }
+      }
+    });
+    // mobile: printable chars arrive via input event
+    hidIn.addEventListener("input",()=>{
+      const v=hidIn.value; hidIn.value='';
+      if(!v) return;
+      const parts=v.split(/\r?\n/);
+      if(tnSearch){
+        tnSrchBuf+=parts[0]; tnSrchFrom=0; tnDoSearch(); tnRender();
+        if(parts.length>1){ // Enter on mobile keyboard
+          tnSearch=false;
+          if(tnSrchHit){tnInBuf=tnSrchHit;tnCurPos=tnInBuf.length;}
+          tnSrchBuf='';tnSrchHit='';tnSrchFrom=0;tnRender();
+        }
+      } else {
+        tnInsert(parts[0]); tnRender();
+        if(parts.length>1) tnCommit(tnInBuf); // Enter on mobile keyboard
+      }
+    });
+    document.getElementById("tnOut")?.addEventListener("click",()=>hidIn.focus());
+  }
+
   tnOpen();
 }
 tnInit();
@@ -1361,11 +1517,14 @@ static bool ensureConfigAuth(AsyncWebServerRequest *request) {
 // -------------------- Debug handlers --------------------
 static void handleDebugPage(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
-    request->send(200, "text/html; charset=utf-8", debug_html);
+    AsyncWebServerResponse* resp = request->beginResponse(200, "text/html; charset=utf-8", debug_html);
+    resp->addHeader("Cache-Control", "no-store");
+    request->send(resp);
 }
 
 static void handleApiDebug(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
+    maybe_request_h2_info();
 
     JsonDocument doc;
 
@@ -1421,7 +1580,15 @@ static void handleApiDebug(AsyncWebServerRequest *request) {
     se["sensor_id"] = librelinkup.sensor_data().sensor_id;
     se["sensor_sn"] = librelinkup.sensor_data().sensor_sn;
     se["sensor_type_dtid"] = (uint16_t)librelinkup.sensor_data().sensor_type_dtid;
-    se["sensor_type_name"] = librelinkup.sensor_device_type_to_string(librelinkup.get_sensor_device_type());
+    {
+        // Prefer SN-based detection; fall back to non-active SN before touching dtid
+        const String &sn_a = librelinkup.sensor_data().sensor_sn;
+        const String &sn_b = librelinkup.sensor_data().sensor_sn_non_active;
+        const String &sn   = (sn_a.length() >= 5) ? sn_a : sn_b;
+        se["sensor_type_name"]   = librelinkup.sensor_device_type_to_string(
+                                       librelinkup.get_sensor_device_type_from_sn(sn));
+        se["sensor_type_sn_src"] = sn.length() >= 5 ? sn : String("--");
+    }
     se["sensor_runtime"] = (uint32_t)librelinkup.sensor_data().sensor_runtime;
     se["sensor_activation_time"] = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
 
@@ -1459,6 +1626,22 @@ if (librelinkup.login_data().user_token.length() > 10) {
     cfg["mqtt_mode"] = settings.config.mqtt_mode;
     cfg["mqtt_master_mode"] = settings.config.mqtt_master_mode;
     cfg["brightness"] = settings.config.brightness;
+    cfg["display_dim_timeout_s"] = settings.config.display_dim_timeout_s;
+
+    JsonObject h2 = doc["h2"].to<JsonObject>();
+    h2["fw_version"] = g_h2_fw_version;
+    h2["fw_build"] = g_h2_fw_build;
+    h2["chip_model"] = g_h2_chip_model;
+    h2["chip_revision"] = g_h2_chip_rev;
+    h2["chip_mac"] = g_h2_chip_mac;
+    h2["chip_cores"] = g_h2_chip_cores;
+    h2["chip_cpu_mhz"] = g_h2_chip_cpu_mhz;
+    h2["chip_xtal_mhz"] = g_h2_chip_xtal_mhz;
+    h2["chip_features"] = g_h2_chip_features;
+    h2["last_type"] = g_h2_last_type;
+    h2["last_seen_ms_ago"] = (g_h2_last_seen_ms > 0) ? (uint32_t)(millis() - g_h2_last_seen_ms) : 0;
+    h2["has_data"] = (g_h2_last_seen_ms > 0);
+    h2["last_json"] = g_h2_last_json;
 
     String out;
     serializeJson(doc, out);
@@ -1517,7 +1700,32 @@ static void handleApiConfig(AsyncWebServerRequest *request) {
 
 static void handleApiFwStatus(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
-    request->send(200, "application/json; charset=utf-8", fw_update_get_status_json());
+    maybe_request_h2_info();
+
+    JsonDocument doc;
+    const String fw = fw_update_get_status_json();
+    if (deserializeJson(doc, fw) != DeserializationError::Ok)
+    {
+        request->send(200, "application/json; charset=utf-8", fw);
+        return;
+    }
+
+    JsonObject h2 = doc["h2"].to<JsonObject>();
+    h2["fw_version"] = g_h2_fw_version;
+    h2["fw_build"] = g_h2_fw_build;
+    h2["chip_model"] = g_h2_chip_model;
+    h2["chip_revision"] = g_h2_chip_rev;
+    h2["chip_mac"] = g_h2_chip_mac;
+    h2["chip_cores"] = g_h2_chip_cores;
+    h2["chip_cpu_mhz"] = g_h2_chip_cpu_mhz;
+    h2["chip_xtal_mhz"] = g_h2_chip_xtal_mhz;
+    h2["chip_features"] = g_h2_chip_features;
+    h2["last_seen_ms_ago"] = (g_h2_last_seen_ms > 0) ? (uint32_t)(millis() - g_h2_last_seen_ms) : 0;
+    h2["has_data"] = (g_h2_last_seen_ms > 0);
+
+    String out;
+    serializeJson(doc, out);
+    request->send(200, "application/json; charset=utf-8", out);
 }
 
 static void handleApiFwCheck(AsyncWebServerRequest *request) {
@@ -1663,6 +1871,20 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
     request->send(200, "application/json", "{\"status\": \"updated\"}");
 }
 
+static void handleSetDimTimeout(AsyncWebServerRequest *request) {
+    if (!request->hasParam("value", true)) {
+        request->send(400, "application/json", "{\"error\": \"Missing value\"}");
+        return;
+    }
+    long secs = request->getParam("value", true)->value().toInt();
+    if (secs < 0) secs = 0;
+    if (secs > 86400) secs = 86400;
+    settings.config.display_dim_timeout_s = (uint32_t)secs;
+    settings.saveConfiguration(settings.config_filename, settings.config);
+    request->send(200, "application/json",
+                  "{\"display_dim_timeout_s\": " + String((unsigned long)secs) + "}");
+}
+
 static void handleSetBrightness(AsyncWebServerRequest *request) {
     if (!request->hasParam("value")) {
         request->send(400, "application/json", "{\"error\": \"Invalid parameters\"}");
@@ -1798,24 +2020,20 @@ struct TelnetSession {
 
 static std::map<uint32_t, TelnetSession> g_telnet_sessions;
 
+// Protocol: status messages are prefixed with '\x01' (SOH); everything else
+// is raw terminal data forwarded as-is.  No JSON — this avoids parse failures
+// when the terminal output itself contains JSON-like characters, and ensures
+// the browser sees actual CR/LF and ANSI bytes rather than JSON escape sequences.
 static void telnet_send_status(AsyncWebSocketClient* c, const String& msg) {
     if (!c) return;
-    JsonDocument d;
-    d["type"] = "status";
-    d["msg"] = msg;
-    String out;
-    serializeJson(d, out);
+    String out("\x01");
+    out += msg;
     c->text(out);
 }
 
 static void telnet_send_data(AsyncWebSocketClient* c, const String& data) {
     if (!c) return;
-    JsonDocument d;
-    d["type"] = "data";
-    d["data"] = data;
-    String out;
-    serializeJson(d, out);
-    c->text(out);
+    c->text(data);   // raw terminal bytes — no encoding
 }
 
 static void telnet_service() {
@@ -1828,33 +2046,27 @@ static void telnet_service() {
         }
 
         if (s.tcp_connected && s.tcp.connected()) {
-            while (s.tcp.available()) {
-                String chunk;
-                chunk.reserve(256);
-                while (s.tcp.available() && chunk.length() < 256) {
-                    uint8_t b = (uint8_t)s.tcp.read();
-                    // Minimal TELNET negotiation handling (IAC)
-                    if (b == 255) { // IAC
-                        // Need at least command + option
-                        while (s.tcp.available() < 2) { break; }
-                        uint8_t cmd = (uint8_t)s.tcp.read();
-                        uint8_t opt = (uint8_t)s.tcp.read();
-
-                        // Respond by refusing options (DO->WONT, WILL->DONT)
-                        if (cmd == 253) { // DO
-                            uint8_t resp[3] = {255, 252, opt}; // WONT
-                            s.tcp.write(resp, 3);
-                        } else if (cmd == 251) { // WILL
-                            uint8_t resp[3] = {255, 254, opt}; // DONT
-                            s.tcp.write(resp, 3);
-                        }
-                        // Drop negotiation bytes from output
-                        continue;
-                    }
-                    chunk += (char)b;
+            // Collect all available TCP bytes into ONE message per tick so the
+            // browser receives a single WebSocket frame (AsyncWebSocket may coalesce
+            // rapid c->text() calls into one frame, breaking JSON.parse).
+            String all_data;
+            all_data.reserve(512);
+            while (s.tcp.available() && all_data.length() < 4096) {
+                uint8_t b = (uint8_t)s.tcp.read();
+                // Minimal TELNET negotiation handling (IAC)
+                if (b == 255) { // IAC
+                    if (s.tcp.available() < 2) continue; // partial — skip
+                    uint8_t cmd = (uint8_t)s.tcp.read();
+                    uint8_t opt = (uint8_t)s.tcp.read();
+                    // Respond by refusing options (DO->WONT, WILL->DONT)
+                    if (cmd == 253) { uint8_t resp[3] = {255, 252, opt}; s.tcp.write(resp, 3); }
+                    else if (cmd == 251) { uint8_t resp[3] = {255, 254, opt}; s.tcp.write(resp, 3); }
+                    // Drop negotiation bytes from output
+                    continue;
                 }
-                if (chunk.length()) telnet_send_data(s.ws, chunk);
+                all_data += (char)b;
             }
+            if (all_data.length()) telnet_send_data(s.ws, all_data);
         } else {
             s.tcp_connected = false;
         }
@@ -1977,7 +2189,192 @@ static void ws_telnet_on_event(AsyncWebSocket *server, AsyncWebSocketClient *cli
     }
 }
 
-// -------------------- Route registration --------------------
+// -------------------- H2 OTA file-upload page & handler --------------------
+
+static const char H2_OTA_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html><html lang="de"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>H2 Firmware Update</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:sans-serif;background:#1a1a2e;color:#e0e0e0;display:flex;
+       justify-content:center;align-items:center;min-height:100vh;padding:20px}
+  .card{background:#16213e;border-radius:12px;padding:32px;width:100%;max-width:480px;
+        box-shadow:0 4px 24px #0005}
+  h2{font-size:1.3rem;margin-bottom:6px;color:#90caf9}
+  p{font-size:.85rem;color:#888;margin-bottom:24px}
+  label{display:block;font-size:.8rem;color:#aaa;margin-bottom:6px}
+  input[type=file]{width:100%;padding:10px;background:#0f3460;border:1px solid #1a5276;
+                   border-radius:6px;color:#e0e0e0;cursor:pointer;margin-bottom:20px}
+  button{width:100%;padding:12px;background:#2196f3;color:#fff;font-size:1rem;font-weight:bold;
+         border:none;border-radius:6px;cursor:pointer;transition:background .2s}
+  button:hover{background:#1565c0}
+  button:disabled{background:#555;cursor:not-allowed}
+  .bar-wrap{margin-top:16px}
+  .bar-label{font-size:.75rem;color:#aaa;margin-bottom:4px;display:flex;justify-content:space-between}
+  .bar-bg{background:#0f3460;border-radius:4px;height:10px;overflow:hidden}
+  .bar{width:0%;height:100%;transition:width .4s}
+  .bar-upload{background:#42a5f5}
+  .bar-flash{background:#66bb6a}
+  #status{margin-top:16px;font-size:.85rem;text-align:center;min-height:1.2em;color:#aaa}
+  .ok{color:#66bb6a!important}.err{color:#ef5350!important}
+</style></head><body>
+<div class="card">
+  <h2>H2 Firmware Update</h2>
+  <p>Select compiled <code>.bin</code> for the ESP32-H2 coordinator and click Flash.</p>
+  <label>Firmware file</label>
+  <input type="file" id="fw" accept=".bin">
+  <button id="btn" onclick="go()">Flash to H2</button>
+
+  <div class="bar-wrap" id="wrap-upload" style="display:none">
+    <div class="bar-label"><span>Upload zum S3</span><span id="pct-upload">0%</span></div>
+    <div class="bar-bg"><div class="bar bar-upload" id="bar-upload"></div></div>
+  </div>
+
+  <div class="bar-wrap" id="wrap-flash" style="display:none">
+    <div class="bar-label"><span>Flash auf H2</span><span id="pct-flash">0%</span></div>
+    <div class="bar-bg"><div class="bar bar-flash" id="bar-flash"></div></div>
+  </div>
+
+  <div id="status"></div>
+</div>
+<script>
+var pollTimer=null;
+
+function setStatus(msg,cls){var s=document.getElementById('status');s.textContent=msg;s.className=cls||'';}
+
+function setUpload(p){
+  document.getElementById('wrap-upload').style.display='block';
+  document.getElementById('bar-upload').style.width=p+'%';
+  document.getElementById('pct-upload').textContent=p+'%';
+}
+function setFlash(written,total){
+  var p=total>0?Math.round(written/total*100):0;
+  document.getElementById('wrap-flash').style.display='block';
+  document.getElementById('bar-flash').style.width=p+'%';
+  document.getElementById('pct-flash').textContent=p+'% ('+Math.round(written/1024)+'/'+ Math.round(total/1024)+' KB)';
+}
+
+function pollFlash(){
+  fetch('/api/h2/ota/status')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.active){
+        setFlash(d.written,d.total);
+        setStatus('Flashing...');
+      } else {
+        setFlash(d.written,d.total);
+        clearInterval(pollTimer);
+        if(d.written>0 && d.written>=d.total){
+          setStatus('H2 flashed successfully - rebooting!','ok');
+        } else {
+          setStatus('Flash abgeschlossen.','ok');
+        }
+      }
+    })
+    .catch(function(){});
+}
+
+function go(){
+  var f=document.getElementById('fw').files[0];
+  if(!f){setStatus('Please select a .bin file.','err');return;}
+  document.getElementById('btn').disabled=true;
+  setUpload(0);
+  setStatus('Uploading...');
+
+  var fd=new FormData();fd.append('firmware',f);
+  var xhr=new XMLHttpRequest();
+  xhr.open('POST','/api/h2/ota/upload');
+  xhr.upload.onprogress=function(e){
+    if(e.lengthComputable) setUpload(Math.round(e.loaded/e.total*100));
+  };
+  xhr.onload=function(){
+    setUpload(100);
+    if(xhr.status===202){
+      setStatus('Upload done - flashing H2...');
+      pollTimer=setInterval(pollFlash,1000);
+    } else {
+      setStatus('Fehler: '+xhr.responseText,'err');
+      document.getElementById('btn').disabled=false;
+    }
+  };
+  xhr.onerror=function(){setStatus('Netzwerkfehler.','err');document.getElementById('btn').disabled=false;};
+  xhr.send(fd);
+}
+</script></body></html>
+)rawliteral";
+
+static uint8_t* g_h2_upload_buf = nullptr;
+static size_t   g_h2_upload_pos = 0;
+static bool     g_h2_upload_ok  = false;
+
+static void handleH2OtaStatus(AsyncWebServerRequest *request)
+{
+    char buf[96];
+    size_t w = h2_ota_written();
+    size_t t = h2_ota_total();
+    snprintf(buf, sizeof(buf),
+             "{\"active\":%s,\"written\":%u,\"total\":%u}",
+             h2_ota_in_progress() ? "true" : "false",
+             (unsigned)w, (unsigned)t);
+    request->send(200, "application/json", buf);
+}
+
+static void handleH2OtaPage(AsyncWebServerRequest *request)
+{
+    request->send(200, "text/html", H2_OTA_HTML);
+}
+
+static void handleH2OtaUploadDone(AsyncWebServerRequest *request)
+{
+    if (g_h2_upload_ok) {
+        request->send(202, "application/json", "{\"status\":\"started\"}");
+    } else {
+        request->send(500, "application/json", "{\"error\":\"upload or ota start failed\"}");
+    }
+    g_h2_upload_ok = false;
+}
+
+static void handleH2OtaUploadBody(AsyncWebServerRequest *request,
+                                   const String& /*filename*/,
+                                   size_t index, uint8_t *data, size_t len, bool final)
+{
+    static constexpr size_t MAX_FW = 1536 * 1024; // 1.5 MB — well above H2 OTA partition
+
+    if (index == 0) {
+        // Abort any stale buffer
+        if (g_h2_upload_buf) { heap_caps_free(g_h2_upload_buf); g_h2_upload_buf = nullptr; }
+        g_h2_upload_pos = 0;
+        g_h2_upload_ok  = false;
+        g_h2_upload_buf = (uint8_t*)heap_caps_malloc(MAX_FW, MALLOC_CAP_SPIRAM);
+        if (!g_h2_upload_buf) {
+            logger.warning("[H2-OTA] PSRAM alloc failed");
+            return;
+        }
+    }
+
+    if (!g_h2_upload_buf) return; // alloc failed earlier
+
+    if (g_h2_upload_pos + len > MAX_FW) {
+        logger.warning("[H2-OTA] firmware too large");
+        heap_caps_free(g_h2_upload_buf); g_h2_upload_buf = nullptr;
+        return;
+    }
+
+    memcpy(g_h2_upload_buf + g_h2_upload_pos, data, len);
+    g_h2_upload_pos += len;
+
+    if (final) {
+        size_t fw_size = g_h2_upload_pos;
+        uint8_t* buf   = g_h2_upload_buf;
+        g_h2_upload_buf = nullptr; // ownership passes to h2_ota
+        g_h2_upload_pos = 0;
+        g_h2_upload_ok  = h2_ota_start_from_buffer(buf, fw_size);
+        if (!g_h2_upload_ok) heap_caps_free(buf);
+        logger.notice("[H2-OTA] upload done: %u bytes, started=%d", (unsigned)fw_size, g_h2_upload_ok);
+    }
+}
+
 void register_webpage_routes(AsyncWebServer& server) {
     g_server = &server;
 
@@ -2005,6 +2402,9 @@ server.addHandler(&g_ws_telnet);
     server.on("/api/fw/status",       HTTP_GET,  handleApiFwStatus);
     server.on("/api/fw/check",        HTTP_POST, handleApiFwCheck);
     server.on("/api/fw/install",      HTTP_POST, handleApiFwInstall);
+    server.on("/h2ota",               HTTP_GET,  handleH2OtaPage);
+    server.on("/api/h2/ota/status",   HTTP_GET,  handleH2OtaStatus);
+    server.on("/api/h2/ota/upload",   HTTP_POST, handleH2OtaUploadDone, handleH2OtaUploadBody);
 
     // Legacy config endpoints (used by index_html JS)
     server.on("/scan",               HTTP_GET,  handleScan);
@@ -2013,6 +2413,7 @@ server.addHandler(&g_ws_telnet);
     server.on("/status",             HTTP_GET,  handleStatus);
     server.on("/toggle",             HTTP_POST, handleToggleFeature);
     server.on("/setBrightness",      HTTP_POST, handleSetBrightness);
+    server.on("/setDimTimeout",      HTTP_POST, handleSetDimTimeout);
     server.on("/configureWireGuard",   HTTP_POST, handleConfigureWireGuard);
     server.on("/configureMQTT",        HTTP_POST, handleConfigureMQTT);
     server.on("/configureWiFiNetworks", HTTP_POST,
