@@ -1420,7 +1420,11 @@ function tnInit(){
         return;
       }
       // --- normal mode keys ---
-      if(e.key==="Enter"){
+      if(e.key==="Tab"){
+        e.preventDefault();
+        const buf=tnInBuf; tnInBuf=''; tnCurPos=0; tnRender();
+        tnSendRaw(buf+"\t");
+      } else if(e.key==="Enter"){
         e.preventDefault(); tnCommit(tnInBuf);
       } else if(e.key==="Backspace"){
         e.preventDefault();
