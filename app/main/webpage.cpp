@@ -1299,13 +1299,29 @@ function tnOpen(){
   tnWs.onclose = ()=>{ tnStatus("WS closed"); tnSetState("WS closed","off"); };
   tnWs.onerror = ()=>{ tnStatus("WS error"); tnSetState("WS error","bad"); };
   tnWs.onmessage = (ev)=>{
-    try{
-      const o = JSON.parse(ev.data);
-      if(o && o.type==="status") tnStatus(o.msg || "status");
-      else if(o && o.type==="data") tnLog(o.data || "");
-      else tnLog(ev.data);
-    }catch(e){
-      tnLog(ev.data);
+    // AsyncWebSocket may coalesce rapid sends into one frame with concatenated
+    // JSON objects. Walk through all JSON objects in the frame.
+    let text = ev.data, i = 0, n = text.length;
+    while (i < n) {
+      while (i < n && text[i] !== '{') i++;
+      if (i >= n) break;
+      // Find end of this JSON object (track depth + skip strings)
+      let depth=0, inStr=false, j=i;
+      for (; j < n; j++) {
+        const c = text[j];
+        if (inStr) { if (c==='\\') j++; else if (c==='"') inStr=false; }
+        else if (c==='"') inStr=true;
+        else if (c==='{') depth++;
+        else if (c==='}' && --depth===0) { j++; break; }
+      }
+      const frag = text.slice(i, j);
+      i = j;
+      try {
+        const o = JSON.parse(frag);
+        if(o && o.type==="status") tnStatus(o.msg || "status");
+        else if(o && o.type==="data") tnLog(o.data || "");
+        else tnLog(frag);
+      } catch(e) { tnLog(frag); }
     }
   };
 }
@@ -1946,33 +1962,27 @@ static void telnet_service() {
         }
 
         if (s.tcp_connected && s.tcp.connected()) {
-            while (s.tcp.available()) {
-                String chunk;
-                chunk.reserve(256);
-                while (s.tcp.available() && chunk.length() < 256) {
-                    uint8_t b = (uint8_t)s.tcp.read();
-                    // Minimal TELNET negotiation handling (IAC)
-                    if (b == 255) { // IAC
-                        // Need at least command + option
-                        while (s.tcp.available() < 2) { break; }
-                        uint8_t cmd = (uint8_t)s.tcp.read();
-                        uint8_t opt = (uint8_t)s.tcp.read();
-
-                        // Respond by refusing options (DO->WONT, WILL->DONT)
-                        if (cmd == 253) { // DO
-                            uint8_t resp[3] = {255, 252, opt}; // WONT
-                            s.tcp.write(resp, 3);
-                        } else if (cmd == 251) { // WILL
-                            uint8_t resp[3] = {255, 254, opt}; // DONT
-                            s.tcp.write(resp, 3);
-                        }
-                        // Drop negotiation bytes from output
-                        continue;
-                    }
-                    chunk += (char)b;
+            // Collect all available TCP bytes into ONE message per tick so the
+            // browser receives a single WebSocket frame (AsyncWebSocket may coalesce
+            // rapid c->text() calls into one frame, breaking JSON.parse).
+            String all_data;
+            all_data.reserve(512);
+            while (s.tcp.available() && all_data.length() < 4096) {
+                uint8_t b = (uint8_t)s.tcp.read();
+                // Minimal TELNET negotiation handling (IAC)
+                if (b == 255) { // IAC
+                    if (s.tcp.available() < 2) continue; // partial — skip
+                    uint8_t cmd = (uint8_t)s.tcp.read();
+                    uint8_t opt = (uint8_t)s.tcp.read();
+                    // Respond by refusing options (DO->WONT, WILL->DONT)
+                    if (cmd == 253) { uint8_t resp[3] = {255, 252, opt}; s.tcp.write(resp, 3); }
+                    else if (cmd == 251) { uint8_t resp[3] = {255, 254, opt}; s.tcp.write(resp, 3); }
+                    // Drop negotiation bytes from output
+                    continue;
                 }
-                if (chunk.length()) telnet_send_data(s.ws, chunk);
+                all_data += (char)b;
             }
+            if (all_data.length()) telnet_send_data(s.ws, all_data);
         } else {
             s.tcp_connected = false;
         }
