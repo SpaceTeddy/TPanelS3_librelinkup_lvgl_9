@@ -220,7 +220,8 @@ void draw_chart_sensor_valid()
 
     bool expired = (sensorState == SENSOR_EXPIRED) ||
                    (sensorState == SENSOR_NOT_AVAILABLE) ||
-                   (sensorState == SENSOR_STARTING);
+                   (sensorState == SENSOR_STARTING) ||
+                   (librelinkup.status().timestamp_status == SENSOR_LOST);
 
     // Note: update_chart_valid_values() invokes switch_sensor_valid_progress_bar()
     // internally for non-expired bars, so we don't call it here too. The
