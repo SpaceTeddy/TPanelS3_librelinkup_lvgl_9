@@ -84,6 +84,16 @@ TPanelS3 tpanels3; ///< TPanelS3 hardware interface instance
 TaskHandle_t LoopTaskHandle = NULL; ///< Main loop task handle
 TaskHandle_t LvglTaskHandle = NULL; ///< LVGL tick task handle
 
+/// @name Main-loop hang detection
+/// @brief Arduino loop() (FSM/glucose fetch) runs on its own task, separate
+/// from LoopTask() (telnet/OTA/MQTT). If loop() blocks forever inside a
+/// network call, telnet keeps working while the FSM silently stops -- this
+/// pair lets LoopTask() notice and log it from the outside.
+/// @{
+static volatile uint32_t g_loop_alive_ms = 0;      ///< millis() at each loop() iteration start
+static TaskHandle_t g_main_loop_task_handle = NULL; ///< Handle of the task running loop(), captured on first iteration
+/// @}
+
 ///////////////////// JSON PARSER ////////////////////
 
 #include <ArduinoJson.h>
@@ -1307,6 +1317,12 @@ void update_glucose_data()
         logger.debug("Fetch graph data (client mode)...");
     }
 
+    // Track loop()-task stack headroom on every fetch cycle. TLS handshakes and
+    // JSON parsing are the most stack-hungry paths here; a shrinking watermark
+    // over time would point to a slow stack-overflow rather than a network hang.
+    logger.debug("loop task stack high water mark: %u words",
+                 (unsigned)uxTaskGetStackHighWaterMark(NULL));
+
     lcd_status_indication(0, 1); // Hide activity indicator
 
     // Refresh cached sensor_runtime from the sensor type. We deliberately do
@@ -1487,9 +1503,17 @@ void glucose_statistics()
  *
  * @warning Do not add blocking operations here
  */
+/// Main-loop stall considered "hung" after this many ms without a heartbeat update.
+static const uint32_t LOOP_HANG_THRESHOLD_MS = 30000;
+/// Minimum gap between repeated hang log lines, to avoid flooding the log while stuck.
+static const uint32_t LOOP_HANG_LOG_REPEAT_MS = 60000;
+
 void LoopTask(void *pvParameters)
 {
     Serial.println("Loop Task started...");
+
+    uint32_t last_hang_check_ms = 0;
+    uint32_t last_hang_log_ms = 0;
 
     while (1)
     {
@@ -1501,6 +1525,31 @@ void LoopTask(void *pvParameters)
         telnet.loop();
         Shell::loop_all();
         yield();
+
+        // --- loop() hang detection ------------------------------------------
+        // Runs here because this task is independent of the Arduino loop()
+        // task that drives the FSM/glucose fetch: if that task blocks forever
+        // inside a network call, this task keeps running and can report it
+        // (that's also why telnet stays reachable while the FSM appears dead).
+        uint32_t now = millis();
+        if (now - last_hang_check_ms >= 5000)
+        {
+            last_hang_check_ms = now;
+            uint32_t stall_ms = now - g_loop_alive_ms;
+            if (stall_ms >= LOOP_HANG_THRESHOLD_MS &&
+                (now - last_hang_log_ms >= LOOP_HANG_LOG_REPEAT_MS))
+            {
+                last_hang_log_ms = now;
+                UBaseType_t hwm = g_main_loop_task_handle
+                                      ? uxTaskGetStackHighWaterMark(g_main_loop_task_handle)
+                                      : 0;
+                logger.err(
+                    "MAIN LOOP STALLED for %ums (breadcrumb=%s, free_heap=%u, min_free_heap=%u, loop_stack_hwm=%u words)",
+                    stall_ms, librelinkup.breadcrumb(),
+                    (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
+                    (unsigned)hwm);
+            }
+        }
 
         vTaskDelay(pdMS_TO_TICKS(10)); // Don't block task scheduler
     }
@@ -2212,6 +2261,15 @@ void setup()
  */
 void loop()
 {
+    // Heartbeat for the hang-detector in LoopTask(): updated unconditionally
+    // (even during OTA) so a legitimate long-running OTA isn't mistaken for
+    // a stuck FSM/glucose fetch.
+    g_loop_alive_ms = millis();
+    if (g_main_loop_task_handle == NULL)
+    {
+        g_main_loop_task_handle = xTaskGetCurrentTaskHandle();
+    }
+
     // Only run main loop if no OTA update in progress
     if (ota_in_progress == false)
     {
