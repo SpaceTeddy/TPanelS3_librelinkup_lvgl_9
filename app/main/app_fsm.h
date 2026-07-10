@@ -120,6 +120,13 @@ struct AppFsm
 void app_fsm_init(AppFsm &fsm);
 
 /**
+ * @brief Human-readable name for an AppState value (diagnostic use).
+ * @param s State to convert.
+ * @return Null-terminated string literal (e.g. "RUN_IDLE"). Never nullptr.
+ */
+const char* app_fsm_state_name(AppState s);
+
+/**
  * @brief Polls the FSM to handle state transitions and timeouts.
  *
  * This function should be called regularly (e.g., from the main loop) to allow the FSM

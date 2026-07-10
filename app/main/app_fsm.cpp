@@ -56,6 +56,9 @@ extern uint8_t esp_status_counter_wg_reinit;
 extern void start_ap_mode();
 extern bool g_force_ap_mode;
 
+// Diagnostic breadcrumb for the main-loop hang detector (main.cpp).
+extern volatile const char* g_loop_breadcrumb;
+
 // Backlight PWM
 extern void ledcWrite(uint8_t channel, uint32_t duty);
 
@@ -115,6 +118,11 @@ static const char* app_state_to_string(AppState s)
     case AppState::FW_INSTALLING:   return "FW_INSTALLING";
     default:                        return "UNKNOWN";
     }
+}
+
+const char* app_fsm_state_name(AppState s)
+{
+    return app_state_to_string(s);
 }
 
 /** @brief Return @p r if non-empty, otherwise "-". Safe to pass nullptr. */
@@ -613,7 +621,8 @@ void app_fsm_poll(AppFsm &fsm)
         if (should_wg_check(fsm))
         {
             fsm.last_wg_check_ms = millis();
-    
+
+            g_loop_breadcrumb = "fsm.vpn.ensure_wg_ok";
             if (!ensure_wireguard_ok(fsm))
             {
                 // If WG setup is currently in progress, don't treat as failure.
@@ -631,6 +640,7 @@ void app_fsm_poll(AppFsm &fsm)
                 break;
             }
         }
+        g_loop_breadcrumb = "idle";
         enter_state(fsm, AppState::MQTT_CONNECT, (settings.config.wg_mode == 1) ? "WG OK" : "WG OFF");
         break;
     }
@@ -642,7 +652,7 @@ void app_fsm_poll(AppFsm &fsm)
             enter_state(fsm, AppState::RUN_IDLE, "MQTT OFF");
             break;
         }
-    
+
         if (mqtt_ok())
         {
             fsm.consecutive_failures = 0;
@@ -651,10 +661,12 @@ void app_fsm_poll(AppFsm &fsm)
             enter_state(fsm, AppState::RUN_IDLE, "MQTT OK");
             break;
         }
-    
+
         // Step-wise connect attempts (bounded time, avoids long blocking loops)
+        g_loop_breadcrumb = "fsm.mqtt.connect_step";
         if (mqtt_connect_step(fsm, fsm.cfg.mqtt_connect_timeout_ms))
         {
+            g_loop_breadcrumb = "idle";
             fsm.consecutive_failures = 0;
             fsm.mqtt_connect_started_ms = 0;
             fsm.last_mqtt_attempt_ms = 0;
@@ -666,10 +678,12 @@ void app_fsm_poll(AppFsm &fsm)
         if (fsm.mqtt_connect_started_ms != 0 &&
             (millis() - fsm.mqtt_connect_started_ms) < fsm.cfg.mqtt_connect_timeout_ms)
         {
+            g_loop_breadcrumb = "idle";
             break;
         }
-    
+
         // Timed out -> backoff
+        g_loop_breadcrumb = "idle";
         fsm.mqtt_connect_started_ms = 0;
         fsm.last_mqtt_attempt_ms = 0;
         fsm.consecutive_failures++;

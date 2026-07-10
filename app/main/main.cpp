@@ -92,6 +92,10 @@ TaskHandle_t LvglTaskHandle = NULL; ///< LVGL tick task handle
 /// @{
 static volatile uint32_t g_loop_alive_ms = 0;      ///< millis() at each loop() iteration start
 static TaskHandle_t g_main_loop_task_handle = NULL; ///< Handle of the task running loop(), captured on first iteration
+/// General-purpose marker for blocking calls outside librelinkup (e.g. post-fetch
+/// UI/LittleFS work, WireGuard check, MQTT connect). See librelinkup.breadcrumb()
+/// for the LibreLinkUp-HTTP-specific counterpart.
+volatile const char* g_loop_breadcrumb = "idle";
 /// @}
 
 ///////////////////// JSON PARSER ////////////////////
@@ -1257,13 +1261,16 @@ void update_five_minute_counter()
     {
         five_minute_chart_update_counter = 5; // Reset to 5 minutes
         logger.debug("Triggering 5-minute chart update...");
+        g_loop_breadcrumb = "fetch.draw_chart_5min";
         draw_chart_glucose_data(1); // Perform 5-minute update
 
         if (librelinkup.status().sensor_state == SENSOR_READY)
         {
+            g_loop_breadcrumb = "fetch.json_logging";
             update_glucose_json_logging();
             //glucose_statistics(); // Print glucose statistics
         }
+        g_loop_breadcrumb = "idle";
     }
 }
 
@@ -1320,10 +1327,12 @@ void update_glucose_data()
     // Track loop()-task stack headroom on every fetch cycle. TLS handshakes and
     // JSON parsing are the most stack-hungry paths here; a shrinking watermark
     // over time would point to a slow stack-overflow rather than a network hang.
-    logger.debug("loop task stack high water mark: %u words",
+    logger.debug("loop task stack high water mark: %u bytes",
                  (unsigned)uxTaskGetStackHighWaterMark(NULL));
 
     lcd_status_indication(0, 1); // Hide activity indicator
+
+    g_loop_breadcrumb = "fetch.post_process";
 
     // Refresh cached sensor_runtime from the sensor type. We deliberately do
     // NOT switch the visible bar here - draw_chart_sensor_valid() below picks
@@ -1388,6 +1397,7 @@ void update_glucose_data()
                       librelinkup.glucose_data().str_trendArrow.c_str(),
                       glucose_delta);
 
+        g_loop_breadcrumb = "fetch.draw_ui";
         draw_labels(true, librelinkup.glucose_data().measurement_color,
                     librelinkup.glucose_data().glucoseMeasurement,
                     librelinkup.glucose_data().str_trendArrow,
@@ -1409,6 +1419,8 @@ void update_glucose_data()
         draw_chart_glucose_data(1);
         */
     }
+
+    g_loop_breadcrumb = "idle";
 }
 
 /**
@@ -1544,8 +1556,10 @@ void LoopTask(void *pvParameters)
                                       ? uxTaskGetStackHighWaterMark(g_main_loop_task_handle)
                                       : 0;
                 logger.err(
-                    "MAIN LOOP STALLED for %ums (breadcrumb=%s, free_heap=%u, min_free_heap=%u, loop_stack_hwm=%u words)",
-                    stall_ms, librelinkup.breadcrumb(),
+                    "MAIN LOOP STALLED for %ums (fsm_state=%s, llu_breadcrumb=%s, loop_breadcrumb=%s, "
+                    "free_heap=%u, min_free_heap=%u, loop_stack_hwm=%u bytes)",
+                    stall_ms, app_fsm_state_name(g_fsm.state),
+                    librelinkup.breadcrumb(), g_loop_breadcrumb,
                     (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
                     (unsigned)hwm);
             }
