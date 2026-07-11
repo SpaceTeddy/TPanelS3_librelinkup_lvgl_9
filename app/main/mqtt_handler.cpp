@@ -33,6 +33,8 @@
 
 extern MQTT              mqtt;
 extern PubSubClient      mqtt_client;
+extern WiFiClient        mqttClient;
+extern volatile const char* g_loop_breadcrumb;
 extern SETTINGS          settings;
 extern HELPER            helper;
 extern LIBRELINKUP       librelinkup;
@@ -128,7 +130,12 @@ static void ha_publish_doc(JsonDocument &doc, const char *ha_type,
              "homeassistant/%s/%s_%s/config", ha_type, dev_id, obj_id);
     String payload;
     serializeJson(doc, payload);
-    mqtt_client.publish(topic, (const uint8_t *)payload.c_str(), payload.length(), true);
+    g_loop_breadcrumb = "mqtt.pub.ha_discovery";
+    if (!mqtt_client.publish(topic, (const uint8_t *)payload.c_str(), payload.length(), true))
+    {
+        logger.warning("MQTT publish HA discovery failed (topic=%s, state=%d)", topic, mqtt_client.state());
+    }
+    g_loop_breadcrumb = "idle";
     logger.notice("HA discovery: %s", topic);
 }
 
@@ -267,15 +274,25 @@ void mqtt_publish()
 
     serializeJson(json_mqtt, mqtt.mqtt_buffer);
     json_mqtt.clear();
-    mqtt_client.publish(
+    g_loop_breadcrumb = "mqtt.pub.status";
+    logger.debug("MQTT publish status: %u bytes", (unsigned)strlen(mqtt.mqtt_buffer));
+    if (!mqtt_client.publish(
         (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_client_data).c_str(),
-        mqtt.mqtt_buffer, false);
+        mqtt.mqtt_buffer, false))
+    {
+        logger.warning("MQTT publish status failed (state=%d)", mqtt_client.state());
+    }
 
     if (settings.config.mqtt_master_mode)
     {
         const String &payload = librelinkup.get_last_graph_json();
         const String  topic   = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
-        mqtt_client.publish(topic.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true);
+        g_loop_breadcrumb = "mqtt.pub.master_graph";
+        logger.debug("MQTT publish master graph: %u bytes", (unsigned)payload.length());
+        if (!mqtt_client.publish(topic.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true))
+        {
+            logger.warning("MQTT publish master graph failed (state=%d)", mqtt_client.state());
+        }
     }
 
     json_mqtt["IP"]   = WiFi.localIP().toString();
@@ -285,9 +302,15 @@ void mqtt_publish()
 
     serializeJson(json_mqtt, mqtt.mqtt_buffer);
     json_mqtt.clear();
-    mqtt_client.publish(
+    g_loop_breadcrumb = "mqtt.pub.network";
+    logger.debug("MQTT publish network: %u bytes", (unsigned)strlen(mqtt.mqtt_buffer));
+    if (!mqtt_client.publish(
         (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_client_network).c_str(),
-        mqtt.mqtt_buffer, false);
+        mqtt.mqtt_buffer, false))
+    {
+        logger.warning("MQTT publish network failed (state=%d)", mqtt_client.state());
+    }
+    g_loop_breadcrumb = "idle";
 }
 
 void update_mqtt_publish()
@@ -425,9 +448,14 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         json_mqtt["cmd_ok"]     = cmd_ok;
         serializeJson(json_mqtt, mqtt.mqtt_buffer);
         json_mqtt.clear();
-        mqtt_client.publish(
+        g_loop_breadcrumb = "mqtt.pub.cmd_ack";
+        if (!mqtt_client.publish(
             (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_rec_toppic).c_str(),
-            mqtt.mqtt_buffer);
+            mqtt.mqtt_buffer))
+        {
+            logger.warning("MQTT publish cmd_ack failed (state=%d)", mqtt_client.state());
+        }
+        g_loop_breadcrumb = "idle";
 
         mqtt.mqtt_incomming_cmd = "";
         mqtt_publish();
@@ -444,6 +472,13 @@ bool setup_mqtt()
     mqtt_client.setBufferSize(16384);
     mqtt_client.setSocketTimeout(3);
     mqtt_client.setKeepAlive(30);
+    // PubSubClient::setSocketTimeout() only bounds its own internal read-polling
+    // loop; publish()/write() call the underlying WiFiClient directly with no
+    // timeout of its own. Set it here so SO_SNDTIMEO/SO_RCVTIMEO are actually
+    // applied to the socket (belt-and-braces: ESP32's lwIP has had bugs where
+    // SO_SNDTIMEO isn't honored on TCP sends, so this is a mitigation, not a
+    // guarantee -- the task watchdog in main.cpp is the real safety net).
+    mqttClient.setTimeout(3);
 
     mqtt.mqtt_client_name = helper.get_flashmemory_id();
     const String clientId = mqtt.mqtt_client_name;

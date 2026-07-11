@@ -28,6 +28,7 @@
 
 #include <Arduino.h>
 #include <string.h>
+#include <esp_task_wdt.h>
 #include "main.h"
 #include "app_fsm.h"
 #include "lvgl.h"
@@ -96,6 +97,10 @@ static TaskHandle_t g_main_loop_task_handle = NULL; ///< Handle of the task runn
 /// UI/LittleFS work, WireGuard check, MQTT connect). See librelinkup.breadcrumb()
 /// for the LibreLinkUp-HTTP-specific counterpart.
 volatile const char* g_loop_breadcrumb = "idle";
+/// Hard task-watchdog timeout for the task running setup()/loop() (FSM/fetch/publish).
+/// Must comfortably exceed any legitimate single blocking step (slow TLS handshake,
+/// firmware chunk download, ...) while still recovering promptly from a true hang.
+static const uint32_t LOOP_TASK_WDT_TIMEOUT_S = 90;
 /// @}
 
 ///////////////////// JSON PARSER ////////////////////
@@ -2171,6 +2176,21 @@ void setup()
     // --- Serial / UART -------------------------------------------------------
     setup_serial(); ///< Initialize USB CDC serial (logging etc.)
 
+    // Report why we rebooted, in case it was the task watchdog below recovering
+    // from a stuck main loop. On a WDT/panic reset, ESP-IDF also writes a full
+    // backtrace to the "coredump" flash partition (already provisioned in
+    // partitions_16mb_ota3m5.csv); retrieve it over USB with `pio run -t coredump`.
+    {
+        esp_reset_reason_t reset_reason = esp_reset_reason();
+        if (reset_reason == ESP_RST_TASK_WDT || reset_reason == ESP_RST_PANIC ||
+            reset_reason == ESP_RST_INT_WDT)
+        {
+            Serial.printf("[BOOT] Last reset was caused by a watchdog/panic (reason=%d) -- "
+                          "the main loop was likely stuck. See the coredump partition for a backtrace.\r\n",
+                          (int)reset_reason);
+        }
+    }
+
     // Optional secondary UART (ESP32H2 <-> ESP32S3 IPC)
     setup_UART_IPC();
 
@@ -2250,6 +2270,14 @@ void setup()
     // ------------------------ Application FSM -------------------------------
     app_fsm_init(g_fsm);
 
+    // --- Task watchdog for this task (setup()/loop(), i.e. the FSM/fetch/publish
+    // path). Hard safety net: if this task doesn't get back to esp_task_wdt_reset()
+    // (called each loop() iteration) within LOOP_TASK_WDT_TIMEOUT_S, ESP-IDF panics
+    // with a full backtrace, writes a coredump to flash, and reboots -- turning a
+    // silent, permanent hang into an automatic recovery plus a diagnosable crash log.
+    esp_task_wdt_init(LOOP_TASK_WDT_TIMEOUT_S, true);
+    esp_task_wdt_add(NULL); // subscribes the calling task (setup()/loop())
+
     // ------------------------ Initial data & UI push -------------------------
     if (settings.config.mqtt_master_mode == true)
     {
@@ -2283,6 +2311,7 @@ void loop()
     {
         g_main_loop_task_handle = xTaskGetCurrentTaskHandle();
     }
+    esp_task_wdt_reset();
 
     // Only run main loop if no OTA update in progress
     if (ota_in_progress == false)
