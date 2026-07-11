@@ -856,7 +856,7 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
         }
         else if (llu_argument == "sim") {
             if (arguments.size() < 2) {
-                shell.println(F("Usage: llu sim <expired|not_available|starting|ready <days>|hours <n>|minutes <n>>"));
+                shell.println(F("Usage: llu sim <expired|not_available|starting <elapsed_min>|ready <days>|hours <n>|minutes <n>>"));
                 return;
             }
             String sub = arguments[1].c_str();
@@ -876,7 +876,10 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
                 shell.println(F("[SIM] sensor_state = SENSOR_NOT_AVAILABLE"));
             } else if (sub == "starting") {
                 st = SENSOR_STARTING;
-                shell.println(F("[SIM] sensor_state = SENSOR_STARTING"));
+                int elapsed_min = (arguments.size() >= 3) ? atoi(arguments[2].c_str()) : 0;
+                librelinkup.sensor_data().sensor_non_activ_unixtime =
+                    (uint32_t)time(nullptr) - (elapsed_min * 60);
+                shell.printfln("[SIM] sensor_state = SENSOR_STARTING, elapsed=%d min", elapsed_min);
             } else if (sub == "ready" && arguments.size() >= 3) {
                 int days = atoi(arguments[2].c_str());
                 st = SENSOR_READY;

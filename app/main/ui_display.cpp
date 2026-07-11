@@ -669,3 +669,155 @@ void update_debug_screen()
     snprintf(buf, sizeof(buf), "Heap: %luKB free", (unsigned long)(ESP.getFreeHeap() / 1024));
     lv_label_set_text(ui_Label_DebugHeap, buf);
 }
+
+///////////////////// SENSOR WARMUP ARC ////////////////////
+
+/*
+ * Sensor Warmup Arc — native LVGL widget, no image asset needed.
+ *
+ * Progress is derived from the REAL elapsed time (sensor_non_activ_unixtime
+ * -> now), not a free-running lv_anim loop, so the arc stays correct across
+ * reboots/reconnects during the 60-minute warmup window. lv_anim is only
+ * used for the soft visual interpolation between two 1s ticks.
+ */
+
+static lv_obj_t *ui_Arc_SensorWarmup = nullptr;
+static lv_obj_t *ui_Label_SensorWarmupTitle = nullptr;
+static lv_obj_t *ui_Label_SensorWarmupTime = nullptr;
+
+// Must match LIBRELINKUP::get_remaining_warmup_time() (librelinkup.cpp).
+static const uint32_t WARMUP_ARC_DURATION_SEC = 60 * 60;
+
+static void warmup_arc_anim_cb(void *obj, int32_t v)
+{
+    lv_arc_set_value((lv_obj_t *)obj, v);
+}
+
+static void warmup_arc_set_active(bool active)
+{
+    if (active)
+    {
+        lv_obj_clear_flag(ui_Arc_SensorWarmup, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Label_SensorWarmupTitle, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Label_SensorWarmupTime, LV_OBJ_FLAG_HIDDEN);
+
+        lv_obj_add_flag(ui_Label_GlucoseValue, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Label_GlucoseDelta, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Label_GlucoseTrendArrow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Label_GlucoseTrendMessage, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Chart_Glucose_5Min, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Chart_x_label_start, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Chart_x_label_middle, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Chart_x_label_end, LV_OBJ_FLAG_HIDDEN);
+
+        // Sensor-validity block bar (day/hour/minute) is a separate widget
+        // group below the chart; NULL hides all of them at once.
+        switch_sensor_valid_progress_bar(NULL);
+    }
+    else
+    {
+        lv_obj_add_flag(ui_Arc_SensorWarmup, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Label_SensorWarmupTitle, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui_Label_SensorWarmupTime, LV_OBJ_FLAG_HIDDEN);
+
+        lv_obj_clear_flag(ui_Label_GlucoseValue, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Label_GlucoseDelta, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Label_GlucoseTrendArrow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Label_GlucoseTrendMessage, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Chart_Glucose_5Min, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Chart_x_label_start, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Chart_x_label_middle, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Chart_x_label_end, LV_OBJ_FLAG_HIDDEN);
+        // Block bar visibility is left to the next draw_chart_sensor_valid()
+        // call (runs every fetch cycle, same cycle that changes sensor_state
+        // away from SENSOR_STARTING) — it already picks the correct bar.
+    }
+}
+
+/**
+ * @brief 1s tick for the sensor-warmup arc. Runs continuously; no-ops when
+ *        the sensor isn't in the SENSOR_STARTING warmup phase.
+ */
+static void warmup_arc_tick_cb(lv_timer_t *)
+{
+    const uint8_t sensor_state = librelinkup.status().sensor_state;
+    const uint32_t activation = librelinkup.sensor_data().sensor_non_activ_unixtime;
+
+    if (sensor_state != SENSOR_STARTING || activation == 0)
+    {
+        warmup_arc_set_active(false);
+        return;
+    }
+
+    const time_t now = time(nullptr);
+    if (now < 1700000000)
+    {
+        // NTP not synced yet — keep last known state rather than showing
+        // a bogus elapsed time computed against an unset clock.
+        return;
+    }
+
+    warmup_arc_set_active(true);
+
+    uint32_t elapsed = (now > (time_t)activation) ? (uint32_t)(now - activation) : 0;
+    if (elapsed > WARMUP_ARC_DURATION_SEC) elapsed = WARMUP_ARC_DURATION_SEC;
+
+    int32_t target = (elapsed * 100) / WARMUP_ARC_DURATION_SEC;
+
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, ui_Arc_SensorWarmup);
+    lv_anim_set_exec_cb(&a, warmup_arc_anim_cb);
+    lv_anim_set_values(&a, lv_arc_get_value(ui_Arc_SensorWarmup), target);
+    lv_anim_set_time(&a, 900); // just under the 1s tick -> no visible jump
+    lv_anim_start(&a);
+
+    uint32_t remaining = WARMUP_ARC_DURATION_SEC - elapsed;
+    lv_label_set_text_fmt(ui_Label_SensorWarmupTime, "%02u:%02u",
+                          (unsigned)(remaining / 60), (unsigned)(remaining % 60));
+}
+
+/**
+ * @brief Creates the sensor-warmup arc widget (hidden by default).
+ *
+ * Call once during UI setup, after ui_init(). Overlays the centre of
+ * ui_Main_screen — the same area occupied by the glucose value/chart, which
+ * are hidden while the arc is shown (see warmup_arc_set_active()).
+ */
+void ui_warmup_screen()
+{
+    ui_Arc_SensorWarmup = lv_arc_create(ui_Main_screen);
+    lv_obj_set_size(ui_Arc_SensorWarmup, 320, 320);
+    lv_obj_center(ui_Arc_SensorWarmup);
+    lv_arc_set_rotation(ui_Arc_SensorWarmup, 270);
+    lv_arc_set_bg_angles(ui_Arc_SensorWarmup, 0, 360);
+    lv_arc_set_range(ui_Arc_SensorWarmup, 0, 100);
+    lv_arc_set_value(ui_Arc_SensorWarmup, 0);
+    lv_obj_remove_style(ui_Arc_SensorWarmup, NULL, LV_PART_KNOB); // pure progress ring, no handle
+    lv_obj_clear_flag(ui_Arc_SensorWarmup, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_set_style_arc_color(ui_Arc_SensorWarmup, lv_color_hex(0x2a2d3a), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ui_Arc_SensorWarmup, 14, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(ui_Arc_SensorWarmup, lv_color_hex(0xFFA500), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(ui_Arc_SensorWarmup, 14, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(ui_Arc_SensorWarmup, true, LV_PART_INDICATOR);
+
+    ui_Label_SensorWarmupTitle = lv_label_create(ui_Main_screen);
+    lv_obj_set_style_text_font(ui_Label_SensorWarmupTitle, &JetBrainsMonoLight32, 0);
+    lv_obj_set_style_text_color(ui_Label_SensorWarmupTitle, lv_color_hex(0xFFA500), 0);
+    lv_obj_align(ui_Label_SensorWarmupTitle, LV_ALIGN_CENTER, 0, -40);
+    lv_label_set_text(ui_Label_SensorWarmupTitle, "Sensor Warmup");
+
+    ui_Label_SensorWarmupTime = lv_label_create(ui_Main_screen);
+    lv_obj_set_style_text_font(ui_Label_SensorWarmupTime, &JetBrainsMonoLight56, 0);
+    lv_obj_set_style_text_color(ui_Label_SensorWarmupTime, lv_color_hex(UI_COLOR_WHITE), 0);
+    lv_obj_align(ui_Label_SensorWarmupTime, LV_ALIGN_CENTER, 0, 20);
+    lv_label_set_text(ui_Label_SensorWarmupTime, "60:00");
+
+    lv_obj_add_flag(ui_Arc_SensorWarmup, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Label_SensorWarmupTitle, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Label_SensorWarmupTime, LV_OBJ_FLAG_HIDDEN);
+
+    lv_timer_create(warmup_arc_tick_cb, 1000, NULL);
+}

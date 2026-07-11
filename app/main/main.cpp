@@ -1664,6 +1664,7 @@ void setup_tpanels3()
 
     // Initialize UI screens
     ui_init();
+    ui_warmup_screen(); // Sensor warmup progress ring (hidden until SENSOR_STARTING)
     lv_label_set_text(ui_Label_WelcomeInfo, "LibreLinkUp\nClient");
     lv_timer_handler(); // Let the GUI do its work
 }
