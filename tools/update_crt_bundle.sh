@@ -14,7 +14,7 @@ echo "Downloading latest Mozilla CA bundle from $CACERT_URL ..."
 curl -sf --max-time 30 "$CACERT_URL" -o "$TMP_DIR/cacert.pem"
 
 echo "Regenerating x509 certificate bundle..."
-(cd "$TMP_DIR" && python3 "$SCRIPT_DIR/gen_crt_bundle.py" -i "$TMP_DIR/cacert.pem" -q)
+(cd "$TMP_DIR" && python3 "$SCRIPT_DIR/gen_crt_bundle.py" -i "$TMP_DIR/cacert.pem" "$SCRIPT_DIR/extra_roots" -q)
 
 OLD_COUNT=0
 if [ -f "$BUNDLE_OUT" ]; then

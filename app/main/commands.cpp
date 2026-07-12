@@ -1036,11 +1036,12 @@ void wgSettingCommand(uuid::console::Shell &shell, const std::vector<std::string
 }
 
 /**
- * @brief Handler for command: `download_ca_to_file <DigiCert|Baltimore|GoogleTrust>`
+ * @brief Handler for command: `download_ca_to_file <DigiCert|GoogleTrust>`
  * @param shell Shell output.
  * @param arguments arguments[0] = certificate preset name.
  *
  * Downloads a known root CA certificate and stores it in LittleFS using LibreLinkUp helper.
+ * Useful as a fallback/diagnostic path alongside the embedded x509 CA bundle.
  */
 void downloadRootCaToFileCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
     if (!arguments.empty()) {
@@ -1050,12 +1051,6 @@ void downloadRootCaToFileCommand(uuid::console::Shell &shell, const std::vector<
                 shell.println(F("DigiCert Global Root G2 certificate downloaded successfully."));
             } else {
                 shell.println(F("Error downloading DigiCert Global Root G2 certificate."));
-            }
-        } else if ((downloadRootCaToFile_argument == "Baltimore")) {
-            if (librelinkup.download_root_ca_to_file(librelinkup.url_dl_BaltimoreCyberTrustRoot, librelinkup.path_root_ca_baltimore) == 1) {
-                shell.println(F("Baltimore CyberTrust Root certificate downloaded successfully."));
-            } else {
-                shell.println(F("Error downloading Baltimore CyberTrust Root certificate."));
             }
         } else if ((downloadRootCaToFile_argument == "GoogleTrust")) {
             if (librelinkup.download_root_ca_to_file(librelinkup.url_dl_GoogleTrustRootR4, librelinkup.path_root_ca_googler4) == 1) {
@@ -1067,7 +1062,7 @@ void downloadRootCaToFileCommand(uuid::console::Shell &shell, const std::vector<
             shell.printfln("invalid argument: %s", downloadRootCaToFile_argument.c_str());
         }
     } else {
-        shell.println(F("command: download_ca_to_file <DigiCert|Baltimore|GoogleTrust>"));
+        shell.println(F("command: download_ca_to_file <DigiCert|GoogleTrust>"));
     }
 }
 
@@ -1095,11 +1090,12 @@ void downloadRootCaFromURLToFileCommand(uuid::console::Shell &shell, const std::
 }
 
 /**
- * @brief Handler for command: `set_ca_from_file <DigiCert|Baltimore|GoogleTrust>`
+ * @brief Handler for command: `set_ca_from_file <DigiCert|GoogleTrust>`
  * @param shell Shell output.
  * @param arguments arguments[0]=certificate preset name
  *
- * Loads a previously downloaded root CA from LittleFS and applies it to the WiFiSecureClient.
+ * Loads a previously downloaded root CA from LittleFS and applies it to the WiFiSecureClient
+ * (overrides the embedded x509 CA bundle on that client instance).
  */
 void setCaFromFileCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
     if (!arguments.empty()) {
@@ -1107,9 +1103,6 @@ void setCaFromFileCommand(uuid::console::Shell &shell, const std::vector<std::st
         if (setRootCaFromFile_argument == "DigiCert") {
             librelinkup.setCAfromfile(librelinkup.get_wifisecureclient(), librelinkup.path_root_ca_dcgrg2);
             shell.println(F("DigiCert Global Root G2 certificate loaded from LittleFS."));
-        } else if ((setRootCaFromFile_argument == "Baltimore")) {
-            librelinkup.setCAfromfile(librelinkup.get_wifisecureclient(), librelinkup.path_root_ca_baltimore);
-            shell.println(F("Baltimore CyberTrust Root certificate loaded from LittleFS."));
         } else if ((setRootCaFromFile_argument == "GoogleTrust")) {
             librelinkup.setCAfromfile(librelinkup.get_wifisecureclient(), librelinkup.path_root_ca_googler4);
             shell.println(F("Google Trust Root R4 certificate loaded from LittleFS."));
@@ -1120,7 +1113,7 @@ void setCaFromFileCommand(uuid::console::Shell &shell, const std::vector<std::st
 }
 
 /**
- * @brief Handler for command: `show_ca_from_file <DigiCert|Baltimore|GoogleTrust>`
+ * @brief Handler for command: `show_ca_from_file <DigiCert|GoogleTrust>`
  * @param shell Shell output.
  * @param arguments arguments[0]=certificate preset name
  *
@@ -1132,9 +1125,6 @@ void showCaFromFileCommand(uuid::console::Shell &shell, const std::vector<std::s
         if (showCaCommand_argument == "DigiCert") {
             librelinkup.showCAfromfile(librelinkup.path_root_ca_dcgrg2);
             shell.println(F("Displayed DigiCert Global Root G2 certificate."));
-        } else if ((showCaCommand_argument == "Baltimore")) {
-            librelinkup.showCAfromfile(librelinkup.path_root_ca_baltimore);
-            shell.println(F("Displayed Baltimore CyberTrust Root certificate."));
         } else if ((showCaCommand_argument == "GoogleTrust")) {
             librelinkup.showCAfromfile(librelinkup.path_root_ca_googler4);
             shell.println(F("Google Trust Root R4 certificate."));
@@ -1604,23 +1594,23 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
         [](Shell &, const SV &, const std::string &) -> SV { return {"enable", "disable"}; });
 
     commands->add_command(uuid::flash_string_vector{F("download_ca_to_file")},
-        uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")},
+        uuid::flash_string_vector{F("<DigiCert|GoogleTrust>")},
         downloadRootCaToFileCommand,
-        [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "Baltimore", "GoogleTrust"}; });
+        [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "GoogleTrust"}; });
 
     commands->add_command(uuid::flash_string_vector{F("download_ca_from_url")},
         uuid::flash_string_vector{F("<https_url>"), F("<littlefs_path>")},
         downloadRootCaFromURLToFileCommand);
 
     commands->add_command(uuid::flash_string_vector{F("set_ca_from_file")},
-        uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")},
+        uuid::flash_string_vector{F("<DigiCert|GoogleTrust>")},
         setCaFromFileCommand,
-        [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "Baltimore", "GoogleTrust"}; });
+        [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "GoogleTrust"}; });
 
     commands->add_command(uuid::flash_string_vector{F("show_ca_from_file")},
-        uuid::flash_string_vector{F("<DigiCert|Baltimore|GoogleTrust>")},
+        uuid::flash_string_vector{F("<DigiCert|GoogleTrust>")},
         showCaFromFileCommand,
-        [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "Baltimore", "GoogleTrust"}; });
+        [](Shell &, const SV &, const std::string &) -> SV { return {"DigiCert", "GoogleTrust"}; });
 
     commands->add_command(uuid::flash_string_vector{F("h2")},
         uuid::flash_string_vector{F("<subcommand>"), F("[args...]")},

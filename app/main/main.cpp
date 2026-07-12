@@ -2090,16 +2090,20 @@ void setup_mdns()
     logger.notice("mDNS responder started ... Hostname: %s", hostname.c_str());
 }
 
+/// Root CA bundle embedded from data/cert/x509_crt_bundle.bin (see platformio.ini embed_files)
+extern const uint8_t x509_crt_bundle_start[] asm("_binary_data_cert_x509_crt_bundle_bin_start");
+
 /**
  * @brief Initializes LibreLinkUp API client
  *
  * If no credentials stored, shows login screen.
- * Otherwise begins API client with region code 2.
+ * Otherwise begins API client and validates its TLS connection against the
+ * embedded root CA bundle instead of a single pinned certificate.
  *
- * @note Region code 2 = Europe
  * @note Login screen displayed if credentials empty
  *
  * @see librelinkup.begin()
+ * @see librelinkup.setCACertBundle()
  */
 void setup_librelinkup()
 {
@@ -2111,7 +2115,8 @@ void setup_librelinkup()
     {
         librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
     }
-    librelinkup.begin(2);
+    librelinkup.begin(3);
+    librelinkup.setCACertBundle(x509_crt_bundle_start);
 }
 
 
