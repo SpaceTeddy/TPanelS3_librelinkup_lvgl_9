@@ -1,0 +1,64 @@
+name: Update x509 CA Bundle
+
+on:
+  schedule:
+    - cron: "17 3 1 * *" # monthly, 1st at 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install cryptography
+
+      - name: Regenerate x509 certificate bundle
+        run: ./tools/update_crt_bundle.sh
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet -- data/cert/x509_crt_bundle.bin; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine certificate count
+        if: steps.diff.outputs.changed == 'true'
+        id: count
+        run: |
+          COUNT=$(python -c "import struct; print(struct.unpack('>H', open('data/cert/x509_crt_bundle.bin','rb').read(2))[0])")
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: update x509 CA bundle"
+          title: "chore: update x509 CA bundle (${{ steps.count.outputs.count }} root CAs)"
+          body: |
+            Automated monthly refresh of `data/cert/x509_crt_bundle.bin` from the
+            current [Mozilla CA bundle](https://curl.se/ca/cacert.pem) (curl.se mirror).
+
+            Contains **${{ steps.count.outputs.count }}** root CAs.
+
+            This only updates the embedded bundle in the repo — it takes effect for
+            devices once a new firmware version is built and released via the
+            existing OTA pipeline.
+          branch: update-crt-bundle
+          delete-branch: true
+          add-paths: |
+            data/cert/x509_crt_bundle.bin
