@@ -2115,8 +2115,11 @@ void setup_librelinkup()
     {
         librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
     }
-    librelinkup.begin(3);
-    librelinkup.setCACertBundle(x509_crt_bundle_start);
+    uint8_t ca_mode = 3; // 0=none, 1=API_ROOT_CA, 2=GoogleTrustService Root R4 from littleFS, 3=bundle
+    librelinkup.begin(ca_mode);
+    if (ca_mode == 3){
+        librelinkup.setCACertBundle(x509_crt_bundle_start);
+    }
 }
 
 
