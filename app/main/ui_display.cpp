@@ -195,6 +195,11 @@ void lcd_status_indication(bool on_off, uint8_t color)
 
 ///////////////////// LIBRELINKUP CHART FUNCTIONS ////////////////////
 
+// Forward decl - defined further down with the rest of the warmup-arc widget
+// code. Called from draw_chart_sensor_valid() to hide the arc in lockstep
+// with showing the bar, instead of waiting for the next 1s warmup tick.
+static void warmup_arc_set_active(bool active);
+
 /**
  * @brief Draws sensor validity progress bar
  *
@@ -213,14 +218,29 @@ void lcd_status_indication(bool on_off, uint8_t color)
  */
 void draw_chart_sensor_valid()
 {
+    const uint8_t sensorState = librelinkup.status().sensor_state;
+
+    // The sensor-warmup arc (ui_display.cpp: warmup_arc_set_active()) owns bar
+    // visibility exclusively while SENSOR_STARTING - it hides all bars and
+    // redraws every 1s tick. Showing the "expired" bar here too raced with
+    // that tick and caused a ~1s flicker of the day bar under the spinner
+    // on every fetch cycle.
+    if (sensorState == SENSOR_STARTING)
+    {
+        return;
+    }
+
+    // Warmup just ended (or wasn't active) - make sure the arc/overlay is
+    // hidden in this same call, so it can't still be showing for up to 1s
+    // after the bar below has already switched to the real value.
+    warmup_arc_set_active(false);
+
     int rawDays = librelinkup.sensor_lifetime().sensor_valid_days;
     int rawHours = librelinkup.sensor_lifetime().sensor_valid_hours;
     int rawMinutes = librelinkup.sensor_lifetime().sensor_valid_minutes;
-    const uint8_t sensorState = librelinkup.status().sensor_state;
 
     bool expired = (sensorState == SENSOR_EXPIRED) ||
                    (sensorState == SENSOR_NOT_AVAILABLE) ||
-                   (sensorState == SENSOR_STARTING) ||
                    (librelinkup.status().timestamp_status == SENSOR_LOST);
 
     // Note: update_chart_valid_values() invokes switch_sensor_valid_progress_bar()
