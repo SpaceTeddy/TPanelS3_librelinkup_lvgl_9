@@ -76,7 +76,7 @@ struct HaSwitch {
 static const HaSensor k_ha_sensors[] = {
     { "glucose",             "Glucose",          false, "{{ value_json.glucoseMeasurement }}", "mg/dL", "",               "measurement" },
     { "glucose_target_high", "Glucose Target High", false, "{{ value_json.glucoseTargetHigh }}", "mg/dL", "", "measurement" },
-    { "glucose_alarm_low",   "Glucose Alarm Low",   false, "{{ value_json.glucoseAlarmLow }}",   "mg/dL", "", "measurement" },
+    { "glucose_target_low",  "Glucose Target Low",  false, "{{ value_json.glucoseTargetLow }}",  "mg/dL", "", "measurement" },
     { "trend",               "Trendarrow",       false, "{{ value_json.trendStr | default(value_json.trendArrow) }}", "", "", "" },
     { "trend_num",           "Trendarrow Value", false, "{{ value_json.trendArrow }}",                                 "", "", "measurement" },
     { "rssi",                "WiFi RSSI",        true,  "{{ value_json.RSSI }}",               "dBm",   "signal_strength", "measurement" },
@@ -265,7 +265,7 @@ void mqtt_publish()
 {
     json_mqtt["glucoseMeasurement"] = librelinkup.glucose_data().glucoseMeasurement;
     json_mqtt["glucoseTargetHigh"]  = librelinkup.glucose_data().glucosetargetHigh;
-    json_mqtt["glucoseAlarmLow"]    = librelinkup.glucose_data().glucoseAlarmLow;
+    json_mqtt["glucoseTargetLow"]   = librelinkup.glucose_data().glucosetargetLow;
     json_mqtt["trendArrow"]         = librelinkup.glucose_data().trendArrow;
     json_mqtt["trendStr"]           = trend_to_str(librelinkup.glucose_data().trendArrow);
     json_mqtt["brightness"]         = settings.config.brightness;
