@@ -15,6 +15,7 @@
 #include <ArduinoJson.h>
 #include <ElegantOTA.h>
 #include <ESPAsyncWebServer.h>
+#include <LittleFS.h>
 #include <WiFi.h>
 #include <time.h>
 
@@ -1698,6 +1699,52 @@ static void handleApiConfig(AsyncWebServerRequest *request) {
     request->send(200, "application/json", web_get_config_json());
 }
 
+static String g_config_restore_body;
+
+/**
+ * @brief Restores settings from a backup JSON (as produced by /api/config).
+ *
+ * Writes the uploaded body straight to the config file and reloads it via
+ * settings.loadConfiguration() — reuses its field parsing/migration logic
+ * instead of duplicating it here. Reboots on success so every subsystem
+ * (WiFi, MQTT, WireGuard) re-initializes from the restored config.
+ */
+static void handleRestoreConfigBody(AsyncWebServerRequest *request,
+                                     uint8_t *data, size_t len,
+                                     size_t index, size_t total)
+{
+    if (!ensureConfigAuth(request)) return;
+
+    if (index == 0) { g_config_restore_body = ""; g_config_restore_body.reserve(total); }
+    for (size_t i = 0; i < len; i++) g_config_restore_body += (char)data[i];
+    if (index + len < total) return;
+
+    JsonDocument doc;
+    if (deserializeJson(doc, g_config_restore_body) || !doc["login_email"].is<const char*>()) {
+        request->send(400, "application/json", "{\"error\":\"Invalid config backup JSON\"}");
+        g_config_restore_body = "";
+        return;
+    }
+
+    File f = LittleFS.open(settings.config_filename, FILE_WRITE);
+    if (!f) {
+        request->send(500, "application/json", "{\"error\":\"Failed to write config file\"}");
+        g_config_restore_body = "";
+        return;
+    }
+    f.print(g_config_restore_body);
+    f.close();
+    g_config_restore_body = "";
+
+    settings.loadConfiguration(settings.config_filename, settings.config);
+    librelinkup.set_credentials(settings.config.login_email, settings.config.login_password);
+
+    logger.notice("Config restored from uploaded backup, rebooting");
+    request->send(200, "application/json", "{\"status\":\"restored\"}");
+    delay(300); // let the telnet/log transport flush the notice above before the reset drops the connection
+    ESP.restart();
+}
+
 static void handleApiFwStatus(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
     maybe_request_h2_info();
@@ -2399,6 +2446,10 @@ server.addHandler(&g_ws_telnet);
     server.on("/api/glucose/history", HTTP_GET, handleApiGlucoseHistory);
     server.on("/api/glucose",         HTTP_GET, handleApiGlucose);
     server.on("/api/config",          HTTP_GET, handleApiConfig);
+    server.on("/api/config/restore",  HTTP_POST,
+              [](AsyncWebServerRequest *request) {},
+              NULL,
+              handleRestoreConfigBody);
     server.on("/api/fw/status",       HTTP_GET,  handleApiFwStatus);
     server.on("/api/fw/check",        HTTP_POST, handleApiFwCheck);
     server.on("/api/fw/install",      HTTP_POST, handleApiFwInstall);

@@ -24,6 +24,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
 <head>
+<meta charset="UTF-8">
 <script>
 (function(){
   // Theme is controlled on the Dashboard. Config page only reads localStorage.
@@ -420,6 +421,17 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         <button type="button" onclick="configureMQTT()">Save MQTT Config</button>
     </form>
+</div>
+
+<div class="container">
+    <h2>Backup</h2>
+    <p style="color:var(--muted);font-size:0.9em;">Downloads all settings (WiFi, LibreLinkUp, MQTT, WireGuard) as a JSON file, including passwords/keys — store it somewhere safe.</p>
+    <button type="button" id="btnBackup" onclick="downloadConfigBackup()">Download Config Backup</button>
+
+    <h2 style="margin-top:1.5em;">Restore</h2>
+    <p style="color:var(--muted);font-size:0.9em;">Loads a previously downloaded backup file and overwrites all current settings. The device reboots automatically afterwards.</p>
+    <input type="file" id="restoreFile" accept="application/json,.json">
+    <button type="button" id="btnRestore" onclick="restoreConfigBackup()">Restore from File</button>
 </div>
 
 </div>
@@ -854,6 +866,55 @@ const char index_html[] PROGMEM = R"rawliteral(
             alert('MQTT configuration saved successfully.');
         })
         .catch(error => console.error('Error saving MQTT configuration:', error));
+    }
+
+    async function downloadConfigBackup() {
+        try {
+            const r = await fetch('/api/config', {cache: 'no-store'});
+            if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
+            const text = await r.text();
+
+            const blob = new Blob([text], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `librelinkup-config-${ts}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Error downloading config backup:', error);
+            alert('Backup failed: ' + error.message);
+        }
+    }
+
+    async function restoreConfigBackup() {
+        const fileInput = document.getElementById('restoreFile');
+        const file = fileInput.files[0];
+        if (!file) {
+            alert('Choose a backup JSON file first.');
+            return;
+        }
+        if (!confirm('This overwrites ALL current settings with the backup file and reboots the device. Continue?')) {
+            return;
+        }
+        try {
+            const text = await file.text();
+            const r = await fetch('/api/config/restore', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: text
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error || `HTTP error! status: ${r.status}`);
+            alert('Settings restored. Device is rebooting...');
+        } catch (error) {
+            console.error('Error restoring config backup:', error);
+            alert('Restore failed: ' + error.message);
+        }
     }
 </script>
 
