@@ -90,6 +90,10 @@ TaskHandle_t LvglTaskHandle = NULL; ///< LVGL tick task handle
 /// ElegantOTA callbacks, which run on the AsyncTCP task and touch LVGL
 /// directly (see ota_handler.cpp). Without this, an OTA starting mid-FSM-cycle
 /// can have two tasks inside LVGL at once, corrupting its internal state.
+/// Recursive: update_ota_progress_screen() (ota_handler.cpp) is also called
+/// from http_update.cpp's custom updater, which runs on this SAME task inside
+/// app_fsm_poll() -- i.e. while loop() already holds this mutex. A plain
+/// mutex would self-deadlock there; recursion lets the same task re-enter.
 SemaphoreHandle_t g_lvgl_mutex = NULL;
 
 /// @name Main-loop hang detection
@@ -1646,7 +1650,7 @@ void setup_littlefs()
  */
 void setup_tpanels3()
 {
-    g_lvgl_mutex = xSemaphoreCreateMutex();
+    g_lvgl_mutex = xSemaphoreCreateRecursiveMutex();
 
     // Create LVGL tick task
     xTaskCreatePinnedToCore(
@@ -2349,7 +2353,7 @@ void loop()
         // Hold g_lvgl_mutex for the whole iteration: app_fsm_poll() below can
         // touch LVGL deep inside its fetch/publish handling, not just the
         // lv_timer_handler() call. See the mutex's declaration comment.
-        xSemaphoreTake(g_lvgl_mutex, portMAX_DELAY);
+        xSemaphoreTakeRecursive(g_lvgl_mutex, portMAX_DELAY);
 
         // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
         zigbee_h2_poll_uart();
@@ -2374,6 +2378,6 @@ void loop()
             update_debug_screen();
         }
 
-        xSemaphoreGive(g_lvgl_mutex);
+        xSemaphoreGiveRecursive(g_lvgl_mutex);
     }
 }
