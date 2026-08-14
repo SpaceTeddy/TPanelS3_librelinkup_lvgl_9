@@ -29,6 +29,7 @@
 #include <Arduino.h>
 #include <string.h>
 #include <esp_task_wdt.h>
+#include <freertos/semphr.h>
 #include "main.h"
 #include "app_fsm.h"
 #include "lvgl.h"
@@ -84,6 +85,12 @@ TPanelS3 tpanels3; ///< TPanelS3 hardware interface instance
 
 TaskHandle_t LoopTaskHandle = NULL; ///< Main loop task handle
 TaskHandle_t LvglTaskHandle = NULL; ///< LVGL tick task handle
+
+/// Serializes LVGL access between loop() (FSM/glucose UI updates) and the
+/// ElegantOTA callbacks, which run on the AsyncTCP task and touch LVGL
+/// directly (see ota_handler.cpp). Without this, an OTA starting mid-FSM-cycle
+/// can have two tasks inside LVGL at once, corrupting its internal state.
+SemaphoreHandle_t g_lvgl_mutex = NULL;
 
 /// @name Main-loop hang detection
 /// @brief Arduino loop() (FSM/glucose fetch) runs on its own task, separate
@@ -1639,6 +1646,7 @@ void setup_littlefs()
  */
 void setup_tpanels3()
 {
+    g_lvgl_mutex = xSemaphoreCreateMutex();
 
     // Create LVGL tick task
     xTaskCreatePinnedToCore(
@@ -1667,6 +1675,16 @@ void setup_tpanels3()
     ui_warmup_screen(); // Sensor warmup progress ring (hidden until SENSOR_STARTING)
     lv_label_set_text(ui_Label_WelcomeInfo, "LibreLinkUp\nClient");
     lv_timer_handler(); // Let the GUI do its work
+
+    // Keep pumping LVGL until the logo fade-in (started in
+    // ui_Welcome_screen_init()) finishes, otherwise the upcoming blocking
+    // setup_wifi() call freezes rendering mid-fade and it jumps straight
+    // to full opacity instead of animating.
+    const uint32_t fade_deadline_ms = millis() + 2000;
+    while (millis() < fade_deadline_ms) {
+        lv_timer_handler();
+        delay(5);
+    }
 }
 
 /**
@@ -2328,6 +2346,11 @@ void loop()
         // NOTE: All other continuous loops run inside LoopTask().
         // Keep this loop short to maintain UI responsiveness.
 
+        // Hold g_lvgl_mutex for the whole iteration: app_fsm_poll() below can
+        // touch LVGL deep inside its fetch/publish handling, not just the
+        // lv_timer_handler() call. See the mutex's declaration comment.
+        xSemaphoreTake(g_lvgl_mutex, portMAX_DELAY);
+
         // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
         zigbee_h2_poll_uart();
 
@@ -2350,5 +2373,7 @@ void loop()
             //logger.debug("1s timer tick: updating debug screen labels...");
             update_debug_screen();
         }
+
+        xSemaphoreGive(g_lvgl_mutex);
     }
 }

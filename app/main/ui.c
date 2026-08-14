@@ -518,6 +518,8 @@ void ui_Welcome_screen_init(void)
     lv_obj_t *ui_Img_WelcomeLogo = lv_image_create(ui_Welcome_screen);
     lv_image_set_src(ui_Img_WelcomeLogo, &ui_img_logo);
     lv_obj_align(ui_Img_WelcomeLogo, LV_ALIGN_CENTER, 0, -120);
+    lv_obj_set_style_opa(ui_Img_WelcomeLogo, LV_OPA_TRANSP, 0);
+    lv_obj_fade_in(ui_Img_WelcomeLogo, 2000, 0);
 
     ui_Label_WelcomeInfo = create_styled_label(ui_Welcome_screen, &JetBrainsMonoLight56,
                                                 UI_COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 75);

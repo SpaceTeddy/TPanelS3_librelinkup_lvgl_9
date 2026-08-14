@@ -19,6 +19,7 @@
 #include <ElegantOTA.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/semphr.h>
 
 #include "lvgl.h"
 #include "ui.h"
@@ -29,6 +30,7 @@ extern bool              ota_in_progress;
 extern bool              g_ap_mode;
 extern TaskHandle_t      LvglTaskHandle;
 extern AsyncWebServer    server;
+extern SemaphoreHandle_t g_lvgl_mutex;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
@@ -51,8 +53,12 @@ uint8_t update_ota_progress_screen(int progress)
 {
     char progress_text[10];
     snprintf(progress_text, sizeof(progress_text), "%d%%", progress);
+
+    xSemaphoreTake(g_lvgl_mutex, portMAX_DELAY);
     lv_label_set_text(ui_Label_FWUpdateProgress_percent, progress_text);
     lv_timer_handler();
+    xSemaphoreGive(g_lvgl_mutex);
+
     delay(5);
     return 1;
 }
@@ -62,6 +68,10 @@ void onOTAStart()
     Serial.println("OTA update started!");
     logger.notice("OTA Update Progress has started");
 
+    // Blocks until loop()'s current FSM iteration (which may still be
+    // touching LVGL) releases g_lvgl_mutex, then hands LVGL over to this
+    // (AsyncTCP) task for the duration of the update.
+    xSemaphoreTake(g_lvgl_mutex, portMAX_DELAY);
     ota_in_progress = 1;
 
     if (lv_screen_active() != ui_FWUpdate_screen)
@@ -70,6 +80,7 @@ void onOTAStart()
         lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
         lv_timer_handler();
     }
+    xSemaphoreGive(g_lvgl_mutex);
 }
 
 void onOTAProgress(size_t current, size_t final)
@@ -89,6 +100,8 @@ void onOTAProgress(size_t current, size_t final)
 void onOTAEnd(bool success)
 {
     vTaskResume(LvglTaskHandle);
+
+    xSemaphoreTake(g_lvgl_mutex, portMAX_DELAY);
     if (!success)
     {
         lv_disp_load_scr(ui_Main_screen);
@@ -104,4 +117,5 @@ void onOTAEnd(bool success)
         lv_task_handler();
         delay(255);
     }
+    xSemaphoreGive(g_lvgl_mutex);
 }
