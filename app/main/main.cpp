@@ -112,6 +112,18 @@ volatile const char* g_loop_breadcrumb = "idle";
 /// Must comfortably exceed any legitimate single blocking step (slow TLS handshake,
 /// firmware chunk download, ...) while still recovering promptly from a true hang.
 static const uint32_t LOOP_TASK_WDT_TIMEOUT_S = 90;
+/// How long `ota_in_progress` may stay set without any progress callback before
+/// loop() force-clears it.
+///
+/// While the flag is set, loop() skips its entire body -- no LVGL, no FSM. That
+/// is correct during a real update, but nothing clears the flag if the update
+/// never finishes: ElegantOTA only calls onOTAEnd() on a completed or explicitly
+/// failed transfer, so an aborted upload (browser tab closed, client Wi-Fi drop
+/// mid-POST) leaves it set forever. The result is a permanently frozen UI while
+/// the heartbeat and task watchdog below keep being fed -- i.e. a silent hang
+/// that neither the stall detector nor the WDT can catch. This bound turns that
+/// into an automatic recovery.
+static const uint32_t OTA_STALL_TIMEOUT_MS = 180000; // 3 min
 /// @}
 
 ///////////////////// JSON PARSER ////////////////////
@@ -216,6 +228,12 @@ const char *tz = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 AsyncWebServer server(80); ///< Async web server for OTA and config
 
 bool ota_in_progress = 0; ///< OTA update in progress flag
+
+/// millis() of the last observed OTA activity (start callback or progress tick).
+/// Written by the ElegantOTA callbacks (ota_handler.cpp, AsyncTCP task) and by
+/// the HTTP self-updater (http_update.cpp); read by loop() to detect a stuck
+/// OTA. Declared volatile because writer and reader are different tasks.
+volatile uint32_t g_ota_activity_ms = 0;
 
 
 ///////////////////// WIFI BACKGROUND SCAN ////////////////////
@@ -890,11 +908,19 @@ static void touch_event_cb(lv_event_t *e)
  */
 void handle_internet_disconnection()
 {
-    static uint8_t counter_internet_offline = 0;
+    // Rate-limit on elapsed time, not on a call counter. The previous guard
+    // was `if (++counter == RECONNECT_WIFI_TIMEOUT_MS / 1000)` with the macro
+    // defined as 1000 -- the divisor evaluated to 1, so *every* call tore the
+    // association down. Since this runs from both the FSM's WIFI_CONNECT path
+    // and update_glucose_data(), that meant a disconnect/reconnect on every
+    // poll, which fights the FSM's own recovery and can keep the link down
+    // indefinitely.
+    static uint32_t last_reconnect_ms = 0;
+    const uint32_t now = millis();
 
-    if (++counter_internet_offline == RECONNECT_WIFI_TIMEOUT_MS / 1000)
+    if (last_reconnect_ms == 0 || (uint32_t)(now - last_reconnect_ms) >= RECONNECT_WIFI_TIMEOUT_MS)
     {
-        counter_internet_offline = 0;
+        last_reconnect_ms = now;
         logger.notice("Client offline -> reconnect to WiFi");
         esp_status_counter_wifi_restart++;
         WiFi.disconnect();
@@ -1321,6 +1347,17 @@ void update_glucose_data()
         return;
     }
 
+    // The LibreLinkUp API is HTTPS and certificate validity is checked against
+    // the system clock, so a fetch before NTP has landed cannot succeed -- it
+    // just burns a full TLS handshake timeout on this task while loop() holds
+    // g_lvgl_mutex, i.e. a frozen UI for nothing. Checked before the activity
+    // indicator goes on so the "*" can never be left lit by this path.
+    if (!helper.timeLooksValid())
+    {
+        logger.warning("Skipping LibreLinkUp fetch: system clock not NTP-synced yet");
+        return;
+    }
+
     glucose_delta = 0;
     lcd_status_indication(1, 1); // Show activity indicator
 
@@ -1328,7 +1365,14 @@ void update_glucose_data()
     if (settings.config.mqtt_master_mode == true)
     {
         logger.debug("Fetch graph data (master mode)...");
-        if (librelinkup.get_graph_data() == 0)
+        // Breadcrumb for the stall detector in LoopTask(): this call is the
+        // longest unbounded blocking step in the whole loop() iteration.
+        // librelinkup.breadcrumb() narrows it further (graph.http_get =
+        // handshake/request, graph.get_string = the unbounded body read).
+        g_loop_breadcrumb = "fetch.get_graph_data";
+        const uint16_t graph_ok = librelinkup.get_graph_data();
+        g_loop_breadcrumb = "idle";
+        if (graph_ok == 0)
         {
             handle_llu_api_error();
             return;
@@ -1535,6 +1579,21 @@ void glucose_statistics()
 static const uint32_t LOOP_HANG_THRESHOLD_MS = 30000;
 /// Minimum gap between repeated hang log lines, to avoid flooding the log while stuck.
 static const uint32_t LOOP_HANG_LOG_REPEAT_MS = 60000;
+/// Hard recovery: reboot once the main loop has been stalled this long.
+///
+/// This is a deliberate second line of defence behind the task watchdog armed in
+/// setup(). It exists because the known worst-case hang is a framework-level
+/// infinite loop we cannot bound from here: HTTPClient::writeToStreamDataBlock()
+/// spins on `while(connected() && (len > 0 || len == -1))` with no time-based
+/// bail-out, and WiFiClientSecure::connected() never goes false on a half-open
+/// TLS connection (mbedTLS keeps returning MBEDTLS_ERR_SSL_WANT_READ, which the
+/// Arduino core does not treat as an error). The loop calls delay(1), so it
+/// yields -- interrupt watchdogs stay quiet and this task keeps running, which
+/// is exactly why the reboot can be issued from here.
+///
+/// Must stay above LOOP_TASK_WDT_TIMEOUT_S so the watchdog (which produces a
+/// coredump/backtrace) gets the first shot; this only fires if that failed.
+static const uint32_t LOOP_HANG_REBOOT_MS = 120000;
 
 void LoopTask(void *pvParameters)
 {
@@ -1560,7 +1619,14 @@ void LoopTask(void *pvParameters)
         // inside a network call, this task keeps running and can report it
         // (that's also why telnet stays reachable while the FSM appears dead).
         uint32_t now = millis();
-        if (now - last_hang_check_ms >= 5000)
+        // Only meaningful once loop() has run at least once. This task is started
+        // from setup_task(), i.e. while setup() is still running and before the
+        // first heartbeat -- without this guard g_loop_alive_ms is still 0 and the
+        // stall would be measured against boot, tripping the reboot below on any
+        // setup() that legitimately takes longer than LOOP_HANG_REBOOT_MS.
+        // Hangs during setup() are covered by the task watchdog instead, which is
+        // armed at the top of setup() and reset between phases.
+        if (g_main_loop_task_handle != NULL && now - last_hang_check_ms >= 5000)
         {
             last_hang_check_ms = now;
             uint32_t stall_ms = now - g_loop_alive_ms;
@@ -1578,6 +1644,23 @@ void LoopTask(void *pvParameters)
                     librelinkup.breadcrumb(), g_loop_breadcrumb,
                     (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
                     (unsigned)hwm);
+            }
+
+            // Hard recovery. The stall detector above only ever logged, so a main
+            // loop stuck in an unbounded framework read loop stayed stuck forever
+            // (telnet alive, UI frozen mid-frame). Reboot instead of hanging.
+            //
+            // Never while an OTA is running: the HTTP self-updater installs from
+            // inside app_fsm_poll(), so loop() legitimately stops iterating for
+            // the whole download+flash. Rebooting there would interrupt a flash
+            // write. loop()'s own stuck-OTA guard covers a wedged ota_in_progress.
+            if (stall_ms >= LOOP_HANG_REBOOT_MS && !ota_in_progress)
+            {
+                logger.err("MAIN LOOP STALLED for %ums (llu_breadcrumb=%s, loop_breadcrumb=%s) -- rebooting",
+                           stall_ms, librelinkup.breadcrumb(), g_loop_breadcrumb);
+                Serial.flush();
+                delay(100); // give the telnet/serial transport a chance to flush
+                ESP.restart();
             }
         }
 
@@ -1853,6 +1936,16 @@ void setup_wifi()
         configTime(0, 0, "pool.ntp.org", "ntp.nict.jp", "time.google.com");
         setenv("TZ", "CET-1CEST,M3.5.0/2,M10.5.0/3", 1);
         tzset();
+
+        // Bounded wait for the clock to actually sync before anything TLS runs.
+        // configTime() is asynchronous, so setup() used to fall through to the
+        // first LibreLinkUp fetch with the clock still at 1970 -- certificate
+        // validity is checked against it, so the handshake fails and (worse)
+        // burns a full handshake timeout on the loop task while the UI is frozen.
+        if (!helper.ensureTimeSynced(20, 250))
+        {
+            logger.warning("[WiFi] NTP not synced within 5s -- TLS requests may fail until it catches up");
+        }
         helper.printLocalTime(0);
 
         // When WireGuard is active, disable WiFi auto-reconnect so that
@@ -2142,6 +2235,14 @@ void setup_librelinkup()
     if (ca_mode == 3){
         librelinkup.setCACertBundle(x509_crt_bundle_start);
     }
+
+    // Cap the TLS handshake. WiFiClientSecure defaults handshake_timeout to
+    // 120 s, and the handshake runs on this (loop) task while it holds
+    // g_lvgl_mutex -- so a blackholed or very slow LibreView endpoint freezes
+    // the UI for two minutes per attempt and blows past the 90 s task watchdog.
+    // NOTE: the setter takes SECONDS (it multiplies by 1000 internally), unlike
+    // the constructor's default which is already in milliseconds.
+    librelinkup.get_wifisecureclient().setHandshakeTimeout(15);
 }
 
 
@@ -2222,27 +2323,53 @@ void setup()
         }
     }
 
+    // --- Task watchdog -------------------------------------------------------
+    // Armed here rather than at the end of setup(): the reported failure mode is
+    // a startup hang, and every phase below (Wi-Fi association, WireGuard
+    // handshake, MQTT connect, the first TLS fetch) can block. Arming late left
+    // all of them unguarded, so a hang before loop() was unrecoverable. Each
+    // phase calls esp_task_wdt_reset() so only a phase that genuinely exceeds
+    // LOOP_TASK_WDT_TIMEOUT_S trips it.
+    //
+    // Return codes are logged because the whole recovery story depends on this
+    // actually being armed -- if a device hangs indefinitely instead of
+    // rebooting, these two lines are the first thing to check.
+    {
+        const esp_err_t wdt_init_err = esp_task_wdt_init(LOOP_TASK_WDT_TIMEOUT_S, true);
+        const esp_err_t wdt_add_err  = esp_task_wdt_add(NULL); // subscribes setup()/loop()
+        Serial.printf("[BOOT] task watchdog: init=%d add=%d timeout=%us panic=on\r\n",
+                      (int)wdt_init_err, (int)wdt_add_err, (unsigned)LOOP_TASK_WDT_TIMEOUT_S);
+    }
+
     // Optional secondary UART (ESP32H2 <-> ESP32S3 IPC)
     setup_UART_IPC();
+    esp_task_wdt_reset();
 
     // --- Storage & Configuration --------------------------------------------
     setup_littlefs();           ///< Mount LittleFS (fail is non-fatal by design)
     setup_load_system_config(); ///< Load configuration from persistent storage
+    esp_task_wdt_reset();
 
     // --- Display / Touch / LVGL ---------------------------------------------
     setup_tpanels3(); ///< Init panel, touch, backlight, LVGL core/UI
+    esp_task_wdt_reset();
 
     // --- Network stack -------------------------------------------------------
     setup_wifi(); ///< Connect to Wi-Fi (or start AP as fallback)
+    esp_task_wdt_reset();
 
     // --- Console / Telnet ----------------------------------------------------
     setup_uuid_console(); ///< Start UUID shell & Telnet service
+    esp_task_wdt_reset();
 
     // --- VPN / mDNS / MQTT / App backends -----------------------------------
     setup_wg(settings.config.wg_mode); ///< Enable/disable WireGuard based on config
+    esp_task_wdt_reset();
     setup_mdns();                      ///< Start mDNS responder
     setup_mqtt();                      ///< Configure and (re)connect MQTT client
+    esp_task_wdt_reset();
     setup_librelinkup();               ///< Initialize LibreLinkUp client
+    esp_task_wdt_reset();
 
     // --- OTA / HTTP server ---------------------------------------------------
     fw_update_init();
@@ -2301,25 +2428,23 @@ void setup()
     // ------------------------ Application FSM -------------------------------
     app_fsm_init(g_fsm);
 
-    // --- Task watchdog for this task (setup()/loop(), i.e. the FSM/fetch/publish
-    // path). Hard safety net: if this task doesn't get back to esp_task_wdt_reset()
-    // (called each loop() iteration) within LOOP_TASK_WDT_TIMEOUT_S, ESP-IDF panics
-    // with a full backtrace, writes a coredump to flash, and reboots -- turning a
-    // silent, permanent hang into an automatic recovery plus a diagnosable crash log.
-    esp_task_wdt_init(LOOP_TASK_WDT_TIMEOUT_S, true);
-    esp_task_wdt_add(NULL); // subscribes the calling task (setup()/loop())
+    // The task watchdog is armed at the top of setup(); this is the last phase
+    // boundary before the first (blocking, TLS) fetch below.
+    esp_task_wdt_reset();
 
     // ------------------------ Initial data & UI push -------------------------
     if (settings.config.mqtt_master_mode == true)
     {
         flag_mqtt_master_rx = false;
         update_glucose_data();          ///< First data fetch from LibreLinkUp backend
+        esp_task_wdt_reset();
         update_five_minute_counter();   ///< Prime 5-minute chart refresh counter
         update_mqtt_publish();          ///< Publish first MQTT snapshot if enabled
         update_glucose_json_logging();  ///< Persist first reading to JSON log
         g_fsm.last_fetch_ms = millis(); ///< Prevent immediate refetch after boot
+        esp_task_wdt_reset();
     }
-    
+
     // Switch to the main screen as the default UI
     lv_disp_load_scr(ui_Main_screen);
     // ------------------------------------------------------------------------
@@ -2343,6 +2468,30 @@ void loop()
         g_main_loop_task_handle = xTaskGetCurrentTaskHandle();
     }
     esp_task_wdt_reset();
+
+    // --- Stuck-OTA guard -----------------------------------------------------
+    // The branch below is skipped entirely while ota_in_progress is set, so a
+    // flag that never gets cleared freezes the UI permanently -- and invisibly,
+    // because this task keeps looping and therefore keeps feeding both the
+    // heartbeat above and the task watchdog. ElegantOTA only calls onOTAEnd()
+    // for a completed or explicitly failed transfer, so an aborted upload leaves
+    // the flag set. Release it once there has been no OTA activity for a while.
+    if (ota_in_progress == true)
+    {
+        const uint32_t last_activity = g_ota_activity_ms;
+        if (last_activity != 0 && (uint32_t)(millis() - last_activity) > OTA_STALL_TIMEOUT_MS)
+        {
+            logger.err("OTA stalled for %ums with no progress -- clearing the OTA guard and resuming",
+                       (unsigned)(millis() - last_activity));
+            ota_in_progress = false;
+            g_ota_activity_ms = 0;
+
+            xSemaphoreTakeRecursive(g_lvgl_mutex, portMAX_DELAY);
+            lv_disp_load_scr(ui_Main_screen);
+            lv_timer_handler();
+            xSemaphoreGiveRecursive(g_lvgl_mutex);
+        }
+    }
 
     // Only run main loop if no OTA update in progress
     if (ota_in_progress == false)

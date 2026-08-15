@@ -11,7 +11,10 @@
 
 #include <Arduino.h>
 
-#define RECONNECT_WIFI_TIMEOUT_MS (1000)    ///< WiFi reconnect timeout in milliseconds
+/// Minimum gap between two forced WiFi.disconnect()/reconnect() attempts.
+/// Tearing the association down fights the FSM's own WIFI_CONNECT recovery, so
+/// this must stay well above a single FSM poll interval.
+#define RECONNECT_WIFI_TIMEOUT_MS (30000)   ///< WiFi reconnect rate limit in milliseconds
 
 extern int16_t glucose_delta;               ///< Change from last reading
 extern uint16_t glucoseMeasurement_backup;  ///< Previous measurement

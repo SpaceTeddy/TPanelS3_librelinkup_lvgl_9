@@ -28,6 +28,7 @@
 #include <HTTPUpdate.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <esp_task_wdt.h>
 #include <freertos/semphr.h>
 
 #include <uuid/log.h>
@@ -35,6 +36,9 @@
 
 extern bool ota_in_progress;
 extern uint8_t update_ota_progress_screen(int progress);
+/// Liveness stamp for loop()'s stuck-OTA guard (main.cpp). This updater sets
+/// ota_in_progress too, so it must keep the stamp fresh for the whole install.
+extern volatile uint32_t g_ota_activity_ms;
 
 #ifndef APP_FIRMWARE_VERSION
 #define APP_FIRMWARE_VERSION "0.0.0-dev"
@@ -176,6 +180,7 @@ static void fw_set_status_locked(const String& status, const String& err = "") {
  */
 static void fw_ui_start_install() {
     ota_in_progress = true;
+    g_ota_activity_ms = millis();
     g_fw_progress_last_log_ms = 0;
     g_fw_progress_last_percent = -1;
 
@@ -198,6 +203,15 @@ static void fw_ui_start_install() {
  * @param total   Total bytes to receive.
  */
 static void fw_ui_progress_update(int current, int total) {
+    g_ota_activity_ms = millis(); // keep loop()'s stuck-OTA guard from firing
+
+    // The install runs synchronously inside app_fsm_poll(), i.e. loop() does not
+    // iterate for the whole download+flash (30-120 s) and therefore never gets
+    // back to its own esp_task_wdt_reset(). Without this the task watchdog would
+    // fire mid-flash on any slow connection. Safe here: this callback runs on the
+    // same task that is subscribed to the watchdog.
+    esp_task_wdt_reset();
+
     if (total <= 0) return;
 
     int progress = (int)(((float)current / (float)total) * 100.0f);

@@ -31,6 +31,10 @@ extern bool              g_ap_mode;
 extern TaskHandle_t      LvglTaskHandle;
 extern AsyncWebServer    server;
 extern SemaphoreHandle_t g_lvgl_mutex;
+/// Liveness stamp read by loop()'s stuck-OTA guard (main.cpp). Must be refreshed
+/// on every OTA lifecycle event, otherwise an aborted upload -- which never
+/// reaches onOTAEnd() -- would leave ota_in_progress set and freeze the UI.
+extern volatile uint32_t g_ota_activity_ms;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
@@ -72,6 +76,7 @@ void onOTAStart()
     // touching LVGL) releases g_lvgl_mutex, then hands LVGL over to this
     // (AsyncTCP) task for the duration of the update.
     xSemaphoreTakeRecursive(g_lvgl_mutex, portMAX_DELAY);
+    g_ota_activity_ms = millis();
     ota_in_progress = 1;
 
     if (lv_screen_active() != ui_FWUpdate_screen)
@@ -85,6 +90,8 @@ void onOTAStart()
 
 void onOTAProgress(size_t current, size_t final)
 {
+    g_ota_activity_ms = millis(); // keep loop()'s stuck-OTA guard from firing
+
     if (millis() - ota_progress_millis > 1000)
     {
         ota_progress_millis = millis();
