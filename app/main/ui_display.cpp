@@ -156,8 +156,9 @@ static void highlight_last_point()
  *                   - 2: Red (0xFF0000) - Error
  *                   - Other: Default to white
  *
- * @note Calls lv_timer_handler() to update display immediately
- * @note 5ms delay ensures display update completes
+ * @note The main loop calls lv_timer_handler() and owns LVGL rendering.
+ *       Do not render synchronously here; this function may be called while
+ *       the fetch path is already updating the UI.
  */
 void lcd_status_indication(bool on_off, uint8_t color)
 {
@@ -189,8 +190,6 @@ void lcd_status_indication(bool on_off, uint8_t color)
         }
         lv_label_set_text(ui_Label_LiebreViewAPIActivity, "*");
     }
-    lv_timer_handler();
-    delay(5);
 }
 
 ///////////////////// LIBRELINKUP CHART FUNCTIONS ////////////////////

@@ -17,8 +17,8 @@
  *
  * Threading: all state is protected by a FreeRTOS mutex (g_fw_update_mutex).
  * fw_update_poll() and the public API are safe to call from a single task.
- * LVGL calls are made from the same task context and require lv_timer_handler()
- * to be driven externally (update_ota_progress_screen handles this).
+ * UI requests are consumed by the Arduino loop task. The HTTPUpdate progress
+ * callback runs synchronously on that same task and may render immediately.
  */
 #include "http_update.h"
 #include "settings.h"
@@ -31,9 +31,9 @@
 #include <freertos/semphr.h>
 
 #include <uuid/log.h>
-#include "ui.h"
+#include "ota_handler.h"
 
-extern bool ota_in_progress;
+extern volatile bool ota_in_progress;
 extern uint8_t update_ota_progress_screen(int progress);
 
 #ifndef APP_FIRMWARE_VERSION
@@ -169,23 +169,17 @@ static void fw_set_status_locked(const String& status, const String& err = "") {
 }
 
 /**
- * @brief Switch to the FW update screen and reset progress state.
+ * @brief Queue the FW update screen and reset progress state.
  *
- * Sets ota_in_progress, loads ui_FWUpdate_screen, and resets the progress
- * tracking variables so the first callback starts from 0%.
+ * Sets ota_in_progress and queues the initial progress state.
  */
 static void fw_ui_start_install() {
     ota_in_progress = true;
     g_fw_progress_last_log_ms = 0;
     g_fw_progress_last_percent = -1;
 
-    if (ui_FWUpdate_screen != nullptr && lv_screen_active() != ui_FWUpdate_screen) {
-        lv_disp_load_scr(ui_FWUpdate_screen);
-    }
-    if (ui_Label_FWUpdateInfo != nullptr) {
-        lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
-    }
-    update_ota_progress_screen(0);
+    ota_ui_request_start();
+    ota_ui_render_now();
 }
 
 /**
@@ -207,6 +201,7 @@ static void fw_ui_progress_update(int current, int total) {
     if (progress != g_fw_progress_last_percent) {
         g_fw_progress_last_percent = progress;
         update_ota_progress_screen(progress);
+        ota_ui_render_now();
     }
 
     const uint32_t now = millis();
@@ -224,9 +219,8 @@ static void fw_ui_progress_update(int current, int total) {
  */
 static void fw_ui_finish_success() {
     update_ota_progress_screen(100);
-    if (ui_Label_FWUpdateInfo != nullptr) {
-        lv_label_set_text(ui_Label_FWUpdateInfo, "FWUpdate successful!\n\nperforming Reset");
-    }
+    ota_ui_request_info("FWUpdate successful!\n\nperforming Reset");
+    ota_ui_render_now();
 }
 
 /**
@@ -234,11 +228,10 @@ static void fw_ui_finish_success() {
  * @param err Human-readable error description shown on-screen.
  */
 static void fw_ui_finish_error(const String& err) {
-    if (ui_Label_FWUpdateInfo != nullptr) {
-        String info = "FWUpdate failed:\n";
-        info += err;
-        lv_label_set_text(ui_Label_FWUpdateInfo, info.c_str());
-    }
+    String info = "FWUpdate failed:\n";
+    info += err;
+    ota_ui_request_info(info.c_str());
+    ota_ui_render_now();
 }
 
 /**

@@ -38,7 +38,7 @@ extern volatile const char* g_loop_breadcrumb;
 extern SETTINGS          settings;
 extern HELPER            helper;
 extern LIBRELINKUP       librelinkup;
-extern bool              ota_in_progress;
+extern volatile bool     ota_in_progress;
 extern IPAddress         local_ip;
 extern AppFsm            g_fsm;
 extern bool              flag_mqtt_master_rx;

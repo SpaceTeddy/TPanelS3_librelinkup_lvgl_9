@@ -108,6 +108,37 @@ static TaskHandle_t g_main_loop_task_handle = NULL; ///< Handle of the task runn
 /// UI/LittleFS work, WireGuard check, MQTT connect). See librelinkup.breadcrumb()
 /// for the LibreLinkUp-HTTP-specific counterpart.
 volatile const char* g_loop_breadcrumb = "idle";
+
+// LVGL render/flush trace used by the main-loop stall watchdog. These
+// callbacks do not log or mutate LVGL; they only leave a breadcrumb so a
+// blocked lv_timer_handler() can be located more precisely.
+static void lvgl_trace_event_cb(lv_event_t *event)
+{
+    switch (lv_event_get_code(event))
+    {
+    case LV_EVENT_RENDER_START:
+        g_loop_breadcrumb = "loop.lvgl.render_start";
+        break;
+    case LV_EVENT_FLUSH_START:
+        g_loop_breadcrumb = "loop.lvgl.flush_start";
+        break;
+    case LV_EVENT_FLUSH_FINISH:
+        g_loop_breadcrumb = "loop.lvgl.flush_finish";
+        break;
+    case LV_EVENT_FLUSH_WAIT_START:
+        g_loop_breadcrumb = "loop.lvgl.flush_wait_start";
+        break;
+    case LV_EVENT_FLUSH_WAIT_FINISH:
+        g_loop_breadcrumb = "loop.lvgl.flush_wait_finish";
+        break;
+    case LV_EVENT_RENDER_READY:
+        g_loop_breadcrumb = "loop.lvgl.render_ready";
+        break;
+    default:
+        break;
+    }
+}
+
 /// Hard task-watchdog timeout for the task running setup()/loop() (FSM/fetch/publish).
 /// Must comfortably exceed any legitimate single blocking step (slow TLS handshake,
 /// firmware chunk download, ...) while still recovering promptly from a true hang.
@@ -215,7 +246,76 @@ const char *tz = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 
 AsyncWebServer server(80); ///< Async web server for OTA and config
 
-bool ota_in_progress = 0; ///< OTA update in progress flag
+volatile bool ota_in_progress = 0; ///< OTA update in progress flag
+static volatile int8_t g_screen_switch_request = 0;
+static volatile bool g_graph_redraw_request = false;
+static volatile int8_t g_sensor_type_display_request = 0;
+
+void request_screen_switch(int direction)
+{
+    if (direction > 0)
+        g_screen_switch_request = 1;
+    else if (direction < 0)
+        g_screen_switch_request = -1;
+}
+
+void request_graph_redraw()
+{
+    g_graph_redraw_request = true;
+}
+
+void request_sensor_type_display(bool libre3_plus)
+{
+    g_sensor_type_display_request = libre3_plus ? 2 : 1;
+}
+
+// Must be called only by the Arduino loop task. Console commands merely queue
+// the direction from LoopTask so they never touch LVGL concurrently.
+static void process_screen_switch_request()
+{
+    const int8_t direction = g_screen_switch_request;
+    g_screen_switch_request = 0;
+    if (direction == 0)
+        return;
+
+    lv_obj_t *active = lv_screen_active();
+    if (direction > 0)
+    {
+        if (active == ui_Main_screen)
+            lv_disp_load_scr(ui_Debug_screen);
+        else if (active == ui_Debug_screen)
+            lv_disp_load_scr(ui_Login_screen);
+        else if (active == ui_Login_screen)
+            lv_disp_load_scr(ui_Main_screen);
+    }
+    else
+    {
+        if (active == ui_Main_screen)
+            lv_disp_load_scr(ui_Login_screen);
+        else if (active == ui_Login_screen)
+            lv_disp_load_scr(ui_Debug_screen);
+        else if (active == ui_Debug_screen)
+            lv_disp_load_scr(ui_Main_screen);
+    }
+}
+
+// These requests originate in console handlers on LoopTask. Apply all LVGL
+// mutations here, from the Arduino loop task only.
+static void process_ui_command_requests()
+{
+    if (g_graph_redraw_request)
+    {
+        g_graph_redraw_request = false;
+        draw_chart_glucose_data(3);
+    }
+
+    const int8_t sensor_type_request = g_sensor_type_display_request;
+    g_sensor_type_display_request = 0;
+    if (sensor_type_request == 1)
+        switch_sensor_valid_progress_bar(&dayBar14);
+    else if (sensor_type_request == 2)
+        switch_sensor_valid_progress_bar(&dayBar15);
+}
 
 
 ///////////////////// WIFI BACKGROUND SCAN ////////////////////
@@ -1317,12 +1417,12 @@ void update_glucose_data()
     // Check WiFi connection first
     if (WiFi.status() != WL_CONNECTED)
     {
+        lcd_status_indication(0, 1);
         handle_internet_disconnection();
         return;
     }
 
     glucose_delta = 0;
-    lcd_status_indication(1, 1); // Show activity indicator
 
     // Fetch graph data from API
     if (settings.config.mqtt_master_mode == true)
@@ -1667,6 +1767,19 @@ void setup_tpanels3()
     tpanels3.initTPanelS3();
     tpanels3.setRotation(0); // optional: 0=portrait, 1=landscape, etc.
 
+    // Trace the LVGL render pipeline so the stall watchdog can distinguish
+    // software rendering from the panel flush callback.
+    lv_display_t *display = lv_display_get_default();
+    if (display != NULL)
+    {
+        lv_display_add_event_cb(display, lvgl_trace_event_cb, LV_EVENT_RENDER_START, NULL);
+        lv_display_add_event_cb(display, lvgl_trace_event_cb, LV_EVENT_FLUSH_START, NULL);
+        lv_display_add_event_cb(display, lvgl_trace_event_cb, LV_EVENT_FLUSH_FINISH, NULL);
+        lv_display_add_event_cb(display, lvgl_trace_event_cb, LV_EVENT_FLUSH_WAIT_START, NULL);
+        lv_display_add_event_cb(display, lvgl_trace_event_cb, LV_EVENT_FLUSH_WAIT_FINISH, NULL);
+        lv_display_add_event_cb(display, lvgl_trace_event_cb, LV_EVENT_RENDER_READY, NULL);
+    }
+
     // Set initial backlight brightness to 45%
     if (settings.config.brightness == 0)
     {
@@ -1685,7 +1798,8 @@ void setup_tpanels3()
     // setup_wifi() call freezes rendering mid-fade and it jumps straight
     // to full opacity instead of animating.
     const uint32_t fade_deadline_ms = millis() + 2000;
-    while (millis() < fade_deadline_ms) {
+    while (millis() < fade_deadline_ms)
+    {
         lv_timer_handler();
         delay(5);
     }
@@ -2344,22 +2458,32 @@ void loop()
     }
     esp_task_wdt_reset();
 
-    // Only run main loop if no OTA update in progress
-    if (ota_in_progress == false)
+    // Apply UI requests produced by OTA callbacks. This is the only place
+    // where the post-setup background-task requests enter LVGL.
+    ota_ui_poll();
+
+    if (ota_in_progress)
+    {
+        // ElegantOTA is handled by LoopTask; keep the update screen alive
+        // here while the application FSM is paused.
+        g_loop_breadcrumb = "loop.lvgl_timer.ota";
+        lv_timer_handler();
+        g_loop_breadcrumb = "idle";
+        delay(1);
+        return;
+    }
+
     {
         // NOTE: All other continuous loops run inside LoopTask().
         // Keep this loop short to maintain UI responsiveness.
-
-        // Hold g_lvgl_mutex for the whole iteration: app_fsm_poll() below can
-        // touch LVGL deep inside its fetch/publish handling, not just the
-        // lv_timer_handler() call. See the mutex's declaration comment.
-        xSemaphoreTakeRecursive(g_lvgl_mutex, portMAX_DELAY);
 
         // --- UART IPC (ESP32H2 <-> ESP32S3) -------------------------------------
         zigbee_h2_poll_uart();
 
         // --- LVGL: let the GUI process pending work ------------------------------
+        g_loop_breadcrumb = "loop.lvgl_timer";
         lv_timer_handler();
+        g_loop_breadcrumb = "idle";
         delay(1);
 
         if (g_sim_sensor_pending) {
@@ -2368,7 +2492,11 @@ void loop()
         }
 
         // --- Application state machine (connectivity/fetch/publish) -----------------
+        g_loop_breadcrumb = "loop.app_fsm";
         app_fsm_poll(g_fsm);
+        g_loop_breadcrumb = "idle";
+
+        process_ui_command_requests();
 
         // 1 s tick: update debug view labels if visible (and not during OTA)
         if (flag_debug_screen == true)
@@ -2378,6 +2506,6 @@ void loop()
             update_debug_screen();
         }
 
-        xSemaphoreGiveRecursive(g_lvgl_mutex);
+        process_screen_switch_request();
     }
 }

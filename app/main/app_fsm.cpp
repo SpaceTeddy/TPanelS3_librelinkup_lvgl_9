@@ -29,7 +29,7 @@ extern SETTINGS settings;
 extern MQTT mqtt;
 extern PubSubClient mqtt_client;
 
-extern bool ota_in_progress;
+extern volatile bool ota_in_progress;
 extern bool flag_debug_screen;
 
 // Existing setup/actions you already have:
@@ -171,6 +171,12 @@ static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nu
     fsm.last_state_change_ms = millis();
     fsm.state_change_counter++;
     fsm.last_transition_reason = reason;
+
+    // Set the API activity indicator one loop before RUN_FETCH executes.
+    // The next normal loop iteration renders it, then the fetch may block in
+    // the API without requiring a nested lv_timer_handler() call.
+    if (new_state == AppState::RUN_FETCH)
+        lcd_status_indication(1, 1);
 
     logger.notice(
         "[FSM] %2u %-14s -> %2u %-14s | reason=%-15s | run=%6lums",

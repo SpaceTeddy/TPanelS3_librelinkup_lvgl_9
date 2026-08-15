@@ -24,7 +24,6 @@
 #include "ui.h"
 #include "ui_display.h"
 #include <LittleFS.h>
-#include <lvgl.h>
 #include "tpanels3.h"
 
 #include <cstdarg> // for va_list, va_start, va_end
@@ -286,21 +285,9 @@ void switch_screensCommand(uuid::console::Shell &shell, const std::vector<std::s
         String screen_argument = arguments[0].c_str(); // next or previous
 
         if (screen_argument == "next") {
-            if (lv_scr_act() == ui_Main_screen) {
-                lv_disp_load_scr(ui_Debug_screen);
-            } else if (lv_scr_act() == ui_Debug_screen) {
-                lv_disp_load_scr(ui_Login_screen);
-            } else if (lv_scr_act() == ui_Login_screen) {
-                lv_disp_load_scr(ui_Main_screen);
-            }
+            request_screen_switch(1);
         } else if ((screen_argument == "prev")) {
-            if (lv_scr_act() == ui_Main_screen) {
-                lv_disp_load_scr(ui_Login_screen);
-            } else if (lv_scr_act() == ui_Login_screen) {
-                lv_disp_load_scr(ui_Debug_screen);
-            } else if (lv_scr_act() == ui_Debug_screen) {
-                lv_disp_load_scr(ui_Main_screen);
-            }
+            request_screen_switch(-1);
         } else {
             shell.printfln("invalid argument: %s", screen_argument.c_str());
         }
@@ -806,7 +793,7 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
                 shell.println(F("No graph data available yet. Run `llu get_graphdata` first."));
                 return;
             }
-            draw_chart_glucose_data(3);
+            request_graph_redraw();
         }
         else if ((llu_argument == "get_graphdata")) {
             shell.println(F("LLU Get GraphData..."));
@@ -934,10 +921,10 @@ void lluSensorTypeCommand(uuid::console::Shell &shell, const std::vector<std::st
 
     if (sensor_type == "Libre3") {
         librelinkup.sensor_data().sensor_runtime = 14 * 86400; // 14 days
-        switch_sensor_valid_progress_bar(&dayBar14);
+        request_sensor_type_display(false);
     } else if ((sensor_type == "Libre3Plus")) {
         librelinkup.sensor_data().sensor_runtime = 15 * 86400; // 15 days
-        switch_sensor_valid_progress_bar(&dayBar15);
+        request_sensor_type_display(true);
     } else {
         shell.printfln("invalid sensor type: %s", sensor_type.c_str());
         return;

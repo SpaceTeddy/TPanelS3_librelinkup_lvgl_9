@@ -13,6 +13,11 @@
 
 #define RECONNECT_WIFI_TIMEOUT_MS (1000)    ///< WiFi reconnect timeout in milliseconds
 
+extern volatile bool ota_in_progress;
+void request_screen_switch(int direction);
+void request_graph_redraw();
+void request_sensor_type_display(bool libre3_plus);
+
 extern int16_t glucose_delta;               ///< Change from last reading
 extern uint16_t glucoseMeasurement_backup;  ///< Previous measurement
 extern String g_h2_fw_version;              ///< Last known H2 firmware version

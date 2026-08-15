@@ -18,23 +18,114 @@
 #include <WiFi.h>
 #include <ElegantOTA.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <freertos/semphr.h>
+#include <freertos/portmacro.h>
 
 #include "lvgl.h"
 #include "ui.h"
 #include "webpage.h"
 #include <uuid/log.h>
 
-extern bool              ota_in_progress;
+extern volatile bool     ota_in_progress;
 extern bool              g_ap_mode;
-extern TaskHandle_t      LvglTaskHandle;
 extern AsyncWebServer    server;
-extern SemaphoreHandle_t g_lvgl_mutex;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
 static uint32_t ota_progress_millis = 0;
+
+// OTA callbacks run on the AsyncTCP task. They only queue state here; LVGL
+// is touched later by ota_ui_poll() from the Arduino loop task.
+static portMUX_TYPE ota_ui_mux = portMUX_INITIALIZER_UNLOCKED;
+static bool ota_ui_start_pending = false;
+static int ota_ui_progress_pending = -1;
+static bool ota_ui_info_pending = false;
+static bool ota_ui_finish_pending = false;
+static bool ota_ui_finish_success = false;
+static char ota_ui_info_text[128] = {};
+
+void ota_ui_request_start()
+{
+    portENTER_CRITICAL(&ota_ui_mux);
+    ota_ui_start_pending = true;
+    ota_ui_progress_pending = 0;
+    portEXIT_CRITICAL(&ota_ui_mux);
+}
+
+void ota_ui_request_progress(int progress)
+{
+    if (progress < 0) progress = 0;
+    if (progress > 100) progress = 100;
+
+    portENTER_CRITICAL(&ota_ui_mux);
+    ota_ui_progress_pending = progress;
+    portEXIT_CRITICAL(&ota_ui_mux);
+}
+
+void ota_ui_request_info(const char *text)
+{
+    portENTER_CRITICAL(&ota_ui_mux);
+    strlcpy(ota_ui_info_text, text ? text : "", sizeof(ota_ui_info_text));
+    ota_ui_info_pending = true;
+    portEXIT_CRITICAL(&ota_ui_mux);
+}
+
+void ota_ui_request_finish(bool success)
+{
+    portENTER_CRITICAL(&ota_ui_mux);
+    ota_ui_finish_success = success;
+    ota_ui_finish_pending = true;
+    portEXIT_CRITICAL(&ota_ui_mux);
+}
+
+void ota_ui_poll()
+{
+    bool start_pending;
+    int progress_pending;
+    bool info_pending;
+    bool finish_pending;
+    bool finish_success;
+    char info_text[sizeof(ota_ui_info_text)];
+
+    portENTER_CRITICAL(&ota_ui_mux);
+    start_pending = ota_ui_start_pending;
+    progress_pending = ota_ui_progress_pending;
+    info_pending = ota_ui_info_pending;
+    finish_pending = ota_ui_finish_pending;
+    finish_success = ota_ui_finish_success;
+    strlcpy(info_text, ota_ui_info_text, sizeof(info_text));
+    ota_ui_start_pending = false;
+    ota_ui_progress_pending = -1;
+    ota_ui_info_pending = false;
+    ota_ui_finish_pending = false;
+    portEXIT_CRITICAL(&ota_ui_mux);
+
+    if (start_pending)
+    {
+        lv_disp_load_scr(ui_FWUpdate_screen);
+        lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
+        lv_label_set_text(ui_Label_FWUpdateProgress_percent, "0%");
+    }
+
+    if (info_pending)
+        lv_label_set_text(ui_Label_FWUpdateInfo, info_text);
+
+    if (progress_pending >= 0)
+    {
+        char progress_text[8];
+        snprintf(progress_text, sizeof(progress_text), "%d%%", progress_pending);
+        lv_label_set_text(ui_Label_FWUpdateProgress_percent, progress_text);
+    }
+
+    if (finish_pending && !finish_success)
+        lv_disp_load_scr(ui_Main_screen);
+}
+
+// Used by the main-task HTTPUpdate path before it blocks for the download.
+void ota_ui_render_now()
+{
+    ota_ui_poll();
+    lv_timer_handler();
+}
 
 void setup_OTA(bool mode)
 {
@@ -51,15 +142,7 @@ void setup_OTA(bool mode)
 
 uint8_t update_ota_progress_screen(int progress)
 {
-    char progress_text[10];
-    snprintf(progress_text, sizeof(progress_text), "%d%%", progress);
-
-    xSemaphoreTakeRecursive(g_lvgl_mutex, portMAX_DELAY);
-    lv_label_set_text(ui_Label_FWUpdateProgress_percent, progress_text);
-    lv_timer_handler();
-    xSemaphoreGiveRecursive(g_lvgl_mutex);
-
-    delay(5);
+    ota_ui_request_progress(progress);
     return 1;
 }
 
@@ -68,19 +151,8 @@ void onOTAStart()
     Serial.println("OTA update started!");
     logger.notice("OTA Update Progress has started");
 
-    // Blocks until loop()'s current FSM iteration (which may still be
-    // touching LVGL) releases g_lvgl_mutex, then hands LVGL over to this
-    // (AsyncTCP) task for the duration of the update.
-    xSemaphoreTakeRecursive(g_lvgl_mutex, portMAX_DELAY);
-    ota_in_progress = 1;
-
-    if (lv_screen_active() != ui_FWUpdate_screen)
-    {
-        lv_disp_load_scr(ui_FWUpdate_screen);
-        lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
-        lv_timer_handler();
-    }
-    xSemaphoreGiveRecursive(g_lvgl_mutex);
+    ota_in_progress = true;
+    ota_ui_request_start();
 }
 
 void onOTAProgress(size_t current, size_t final)
@@ -99,23 +171,11 @@ void onOTAProgress(size_t current, size_t final)
 
 void onOTAEnd(bool success)
 {
-    vTaskResume(LvglTaskHandle);
-
-    xSemaphoreTakeRecursive(g_lvgl_mutex, portMAX_DELAY);
-    if (!success)
+    ota_ui_request_finish(success);
+    if (success)
     {
-        lv_disp_load_scr(ui_Main_screen);
-        lv_timer_handler();
-        delay(5);
-        ota_in_progress = 0;
+        ota_ui_request_progress(100);
+        ota_ui_request_info("FWUpdate successful!\n\nperforming Reset");
     }
-    else
-    {
-        ota_in_progress = 0;
-        lv_label_set_text(ui_Label_FWUpdateProgress_percent, "100%");
-        lv_label_set_text(ui_Label_FWUpdateInfo, "FWUpdate successful!\n\nperforming Reset");
-        lv_task_handler();
-        delay(255);
-    }
-    xSemaphoreGiveRecursive(g_lvgl_mutex);
+    ota_in_progress = false;
 }
