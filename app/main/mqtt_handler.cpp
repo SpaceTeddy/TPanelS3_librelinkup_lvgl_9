@@ -291,11 +291,24 @@ void mqtt_publish()
     {
         const String &payload = librelinkup.get_last_graph_json();
         const String  topic   = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
-        g_loop_breadcrumb = "mqtt.pub.master_graph";
-        logger.debug("MQTT publish master graph: %u bytes", (unsigned)payload.length());
-        if (!mqtt_client.publish(topic.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true))
+
+        // Only publish something a client can actually ingest. After a failed
+        // fetch this is "null" (an empty JsonDocument serializes to that), and
+        // since the topic is retained, publishing it would leave every client
+        // holding that payload until the next good fetch.
+        if (payload.length() < 2 || payload[0] != '{')
         {
-            logger.warning("MQTT publish master graph failed (state=%d)", mqtt_client.state());
+            logger.debug("MQTT publish master graph skipped: no valid graph data (%u bytes)",
+                         (unsigned)payload.length());
+        }
+        else
+        {
+            g_loop_breadcrumb = "mqtt.pub.master_graph";
+            logger.debug("MQTT publish master graph: %u bytes", (unsigned)payload.length());
+            if (!mqtt_client.publish(topic.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true))
+            {
+                logger.warning("MQTT publish master graph failed (state=%d)", mqtt_client.state());
+            }
         }
     }
 

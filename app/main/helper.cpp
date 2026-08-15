@@ -252,10 +252,11 @@ bool HELPER::timeLooksValid(time_t min_valid_epoch)
  * @brief Ensure the system clock is NTP-synchronised, triggering a sync if needed.
  *
  * Returns immediately if timeLooksValid() is already true. Otherwise calls
- * configTime() against pool.ntp.org, ntp.nict.jp, and time.google.com, then
- * polls up to @p max_attempts times.
+ * configTzTime() against pool.ntp.org, ntp.nict.jp, and time.google.com, then
+ * polls up to @p max_attempts times. configTime() must not be used here:
+ * with a zero offset it resets TZ to UTC after the clock starts syncing.
  *
- * @param max_attempts   Maximum polling attempts after configTime() (min 1).
+ * @param max_attempts   Maximum polling attempts after configTzTime() (min 1).
  * @param retry_delay_ms Delay in ms between polls.
  * @return true if the clock is valid after the function returns.
  */
@@ -264,7 +265,10 @@ bool HELPER::ensureTimeSynced(uint8_t max_attempts, uint16_t retry_delay_ms)
     if (timeLooksValid())
         return true;
 
-    configTime(0, 0, "pool.ntp.org", "ntp.nict.jp", "time.google.com");
+    // Keep Central European local time, including the automatic DST change.
+    // configTime(0, 0, ...) would reset TZ to UTC internally.
+    configTzTime("CET-1CEST,M3.5.0/2,M10.5.0/3",
+                 "pool.ntp.org", "ntp.nict.jp", "time.google.com");
 
     if (max_attempts == 0)
         max_attempts = 1;

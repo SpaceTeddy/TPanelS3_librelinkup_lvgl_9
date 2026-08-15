@@ -1637,7 +1637,7 @@ void LoopTask(void *pvParameters)
                 UBaseType_t hwm = g_main_loop_task_handle
                                       ? uxTaskGetStackHighWaterMark(g_main_loop_task_handle)
                                       : 0;
-                logger.err(
+                logger.notice(
                     "MAIN LOOP STALLED for %ums (fsm_state=%s, llu_breadcrumb=%s, loop_breadcrumb=%s, "
                     "free_heap=%u, min_free_heap=%u, loop_stack_hwm=%u bytes)",
                     stall_ms, app_fsm_state_name(g_fsm.state),
@@ -1656,7 +1656,7 @@ void LoopTask(void *pvParameters)
             // write. loop()'s own stuck-OTA guard covers a wedged ota_in_progress.
             if (stall_ms >= LOOP_HANG_REBOOT_MS && !ota_in_progress)
             {
-                logger.err("MAIN LOOP STALLED for %ums (llu_breadcrumb=%s, loop_breadcrumb=%s) -- rebooting",
+                logger.notice("MAIN LOOP STALLED for %ums (llu_breadcrumb=%s, loop_breadcrumb=%s) -- rebooting",
                            stall_ms, librelinkup.breadcrumb(), g_loop_breadcrumb);
                 Serial.flush();
                 delay(100); // give the telnet/serial transport a chance to flush
@@ -1933,12 +1933,13 @@ void setup_wifi()
 
         DBGprint;
         Serial.println("Adjusting system time from ntp server..");
-        configTime(0, 0, "pool.ntp.org", "ntp.nict.jp", "time.google.com");
-        setenv("TZ", "CET-1CEST,M3.5.0/2,M10.5.0/3", 1);
-        tzset();
+        // Synchronize UTC from NTP while keeping the local CET/CEST rule.
+        // configTime(0, 0, ...) resets TZ to UTC internally.
+        configTzTime("CET-1CEST,M3.5.0/2,M10.5.0/3",
+                     "pool.ntp.org", "ntp.nict.jp", "time.google.com");
 
         // Bounded wait for the clock to actually sync before anything TLS runs.
-        // configTime() is asynchronous, so setup() used to fall through to the
+        // configTzTime() is asynchronous, so setup() used to fall through to the
         // first LibreLinkUp fetch with the clock still at 1970 -- certificate
         // validity is checked against it, so the handshake fails and (worse)
         // burns a full handshake timeout on the loop task while the UI is frozen.
