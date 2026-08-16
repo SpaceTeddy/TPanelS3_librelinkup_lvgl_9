@@ -172,6 +172,9 @@ static void enter_state(AppFsm &fsm, AppState new_state, const char* reason = nu
     fsm.state_change_counter++;
     fsm.last_transition_reason = reason;
 
+    if (new_state == AppState::RUN_FETCH)
+        request_lcd_status_indication(true);
+
     logger.notice(
         "[FSM] %2u %-14s -> %2u %-14s | reason=%-15s | run=%6lums",
         (unsigned)old_state,

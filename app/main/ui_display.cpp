@@ -42,6 +42,31 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 // Requests are consumed only by the Arduino loop task while RUN_IDLE.
 // A full redraw (mode 3) has priority over the timer-only redraw (mode 1).
 static volatile uint8_t pending_chart_redraw_mode = 0;
+static volatile bool pending_api_activity_request = false;
+static volatile bool pending_api_activity_visible = false;
+
+void request_lcd_status_indication(bool visible)
+{
+    pending_api_activity_visible = visible;
+    pending_api_activity_request = true;
+}
+
+void process_lcd_status_indication()
+{
+    if (!pending_api_activity_request)
+        return;
+
+    const bool visible = pending_api_activity_visible;
+    pending_api_activity_request = false;
+
+    if (ui_Label_ESP32Connectivity == nullptr)
+        return;
+
+    if (visible)
+        lv_obj_clear_flag(ui_Label_ESP32Connectivity, LV_OBJ_FLAG_HIDDEN);
+    else
+        lv_obj_add_flag(ui_Label_ESP32Connectivity, LV_OBJ_FLAG_HIDDEN);
+}
 
 ///////////////////// CHART HELPER FUNCTIONS ////////////////////
 
@@ -88,7 +113,7 @@ int16_t get_last_valid_x_position(lv_obj_t *chart, lv_chart_series_t *series)
  * @note Automatically hides marker if no valid value exists
  * @note Uses fixed Y-axis range of 40-225 mg/dL
  */
-static void highlight_last_point(uint16_t last_value)
+static void highlight_last_point(lv_coord_t last_value)
 {
     const uint8_t x_pos_offset = 24; ///< X-axis offset for marker centering
     const uint8_t y_pos_offset = 12; ///< Y-axis offset for marker centering
@@ -335,6 +360,18 @@ static void draw_chart_glucose_data_safe(uint8_t mode)
     const uint32_t point_count = lv_chart_get_point_count(ui_Chart_Glucose_5Min);
     const uint32_t history_count = (uint32_t)librelinkup.GRAPHDATAARRAYSIZE;
     const uint32_t last_index = history_count;
+    lv_coord_t marker_value = LV_CHART_POINT_NONE;
+
+    // The warmup overlay is the only mode that intentionally hides the
+    // chart. Restore normal chart visibility after boot/reconnect once the
+    // sensor is no longer in SENSOR_STARTING.
+    if (librelinkup.status().sensor_state != SENSOR_STARTING)
+    {
+        lv_obj_clear_flag(ui_Chart_Glucose_5Min, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Chart_x_label_start, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Chart_x_label_middle, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui_Chart_x_label_end, LV_OBJ_FLAG_HIDDEN);
+    }
 
     if (point_count < last_index + 1U)
     {
@@ -356,6 +393,11 @@ static void draw_chart_glucose_data_safe(uint8_t mode)
 
     if (mode == 0 || mode == 3)
     {
+        // Preserve the original chart alignment without using the legacy
+        // per-point update APIs below.
+        lv_chart_set_x_start_point(ui_Chart_Glucose_5Min,
+                                   glucoseValueSeries_5Min, 0);
+
         for (uint32_t i = 0; i < point_count; ++i)
         {
             upper[i] = librelinkup.glucose_data().glucosetargetHigh;
@@ -410,11 +452,21 @@ static void draw_chart_glucose_data_safe(uint8_t mode)
         }
 
         if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_VALID)
-            values[last_index] = librelinkup.glucose_data().glucoseMeasurement;
+        {
+            marker_value = librelinkup.glucose_data().glucoseMeasurement;
+            values[last_index] = marker_value;
+        }
+
+        // Re-enable only the marker first. It changes one existing child
+        // object, but does not mutate the chart series or child list.
+        highlight_last_point(marker_value);
+
+        // Axis labels are updated after the data and marker, still from the
+        // single-owner RUN_IDLE redraw path.
+        add_axis_labels();
     }
 
-    // First safe step: update only the series data and invalidate once.
-    // Marker and axis labels will be added after repeated redraws are stable.
+    // Update the series and marker, then invalidate exactly once.
     lv_obj_invalidate(ui_Chart_Glucose_5Min);
 }
 

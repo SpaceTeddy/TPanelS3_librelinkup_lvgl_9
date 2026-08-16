@@ -581,11 +581,13 @@ void ui_Main_screen_init(void)
         lv_label_set_text(ui_Label_GlucoseTrendMessage, "");
     }
 
-    // Connectivity indicator
-    ui_Label_ESP32Connectivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight24,
-                                                      UI_COLOR_GREEN, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
+    // API activity indicator. Reuse this existing status label so the
+    // indicator adds no LVGL object and performs no runtime text allocation.
+    ui_Label_ESP32Connectivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
+                                                      0xFFFF00, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
     if (ui_Label_ESP32Connectivity != NULL) {
-        lv_label_set_text(ui_Label_ESP32Connectivity, " ");
+        lv_label_set_text(ui_Label_ESP32Connectivity, "*");
+        lv_obj_add_flag(ui_Label_ESP32Connectivity, LV_OBJ_FLAG_HIDDEN);
     }
     
     // Chart limit labels

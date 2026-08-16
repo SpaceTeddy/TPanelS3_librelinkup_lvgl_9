@@ -23,6 +23,8 @@ void    add_axis_labels();
 void    draw_chart_glucose_data(uint8_t mode);
 void    request_chart_redraw(uint8_t mode);
 void    process_chart_redraw();
+void    request_lcd_status_indication(bool visible);
+void    process_lcd_status_indication();
 void    draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
                     uint16_t _glucose_value, String _trendarrow,
                     String _trendmessage, int16_t delta);

@@ -1019,6 +1019,7 @@ void handle_internet_disconnection()
 void handle_llu_api_error()
 {
     internet_status = 2;
+    request_lcd_status_indication(false);
     librelinkup.reconnect_flag() = 1;
     logger.notice("API Error: get graph data");
 }
@@ -1407,6 +1408,7 @@ void update_glucose_data()
     // Check WiFi connection first
     if (WiFi.status() != WL_CONNECTED)
     {
+        request_lcd_status_indication(false);
         handle_internet_disconnection();
         return;
     }
@@ -1531,6 +1533,8 @@ void update_glucose_data()
     }
 
     g_loop_breadcrumb = "idle";
+
+    request_lcd_status_indication(false);
 
     fetch_ok_counter++;
     logger.notice("Fetch OK counter: %lu", (unsigned long)fetch_ok_counter);
@@ -2494,6 +2498,10 @@ void loop()
         g_loop_breadcrumb = "idle";
 
         process_ui_command_requests();
+
+        // Only toggle the pre-existing indicator object's hidden flag here.
+        // The following loop iteration's lv_timer_handler() renders it.
+        process_lcd_status_indication();
 
         // Chart rendering is deliberately deferred until the FSM is idle.
         // This keeps fetch/publish and LVGL chart mutation on separate loop
