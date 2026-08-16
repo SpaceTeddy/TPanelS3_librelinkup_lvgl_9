@@ -16,7 +16,6 @@
 #include <Arduino.h>
 #include "lvgl.h"
 
-int16_t get_last_valid_x_position(lv_obj_t *chart, lv_chart_series_t *series);
 void    draw_chart_sensor_valid();
 void    format_time_label(char *buffer, size_t buffer_size, time_t timestamp);
 void    add_axis_labels();
