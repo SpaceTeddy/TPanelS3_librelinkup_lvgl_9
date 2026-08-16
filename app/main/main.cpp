@@ -64,6 +64,7 @@ uint8_t esp_status_counter_wifi_restart = 0; ///< WiFi reconnection counter
 uint8_t esp_status_counter_wg_reinit    = 0; ///< WireGuard tunnel reinit counter
 uint8_t esp_status_counter_llu_reauth = 0;   ///< LibreLinkUp re-authentication counter
 uint8_t esp_status_counter_llu_retou = 0;    ///< LibreLinkUp terms of use acceptance counter
+volatile uint32_t fetch_ok_counter = 0;      ///< Successful glucose fetches since boot
 /// @}
 
 ///////////////////// DEBUG MACROS ////////////////////
@@ -306,7 +307,7 @@ static void process_ui_command_requests()
     if (g_graph_redraw_request)
     {
         g_graph_redraw_request = false;
-        draw_chart_glucose_data(3);
+        request_chart_redraw(3);
     }
 
     const int8_t sensor_type_request = g_sensor_type_display_request;
@@ -1013,13 +1014,11 @@ void handle_internet_disconnection()
  * Sets error status flags and triggers sensor reconnect sequence.
  *
  * @note Sets internet_status to 2 (error state)
- * @note Hides LCD status indicator
  * @note Flags sensor for reconnection attempt
  */
 void handle_llu_api_error()
 {
     internet_status = 2;
-    lcd_status_indication(0, 1);
     librelinkup.reconnect_flag() = 1;
     logger.notice("API Error: get graph data");
 }
@@ -1038,7 +1037,7 @@ void handle_sensor_reconnect()
     logger.notice("Sensor reconnect!");
     librelinkup.reconnect_flag() = 0;
     glucose_delta = 0;
-    draw_chart_glucose_data(3);
+    request_chart_redraw(3);
 }
 
 /**
@@ -1064,17 +1063,9 @@ void handle_invalid_timestamp()
                 librelinkup.glucose_data().str_trendArrow,
                 librelinkup.glucose_data().str_TrendMessage, 0);
 
-    // Keep target limit lines visible even if the sensor data timestamp is invalid.
-    draw_chart_glucose_data(3);
-    lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_5Min, LV_CHART_POINT_NONE);
-    lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_alert, LV_CHART_POINT_NONE);
-    lv_chart_set_all_value(ui_Chart_Glucose_5Min, glucoseValueSeries_last, LV_CHART_POINT_NONE);
-    
-    // Hide last point marker since current measurement is not valid
-    lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
-    
-    // Refresh chart to show limit lines and data points
-    lv_obj_invalidate(ui_Chart_Glucose_5Min);
+    // Queue the redraw so the chart is changed only by the main loop while
+    // RUN_IDLE. The safe renderer clears the invalid current point.
+    request_chart_redraw(3);
 
     if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_OUT_OF_RANGE)
     {
@@ -1377,8 +1368,7 @@ void update_five_minute_counter()
     {
         five_minute_chart_update_counter = 5; // Reset to 5 minutes
         logger.debug("Triggering 5-minute chart update...");
-        g_loop_breadcrumb = "fetch.draw_chart_5min";
-        draw_chart_glucose_data(1); // Perform 5-minute update
+        request_chart_redraw(1);
 
         if (librelinkup.status().sensor_state == SENSOR_READY)
         {
@@ -1417,7 +1407,6 @@ void update_glucose_data()
     // Check WiFi connection first
     if (WiFi.status() != WL_CONNECTED)
     {
-        lcd_status_indication(0, 1);
         handle_internet_disconnection();
         return;
     }
@@ -1445,8 +1434,6 @@ void update_glucose_data()
     // over time would point to a slow stack-overflow rather than a network hang.
     logger.debug("loop task stack high water mark: %u bytes",
                  (unsigned)uxTaskGetStackHighWaterMark(NULL));
-
-    lcd_status_indication(0, 1); // Hide activity indicator
 
     g_loop_breadcrumb = "fetch.post_process";
 
@@ -1502,6 +1489,12 @@ void update_glucose_data()
         {
             handle_sensor_reconnect();
         }
+        else if (glucoseMeasurement_backup == 0)
+        {
+            // There is no previous reading after boot. Do not report the
+            // current glucose value as the first delta.
+            glucose_delta = 0;
+        }
         else
         {
             glucose_delta = librelinkup.glucose_data().glucoseMeasurement -
@@ -1519,7 +1512,8 @@ void update_glucose_data()
                     librelinkup.glucose_data().str_trendArrow,
                     librelinkup.glucose_data().str_TrendMessage,
                     glucose_delta);
-        draw_chart_glucose_data(3);
+
+        request_chart_redraw(3);
 
         glucoseMeasurement_backup = librelinkup.glucose_data().glucoseMeasurement;
     }
@@ -1537,6 +1531,9 @@ void update_glucose_data()
     }
 
     g_loop_breadcrumb = "idle";
+
+    fetch_ok_counter++;
+    logger.notice("Fetch OK counter: %lu", (unsigned long)fetch_ok_counter);
 }
 
 /**
@@ -2497,6 +2494,12 @@ void loop()
         g_loop_breadcrumb = "idle";
 
         process_ui_command_requests();
+
+        // Chart rendering is deliberately deferred until the FSM is idle.
+        // This keeps fetch/publish and LVGL chart mutation on separate loop
+        // phases while the safe renderer is being validated.
+        if (g_fsm.state == AppState::RUN_IDLE)
+            process_chart_redraw();
 
         // 1 s tick: update debug view labels if visible (and not during OTA)
         if (flag_debug_screen == true)

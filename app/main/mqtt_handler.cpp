@@ -290,12 +290,19 @@ void mqtt_publish()
     if (settings.config.mqtt_master_mode)
     {
         const String &payload = librelinkup.get_last_graph_json();
-        const String  topic   = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
-        g_loop_breadcrumb = "mqtt.pub.master_graph";
-        logger.debug("MQTT publish master graph: %u bytes", (unsigned)payload.length());
-        if (!mqtt_client.publish(topic.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true))
+        if (payload.length() > 0)
         {
-            logger.warning("MQTT publish master graph failed (state=%d)", mqtt_client.state());
+            const String topic = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
+            g_loop_breadcrumb = "mqtt.pub.master_graph";
+            logger.debug("MQTT publish master graph: %u bytes", (unsigned)payload.length());
+            if (!mqtt_client.publish(topic.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true))
+            {
+                logger.warning("MQTT publish master graph failed (state=%d)", mqtt_client.state());
+            }
+        }
+        else
+        {
+            logger.warning("Skip MQTT master graph: no valid graph data");
         }
     }
 

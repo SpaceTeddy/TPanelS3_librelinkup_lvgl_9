@@ -8,7 +8,6 @@
  * - Sensor validity progress bar (days / hours / minutes)
  * - X-axis time label formatting and placement
  * - Glucose value, trend arrow, and delta label updates
- * - LCD API activity indicator (coloured asterisk)
  * - Debug information screen refresh
  *
  * @author Chris
@@ -39,6 +38,10 @@ extern PubSubClient mqtt_client;
 extern IPAddress    local_ip;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
+
+// Requests are consumed only by the Arduino loop task while RUN_IDLE.
+// A full redraw (mode 3) has priority over the timer-only redraw (mode 1).
+static volatile uint8_t pending_chart_redraw_mode = 0;
 
 ///////////////////// CHART HELPER FUNCTIONS ////////////////////
 
@@ -85,17 +88,14 @@ int16_t get_last_valid_x_position(lv_obj_t *chart, lv_chart_series_t *series)
  * @note Automatically hides marker if no valid value exists
  * @note Uses fixed Y-axis range of 40-225 mg/dL
  */
-static void highlight_last_point()
+static void highlight_last_point(uint16_t last_value)
 {
     const uint8_t x_pos_offset = 24; ///< X-axis offset for marker centering
     const uint8_t y_pos_offset = 12; ///< Y-axis offset for marker centering
 
-    // Get last stored value from array
-    int16_t last_value = librelinkup.sensor_history_data().graph_data[librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1];
-
     // Hide marker if no valid value exists
     if (last_value == LV_CHART_POINT_NONE ||
-        librelinkup.sensor_history_data().graph_data[librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1] == 0)
+        last_value == 0)
     {
         lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
         return;
@@ -135,61 +135,29 @@ static void highlight_last_point()
     // Set marker position
     lv_obj_set_pos(ui_Chart_Glucose_5Min_last_point_marker, x_pos, y_pos);
 
-    // Move marker to foreground layer
-    lv_obj_move_foreground(ui_Chart_Glucose_5Min_last_point_marker);
+    // The marker is created as the last chart child already.  Do not mutate
+    // the chart child list on every fetch while the chart is being refreshed.
 }
 
-///////////////////// STATUS INDICATION ////////////////////
-
-/**
- * @brief Shows/hides LCD API activity status indicator
- *
- * Displays a colored asterisk (*) in the corner to indicate LibreLinkUp
- * API activity and status.
- *
- * @param[in] on_off Enable/disable indicator
- *                   - 0: Hide indicator (blank)
- *                   - 1: Show indicator with color
- * @param[in] color  Color code for indicator
- *                   - 0: Yellow (0xFFFF00) - Warning/Processing
- *                   - 1: White (0xFFFFFF) - Normal
- *                   - 2: Red (0xFF0000) - Error
- *                   - Other: Default to white
- *
- * @note The main loop calls lv_timer_handler() and owns LVGL rendering.
- *       Do not render synchronously here; this function may be called while
- *       the fetch path is already updating the UI.
- */
-void lcd_status_indication(bool on_off, uint8_t color)
+void request_chart_redraw(uint8_t mode)
 {
-    if (on_off == 0)
-    {
-        lv_label_set_text(ui_Label_LiebreViewAPIActivity, " ");
-    }
-    else if (on_off == 1)
-    {
-        switch (color)
-        {
-        case 0:
-            lv_obj_set_style_text_color(ui_Label_LiebreViewAPIActivity,
-                                        lv_color_hex(0xFFFF00), LV_PART_MAIN | LV_STATE_DEFAULT);
-            break;
-        case 1:
-            lv_obj_set_style_text_color(ui_Label_LiebreViewAPIActivity,
-                                        lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-            break;
-        case 2:
-            lv_obj_set_style_text_color(ui_Label_LiebreViewAPIActivity,
-                                        lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
-            break;
+    if (mode != 1 && mode != 3)
+        mode = 3;
 
-        default:
-            lv_obj_set_style_text_color(ui_Label_LiebreViewAPIActivity,
-                                        lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-            break;
-        }
-        lv_label_set_text(ui_Label_LiebreViewAPIActivity, "*");
-    }
+    if (mode > pending_chart_redraw_mode)
+        pending_chart_redraw_mode = mode;
+}
+
+void process_chart_redraw()
+{
+    const uint8_t mode = pending_chart_redraw_mode;
+    pending_chart_redraw_mode = 0;
+
+    if (mode == 0)
+        return;
+
+    logger.debug("Safe chart redraw queued: mode=%u", (unsigned)mode);
+    draw_chart_glucose_data(mode);
 }
 
 ///////////////////// LIBRELINKUP CHART FUNCTIONS ////////////////////
@@ -362,6 +330,94 @@ void add_axis_labels()
     lv_label_set_text(ui_Chart_x_label_end,    labels[2]);
 }
 
+static void draw_chart_glucose_data_safe(uint8_t mode)
+{
+    const uint32_t point_count = lv_chart_get_point_count(ui_Chart_Glucose_5Min);
+    const uint32_t history_count = (uint32_t)librelinkup.GRAPHDATAARRAYSIZE;
+    const uint32_t last_index = history_count;
+
+    if (point_count < last_index + 1U)
+    {
+        logger.warning("Safe chart redraw skipped: point_count=%lu", (unsigned long)point_count);
+        return;
+    }
+
+    lv_coord_t *upper = lv_chart_get_y_array(ui_Chart_Glucose_5Min, glucoseValueSeries_upperlimit);
+    lv_coord_t *lower = lv_chart_get_y_array(ui_Chart_Glucose_5Min, glucoseValueSeries_lowerlimit);
+    lv_coord_t *values = lv_chart_get_y_array(ui_Chart_Glucose_5Min, glucoseValueSeries_5Min);
+    lv_coord_t *alerts = lv_chart_get_y_array(ui_Chart_Glucose_5Min, glucoseValueSeries_alert);
+    lv_coord_t *last = lv_chart_get_y_array(ui_Chart_Glucose_5Min, glucoseValueSeries_last);
+
+    if (!upper || !lower || !values || !alerts || !last)
+    {
+        logger.warning("Safe chart redraw skipped: missing series buffer");
+        return;
+    }
+
+    if (mode == 0 || mode == 3)
+    {
+        for (uint32_t i = 0; i < point_count; ++i)
+        {
+            upper[i] = librelinkup.glucose_data().glucosetargetHigh;
+            lower[i] = librelinkup.glucose_data().glucosetargetLow;
+        }
+    }
+
+    if (mode == 1 || mode == 3)
+    {
+        for (uint32_t i = 0; i < point_count; ++i)
+        {
+            values[i] = LV_CHART_POINT_NONE;
+            alerts[i] = LV_CHART_POINT_NONE;
+            last[i] = LV_CHART_POINT_NONE;
+        }
+
+        const uint8_t data_count = (uint8_t)min((int)librelinkup.check_graphdata(),
+                                                librelinkup.GRAPHDATAARRAYSIZE);
+        const uint32_t sensor_active_time =
+            (librelinkup.sensor_lifetime().sensor_valid_days * 24UL * 60UL * 60UL) +
+            (librelinkup.sensor_lifetime().sensor_valid_hours * 60UL * 60UL) +
+            (librelinkup.sensor_lifetime().sensor_valid_minutes * 60UL);
+        const uint16_t target_high = librelinkup.glucose_data().glucosetargetHigh;
+        const uint16_t target_low = librelinkup.glucose_data().glucosetargetLow;
+        const auto &history = librelinkup.sensor_history_data().graph_data;
+
+        if (sensor_active_time <= librelinkup.TIMEFULLGRAPHDATA)
+        {
+            for (uint32_t index = 0; index < history_count; ++index)
+            {
+                const uint16_t value = history[index];
+                if (value == 0) continue;
+                if (value > target_high || value < target_low)
+                    alerts[index] = value;
+                else
+                    values[index] = value;
+            }
+        }
+        else
+        {
+            for (uint32_t i = 0; i < data_count; ++i)
+            {
+                const uint32_t source_index = (uint32_t)data_count - 1U - i;
+                const uint32_t chart_index = history_count - 1U - i;
+                const uint16_t value = history[source_index];
+                if (value == 0) continue;
+                if (value > target_high || value < target_low)
+                    alerts[chart_index] = value;
+                else
+                    values[chart_index] = value;
+            }
+        }
+
+        if (librelinkup.status().timestamp_status == SENSOR_TIMECODE_VALID)
+            values[last_index] = librelinkup.glucose_data().glucoseMeasurement;
+    }
+
+    // First safe step: update only the series data and invalidate once.
+    // Marker and axis labels will be added after repeated redraws are stable.
+    lv_obj_invalidate(ui_Chart_Glucose_5Min);
+}
+
 /**
  * @brief Draws glucose chart with historical data
  *
@@ -377,6 +433,9 @@ void add_axis_labels()
  */
 void draw_chart_glucose_data(uint8_t mode)
 {
+    draw_chart_glucose_data_safe(mode);
+    return;
+#if 0
     if (mode == 0 || mode == 3)
     {
         lv_chart_set_x_start_point(ui_Chart_Glucose_5Min, glucoseValueSeries_5Min, 0);
@@ -478,6 +537,7 @@ void draw_chart_glucose_data(uint8_t mode)
         add_axis_labels();
         lv_obj_invalidate(ui_Chart_Glucose_5Min);
     }
+#endif
 }
 
 /**

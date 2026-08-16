@@ -272,6 +272,11 @@ void espStatusCommand(uuid::console::Shell &shell, const std::vector<std::string
     shell.printfln(F("ESP status: WiFi connected, free heap: %d"), ESP.getFreeHeap());
 }
 
+/** @brief Print the number of successful glucose fetches since boot. */
+void fetchCountCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
+    shell.printfln(F("Fetch OK counter: %lu"), (unsigned long)fetch_ok_counter);
+}
+
 /**
  * @brief Handler for command: `screens <next|prev>`
  * @param shell Shell output.
@@ -1485,6 +1490,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("exit")}, exitCommand);
     commands->add_command(uuid::flash_string_vector{F("reboot")}, espResetCommand);
     commands->add_command(uuid::flash_string_vector{F("esp_status")}, espStatusCommand);
+    commands->add_command(uuid::flash_string_vector{F("fetch_count")}, fetchCountCommand);
     commands->add_command(uuid::flash_string_vector{F("ping")}, PingCommand);
     commands->add_command(uuid::flash_string_vector{F("create_json_week_files")}, create_json_week_files_Command);
     commands->add_command(uuid::flash_string_vector{F("add_glucosevalue_to_json")}, addGlucoseValueToJsonCommand);

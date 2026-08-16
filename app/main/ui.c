@@ -37,7 +37,6 @@ lv_obj_t * ui_Label_GlucoseTrendArrow;
 lv_obj_t * ui_Label_GlucoseTrendMessage;
 
 // Main screen - Status indicators
-lv_obj_t * ui_Label_LiebreViewAPIActivity;
 lv_obj_t * ui_Label_ESP32Connectivity;
 lv_obj_t * ui_Label_FWUpdateHint = NULL;
 
@@ -580,13 +579,6 @@ void ui_Main_screen_init(void)
                                                         UI_COLOR_RED, GLUCOSE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 55);
     if (ui_Label_GlucoseTrendMessage != NULL) {
         lv_label_set_text(ui_Label_GlucoseTrendMessage, "");
-    }
-
-    // API Activity indicator
-    ui_Label_LiebreViewAPIActivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
-                                                          UI_COLOR_WHITE, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
-    if (ui_Label_LiebreViewAPIActivity != NULL) {
-        lv_label_set_text(ui_Label_LiebreViewAPIActivity, " ");
     }
 
     // Connectivity indicator

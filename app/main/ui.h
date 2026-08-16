@@ -119,7 +119,6 @@ extern lv_obj_t * ui_Label_GlucoseTrendMessage; ///< Alert/warning message
 
 /// @name Status Indicators
 /// @{
-extern lv_obj_t * ui_Label_LiebreViewAPIActivity; ///< API activity indicator
 extern lv_obj_t * ui_Label_ESP32Connectivity;     ///< Device connectivity status
 extern lv_obj_t * ui_Label_FWUpdateHint;          ///< Firmware update available hint
 /// @}

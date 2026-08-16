@@ -14,6 +14,7 @@
 #define RECONNECT_WIFI_TIMEOUT_MS (1000)    ///< WiFi reconnect timeout in milliseconds
 
 extern volatile bool ota_in_progress;
+extern volatile uint32_t fetch_ok_counter;
 void request_screen_switch(int direction);
 void request_graph_redraw();
 void request_sensor_type_display(bool libre3_plus);
