@@ -690,6 +690,29 @@ static void warmup_arc_anim_cb(void *obj, int32_t v)
     lv_arc_set_value((lv_obj_t *)obj, v);
 }
 
+void ui_display_register_draw_trace(lv_event_cb_t cb)
+{
+    struct { lv_obj_t *obj; const char *name; } traced[] = {
+        { ui_Arc_SensorWarmup,       "draw.warmup_arc"   },
+        { ui_Label_SensorWarmupTitle, "draw.warmup_title" },
+        { ui_Label_SensorWarmupTime,  "draw.warmup_time"  },
+        { dayBar14.bar,              "draw.bar_day14"    },
+        { dayBar15.bar,              "draw.bar_day15"    },
+        { hourBar.bar,               "draw.bar_hour"     },
+        { minuteBar.bar,             "draw.bar_minute"   },
+        { dayBar14.label,            "draw.bar_day14_lbl"},
+        { dayBar15.label,            "draw.bar_day15_lbl"},
+        { hourBar.label,             "draw.bar_hour_lbl" },
+        { minuteBar.label,           "draw.bar_minute_lbl"},
+    };
+
+    for (auto &t : traced)
+    {
+        if (t.obj != nullptr)
+            lv_obj_add_event_cb(t.obj, cb, LV_EVENT_DRAW_MAIN_BEGIN, (void *)t.name);
+    }
+}
+
 static void warmup_arc_set_active(bool active)
 {
     if (active)

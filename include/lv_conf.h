@@ -68,8 +68,21 @@
 #define LV_STDARG_INCLUDE       <stdarg.h>
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN
-    /** Size of memory available for `lv_malloc()` in bytes (>= 2kB) */
-    #define LV_MEM_SIZE (48U * 1024U)          /*[bytes]*/
+    /** Size of memory available for `lv_malloc()` in bytes (>= 2kB)
+     *
+     * This is a static array in internal DRAM and is NOT the ESP heap -- the
+     * `free_heap` figure in the stall log says nothing about it. At the previous
+     * 48 kB, rendering this 480x480 UI (100 pt glyph buffers plus a chart with
+     * five 142-point series) exhausted the pool and LVGL's draw dispatcher froze
+     * the loop task mid-render instead of failing visibly.
+     *
+     * Raised to 96 kB, which costs ~48 kB of internal DRAM on top of the old
+     * value and leaves roughly 100 kB of ESP heap for WiFi/mbedTLS. Tune it with
+     * data rather than by guessing: the "LVGL mem" line logged once per fetch
+     * reports LVGL's own max_used and fragmentation (see sample_lvgl_mem() in
+     * main.cpp). Keep a comfortable margin above max_used -- running this pool
+     * to its limit is what caused the freeze. */
+    #define LV_MEM_SIZE (96U * 1024U)          /*[bytes]*/
 
     /** Size of the memory expand for `lv_malloc()` in bytes */
     #define LV_MEM_POOL_EXPAND_SIZE 0
@@ -844,6 +857,8 @@
 
 #define LV_USE_SPINBOX 0
 
+// Not needed: the firmware update screen uses an lv_arc driven by the progress
+// value (like the sensor warmup screen), not an indeterminate spinner.
 #define LV_USE_SPINNER 0
 
 #define LV_USE_SWITCH 0

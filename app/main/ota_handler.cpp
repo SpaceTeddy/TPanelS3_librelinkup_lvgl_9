@@ -102,8 +102,15 @@ void ota_ui_poll()
     if (start_pending)
     {
         lv_disp_load_scr(ui_FWUpdate_screen);
-        lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
+        // No "in progress" text: the ring and the percentage already say that.
+        // The label stays empty until the update reports its outcome.
+        lv_label_set_text(ui_Label_FWUpdateInfo, "");
         lv_label_set_text(ui_Label_FWUpdateProgress_percent, "0%");
+
+        if (ui_Label_FWUpdateTitle != NULL)
+            lv_label_set_text(ui_Label_FWUpdateTitle, "Firmware Update");
+        if (ui_Arc_FWUpdate != NULL)
+            lv_arc_set_value(ui_Arc_FWUpdate, 0);
     }
 
     if (info_pending)
@@ -114,6 +121,11 @@ void ota_ui_poll()
         char progress_text[8];
         snprintf(progress_text, sizeof(progress_text), "%d%%", progress_pending);
         lv_label_set_text(ui_Label_FWUpdateProgress_percent, progress_text);
+
+        // Setting the value directly (no lv_anim): an animated sweep would need
+        // LVGL pumped continuously, which the manifest self-update cannot do.
+        if (ui_Arc_FWUpdate != NULL)
+            lv_arc_set_value(ui_Arc_FWUpdate, progress_pending);
     }
 
     if (finish_pending && !finish_success)
@@ -174,8 +186,8 @@ void onOTAEnd(bool success)
     ota_ui_request_finish(success);
     if (success)
     {
+        // Ring to 100%, no success text -- a reboot follows immediately.
         ota_ui_request_progress(100);
-        ota_ui_request_info("FWUpdate successful!\n\nperforming Reset");
     }
     ota_in_progress = false;
 }

@@ -129,6 +129,35 @@ static void lvgl_trace_event_cb(lv_event_t *event)
     }
 }
 
+/// @name LVGL pool usage
+/// @brief LVGL allocates from its own fixed LV_MEM_SIZE pool, not the ESP heap, so
+/// the free_heap figure in the stall log says nothing about it. That blind spot is
+/// exactly what hid the render freeze: free_heap sat byte-identical across every
+/// sample while LVGL's pool was the thing running dry. Sampled from the loop task
+/// only, so the pool is never walked while another task is allocating.
+/// @{
+volatile uint32_t g_lv_mem_used_max = 0;   ///< LVGL's own high-water mark, bytes
+volatile uint32_t g_lv_mem_free = 0;       ///< free bytes at the last sample
+volatile uint8_t  g_lv_mem_used_pct = 0;   ///< pool usage at the last sample
+volatile uint8_t  g_lv_mem_frag_pct = 0;   ///< fragmentation at the last sample
+/// @}
+
+/// Refresh the LVGL pool figures. Cheap, but pointless more than once a second.
+static void sample_lvgl_mem()
+{
+    static uint32_t last_ms = 0;
+    const uint32_t now = millis();
+    if ((uint32_t)(now - last_ms) < 1000) return;
+    last_ms = now;
+
+    lv_mem_monitor_t m;
+    lv_mem_monitor(&m);
+    g_lv_mem_used_max  = (uint32_t)m.max_used;
+    g_lv_mem_free      = (uint32_t)m.free_size;
+    g_lv_mem_used_pct  = m.used_pct;
+    g_lv_mem_frag_pct  = m.frag_pct;
+}
+
 /// Hard task-watchdog timeout for the task running setup()/loop() (FSM/fetch/publish).
 /// Must comfortably exceed any legitimate single blocking step (slow TLS handshake,
 /// firmware chunk download, ...) while still recovering promptly from a true hang.
@@ -1527,6 +1556,10 @@ void update_glucose_data()
 
     fetch_ok_counter++;
     logger.notice("Fetch OK counter: %lu", (unsigned long)fetch_ok_counter);
+    logger.notice("LVGL mem: used=%u%% max_used=%u/%u bytes free=%u frag=%u%%",
+                  (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
+                  (unsigned)LV_MEM_SIZE, (unsigned)g_lv_mem_free,
+                  (unsigned)g_lv_mem_frag_pct);
 }
 
 /**
@@ -1624,6 +1657,8 @@ void glucose_statistics()
 /// Main-loop stall considered "hung" after this many ms without a heartbeat update.
 static const uint32_t LOOP_HANG_THRESHOLD_MS = 30000;
 /// Minimum gap between repeated hang log lines, to avoid flooding the log while stuck.
+/// Lower this temporarily (e.g. 2000) to sample the breadcrumb repeatedly: a value that
+/// keeps moving means the refresh loop is cycling, a frozen one means it is truly stuck.
 static const uint32_t LOOP_HANG_LOG_REPEAT_MS = 60000;
 
 void LoopTask(void *pvParameters)
@@ -1661,13 +1696,19 @@ void LoopTask(void *pvParameters)
                 UBaseType_t hwm = g_main_loop_task_handle
                                       ? uxTaskGetStackHighWaterMark(g_main_loop_task_handle)
                                       : 0;
+                // lv_mem_* are the loop task's last samples, read as plain values
+                // here: walking LVGL's pool from this task while the other one is
+                // frozen mid-allocation could crash on inconsistent structures.
                 logger.err(
                     "MAIN LOOP STALLED for %ums (fsm_state=%s, llu_breadcrumb=%s, loop_breadcrumb=%s, "
-                    "free_heap=%u, min_free_heap=%u, loop_stack_hwm=%u bytes)",
+                    "free_heap=%u, min_free_heap=%u, loop_stack_hwm=%u bytes, "
+                    "lv_mem_used=%u%% max_used=%u frag=%u%%)",
                     stall_ms, app_fsm_state_name(g_fsm.state),
                     librelinkup.breadcrumb(), g_loop_breadcrumb,
                     (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
-                    (unsigned)hwm);
+                    (unsigned)hwm,
+                    (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
+                    (unsigned)g_lv_mem_frag_pct);
             }
         }
 
@@ -1738,6 +1779,56 @@ void setup_littlefs()
  * @see lvgl_initialization()
  * @see ui_init()
  */
+
+/// Per-widget draw tracer. LVGL sends LV_EVENT_DRAW_MAIN_BEGIN to each object as it
+/// renders it, so leaving a breadcrumb there narrows a renderer hang from "somewhere
+/// between two display events" down to the exact widget. The name comes straight from
+/// user_data (a string literal), so the callback itself allocates and locks nothing.
+static void lvgl_draw_trace_cb(lv_event_t *event)
+{
+    g_loop_breadcrumb = (const char *)lv_event_get_user_data(event);
+}
+
+static void trace_draw(lv_obj_t *obj, const char *name)
+{
+    if (obj == NULL) return;
+    lv_obj_add_event_cb(obj, lvgl_draw_trace_cb, LV_EVENT_DRAW_MAIN_BEGIN, (void *)name);
+}
+
+/// Tag every main-screen widget so a hang during rendering names itself.
+/// Any child not listed explicitly still gets a positional "draw.child_N" tag.
+static void setup_lvgl_draw_trace()
+{
+    trace_draw(ui_Main_screen,                          "draw.main_screen");
+    trace_draw(ui_Chart_Glucose_5Min,                   "draw.chart");
+    trace_draw(ui_Chart_Glucose_5Min_last_point_marker, "draw.chart_marker");
+    trace_draw(ui_Chart_x_label_start,                  "draw.chart_x_start");
+    trace_draw(ui_Chart_x_label_middle,                 "draw.chart_x_mid");
+    trace_draw(ui_Chart_x_label_end,                    "draw.chart_x_end");
+    trace_draw(ui_Label_GlucoseValue,                   "draw.glucose_value");
+    trace_draw(ui_Label_GlucoseDelta,                   "draw.glucose_delta");
+    trace_draw(ui_Label_GlucoseTrendArrow,              "draw.trend_arrow");
+    trace_draw(ui_Label_GlucoseTrendMessage,            "draw.trend_message");
+    trace_draw(ui_Label_ESP32Connectivity,              "draw.activity");
+    trace_draw(ui_Label_FWUpdateHint,                   "draw.fw_hint");
+
+    ui_display_register_draw_trace(lvgl_draw_trace_cb);   // warmup arc + validity bars
+
+    // Catch-all for anything created outside the lists above.
+    static char child_names[24][16];
+    const uint32_t child_count = lv_obj_get_child_count(ui_Main_screen);
+    for (uint32_t i = 0; i < child_count && i < 24; ++i)
+    {
+        lv_obj_t *child = lv_obj_get_child(ui_Main_screen, i);
+        if (child == NULL || lv_obj_get_event_count(child) > 0) continue;
+        snprintf(child_names[i], sizeof(child_names[i]), "draw.child_%u", (unsigned)i);
+        trace_draw(child, child_names[i]);
+    }
+
+    logger.notice("LVGL draw trace armed for %u main-screen children",
+                  (unsigned)child_count);
+}
+
 void setup_tpanels3()
 {
     // Create LVGL tick task
@@ -1778,6 +1869,7 @@ void setup_tpanels3()
     // Initialize UI screens
     ui_init();
     ui_warmup_screen(); // Sensor warmup progress ring (hidden until SENSOR_STARTING)
+    setup_lvgl_draw_trace(); // must run after every main-screen widget exists
     lv_label_set_text(ui_Label_WelcomeInfo, "LibreLinkUp\nClient");
     lv_timer_handler(); // Let the GUI do its work
 
@@ -2421,7 +2513,7 @@ void setup()
         update_glucose_json_logging();  ///< Persist first reading to JSON log
         g_fsm.last_fetch_ms = millis(); ///< Prevent immediate refetch after boot
     }
-    
+
     // Switch to the main screen as the default UI
     lv_disp_load_scr(ui_Main_screen);
     // ------------------------------------------------------------------------
@@ -2472,6 +2564,7 @@ void loop()
         g_loop_breadcrumb = "loop.lvgl_timer";
         lv_timer_handler();
         g_loop_breadcrumb = "idle";
+        sample_lvgl_mem();
         delay(1);
 
         if (g_sim_sensor_pending) {

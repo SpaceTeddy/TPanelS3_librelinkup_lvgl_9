@@ -214,12 +214,13 @@ static void fw_ui_progress_update(int current, int total) {
 /**
  * @brief Update the UI to show a successful firmware installation.
  *
- * Sets progress to 100% and displays the success message. Called immediately
- * before ESP.restart() so the user sees the final state briefly.
+ * Only completes the ring to 100%. No success text: the device restarts right
+ * after this, so the message was on screen for barely a second, and a full ring
+ * says the same thing. The status label stays reserved for failures, which are
+ * the case worth reading.
  */
 static void fw_ui_finish_success() {
     update_ota_progress_screen(100);
-    ota_ui_request_info("FWUpdate successful!\n\nperforming Reset");
     ota_ui_render_now();
 }
 

@@ -24,6 +24,10 @@ void    request_chart_redraw(uint8_t mode);
 void    process_chart_redraw();
 void    request_lcd_status_indication(bool visible);
 void    process_lcd_status_indication();
+/// Attach @p cb as an LV_EVENT_DRAW_MAIN_BEGIN tracer to the widgets this file
+/// owns privately (warmup arc/labels, sensor-validity bars), so a renderer hang
+/// can name them. See setup_lvgl_draw_trace() in main.cpp.
+void    ui_display_register_draw_trace(lv_event_cb_t cb);
 void    draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
                     uint16_t _glucose_value, String _trendarrow,
                     String _trendmessage, int16_t delta);
