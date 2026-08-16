@@ -29,7 +29,6 @@
 #include <Arduino.h>
 #include <string.h>
 #include <esp_task_wdt.h>
-#include <freertos/semphr.h>
 #include "main.h"
 #include "app_fsm.h"
 #include "lvgl.h"
@@ -86,16 +85,6 @@ TPanelS3 tpanels3; ///< TPanelS3 hardware interface instance
 
 TaskHandle_t LoopTaskHandle = NULL; ///< Main loop task handle
 TaskHandle_t LvglTaskHandle = NULL; ///< LVGL tick task handle
-
-/// Serializes LVGL access between loop() (FSM/glucose UI updates) and the
-/// ElegantOTA callbacks, which run on the AsyncTCP task and touch LVGL
-/// directly (see ota_handler.cpp). Without this, an OTA starting mid-FSM-cycle
-/// can have two tasks inside LVGL at once, corrupting its internal state.
-/// Recursive: update_ota_progress_screen() (ota_handler.cpp) is also called
-/// from http_update.cpp's custom updater, which runs on this SAME task inside
-/// app_fsm_poll() -- i.e. while loop() already holds this mutex. A plain
-/// mutex would self-deadlock there; recursion lets the same task re-enter.
-SemaphoreHandle_t g_lvgl_mutex = NULL;
 
 /// @name Main-loop hang detection
 /// @brief Arduino loop() (FSM/glucose fetch) runs on its own task, separate
@@ -1751,8 +1740,6 @@ void setup_littlefs()
  */
 void setup_tpanels3()
 {
-    g_lvgl_mutex = xSemaphoreCreateRecursiveMutex();
-
     // Create LVGL tick task
     xTaskCreatePinnedToCore(
         lv_tick_task,    // Task function
