@@ -47,6 +47,7 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
 extern SETTINGS settings;
 extern TPanelS3 tpanels3;
+extern void     ui_blank_screen_for_reset();
 
 extern LIBRELINKUP librelinkup;
 extern String g_h2_fw_version;
@@ -1742,6 +1743,7 @@ static void handleRestoreConfigBody(AsyncWebServerRequest *request,
     logger.notice("Config restored from uploaded backup, rebooting");
     request->send(200, "application/json", "{\"status\":\"restored\"}");
     delay(300); // let the telnet/log transport flush the notice above before the reset drops the connection
+    ui_blank_screen_for_reset();
     ESP.restart();
 }
 
@@ -1848,6 +1850,7 @@ static void handleConnect(AsyncWebServerRequest *request) {
     }
 
     settings.saveConfiguration(settings.config_filename, settings.config);
+    ui_blank_screen_for_reset();
     ESP.restart();
 }
 
@@ -2019,6 +2022,7 @@ static void handleConfigureWiFiNetworksBody(AsyncWebServerRequest *request,
 
     request->send(200, "application/json", "{\"status\":\"saved\",\"count\":" +
                   String(settings.config.wifi_networks.size()) + "}");
+    ui_blank_screen_for_reset();
     ESP.restart();
 }
 

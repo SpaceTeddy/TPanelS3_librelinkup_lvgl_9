@@ -259,6 +259,7 @@ void wifiModeCommand(uuid::console::Shell &shell,
  */
 void espResetCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
     shell.printfln(F("ESP Reboot!"));
+    ui_blank_screen_for_reset();
     ESP.restart();
 }
 
@@ -1627,7 +1628,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
         });
 
     commands->add_command(uuid::flash_string_vector{F("fw_update")},
-        uuid::flash_string_vector{F("<check|install|status|channel|force>")},
+        uuid::flash_string_vector{F("<check|install|status|channel|force>"), F("[value]")},
         fwUpdateCommand,
         [](Shell &, const SV &args, const std::string &) -> SV {
             if (args.empty())        return {"check", "install", "status", "channel", "force"};

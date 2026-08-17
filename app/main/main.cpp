@@ -97,6 +97,16 @@ static TaskHandle_t g_main_loop_task_handle = NULL; ///< Handle of the task runn
 /// UI/LittleFS work, WireGuard check, MQTT connect). See librelinkup.breadcrumb()
 /// for the LibreLinkUp-HTTP-specific counterpart.
 volatile const char* g_loop_breadcrumb = "idle";
+
+/// Feed the hang-detector heartbeat from inside a long, legitimately blocking
+/// single loop() iteration (e.g. the FW_INSTALLING download/flash), so
+/// LoopTask() doesn't mistake genuine progress for a stall. g_loop_alive_ms
+/// is otherwise only touched once per loop() iteration, which is too coarse
+/// for a step that can run 30+ seconds without returning.
+void feed_loop_heartbeat()
+{
+    g_loop_alive_ms = millis();
+}
 /// Hard task-watchdog timeout for the task running setup()/loop() (FSM/fetch/publish).
 /// Must comfortably exceed any legitimate single blocking step (slow TLS handshake,
 /// firmware chunk download, ...) while still recovering promptly from a true hang.

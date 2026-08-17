@@ -313,6 +313,7 @@ static bool ensure_wireguard_ok(AppFsm &fsm)
             logger.notice("[VPN] tunnel sick for %lu min — rebooting",
                           (unsigned long)(sick_ms / 60000));
             delay(200); // flush serial
+            ui_blank_screen_for_reset();
             esp_restart();
         }
     }

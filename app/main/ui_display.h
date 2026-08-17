@@ -28,3 +28,4 @@ void    draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
 void    update_debug_screen();
 void    ui_update_fw_hint();
 void    ui_warmup_screen();
+void    ui_blank_screen_for_reset();

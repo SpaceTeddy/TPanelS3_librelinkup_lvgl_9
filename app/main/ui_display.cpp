@@ -30,6 +30,7 @@
 #include "main.h"
 #include "http_update.h"
 #include "settings.h"
+#include "tpanels3.h"
 
 extern LIBRELINKUP  librelinkup;
 extern HELPER       helper;
@@ -37,6 +38,7 @@ extern AppFsm       g_fsm;
 extern SETTINGS     settings;
 extern PubSubClient mqtt_client;
 extern IPAddress    local_ip;
+extern TPanelS3     tpanels3;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
@@ -817,4 +819,30 @@ void ui_warmup_screen()
     lv_obj_add_flag(ui_Label_SensorWarmupTime, LV_OBJ_FLAG_HIDDEN);
 
     lv_timer_create(warmup_arc_tick_cb, 1000, NULL);
+}
+
+/**
+ * @brief Paint the panel fully black and cut the backlight before a reset.
+ *
+ * Called right before ESP.restart() after a successful FW update. A direct
+ * reset while the update-progress UI is still on screen leaves the panel
+ * showing whatever was in the framebuffer when power/display init glitches
+ * during the reboot, which reads as a flash of noise. Covering everything
+ * with a solid black top-layer object, flushing it, and then killing the
+ * backlight guarantees nothing visible survives into the reboot.
+ */
+void ui_blank_screen_for_reset()
+{
+    lv_obj_t *blank = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(blank);
+    lv_obj_set_size(blank, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(blank, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(blank, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(blank, 0, 0);
+
+    lv_timer_handler();
+    delay(50);
+
+    tpanels3.set_backlight_brightness(0);
+    delay(50);
 }

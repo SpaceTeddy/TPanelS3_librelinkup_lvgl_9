@@ -28,6 +28,10 @@ extern String g_h2_last_type;               ///< Last H2 message type
 extern String g_h2_last_json;               ///< Last raw H2 JSON message
 extern uint32_t g_h2_last_seen_ms;          ///< millis() of last H2 message
 
+/// Feed the loop() hang-detector heartbeat from within a long blocking step
+/// (e.g. FW_INSTALLING) that won't return to loop()'s top for a while.
+void feed_loop_heartbeat();
+
 
 /**
  * @enum GlucoseLabelColor

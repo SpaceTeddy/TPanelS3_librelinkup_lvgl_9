@@ -35,6 +35,8 @@
 
 extern bool ota_in_progress;
 extern uint8_t update_ota_progress_screen(int progress);
+extern void feed_loop_heartbeat();
+extern void ui_blank_screen_for_reset();
 
 #ifndef APP_FIRMWARE_VERSION
 #define APP_FIRMWARE_VERSION "0.0.0-dev"
@@ -175,15 +177,13 @@ static void fw_set_status_locked(const String& status, const String& err = "") {
  * tracking variables so the first callback starts from 0%.
  */
 static void fw_ui_start_install() {
+    feed_loop_heartbeat();
     ota_in_progress = true;
     g_fw_progress_last_log_ms = 0;
     g_fw_progress_last_percent = -1;
 
     if (ui_FWUpdate_screen != nullptr && lv_screen_active() != ui_FWUpdate_screen) {
         lv_disp_load_scr(ui_FWUpdate_screen);
-    }
-    if (ui_Label_FWUpdateInfo != nullptr) {
-        lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
     }
     update_ota_progress_screen(0);
 }
@@ -198,6 +198,12 @@ static void fw_ui_start_install() {
  * @param total   Total bytes to receive.
  */
 static void fw_ui_progress_update(int current, int total) {
+    // This callback is the only thing that runs during the httpUpdate.update()
+    // call, which blocks loop() for the whole download+flash without ever
+    // returning to its top. Feed the hang-detector heartbeat here so it
+    // doesn't mistake this legitimate multi-second block for a stall.
+    feed_loop_heartbeat();
+
     if (total <= 0) return;
 
     int progress = (int)(((float)current / (float)total) * 100.0f);
@@ -422,6 +428,7 @@ static void fw_update_install_now() {
         fw_ui_finish_success();
         logger.debug("[FW]  %-12s ->  %-12s | took=%6lums", "installing", "updated", (unsigned long)(millis()-t0));
         delay(500);
+        ui_blank_screen_for_reset();
         ESP.restart();
         return;
     }

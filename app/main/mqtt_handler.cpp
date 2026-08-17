@@ -41,6 +41,7 @@ extern LIBRELINKUP       librelinkup;
 extern bool              ota_in_progress;
 extern IPAddress         local_ip;
 extern AppFsm            g_fsm;
+extern void              ui_blank_screen_for_reset();
 extern bool              flag_mqtt_master_rx;
 extern TPanelS3          tpanels3;
 
@@ -396,6 +397,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         if (strcmp(cmd, "reset") == 0)
         {
             cmd_ok = true;
+            ui_blank_screen_for_reset();
             ESP.restart();
         }
         else if (strcmp(cmd, "brightness") == 0)

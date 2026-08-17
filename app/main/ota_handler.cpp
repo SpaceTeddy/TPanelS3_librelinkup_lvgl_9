@@ -29,6 +29,7 @@ extern bool              ota_in_progress;
 extern bool              g_ap_mode;
 extern TaskHandle_t      LvglTaskHandle;
 extern AsyncWebServer    server;
+extern void              ui_blank_screen_for_reset();
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
@@ -112,5 +113,9 @@ void onOTAEnd(bool success)
             lv_label_set_text(ui_Label_FWUpdateTitle, "Update finished");
         lv_task_handler();
         delay(255);
+        // ElegantOTA.loop() restarts ~2s after this callback returns (see
+        // ElegantOTAClass::loop() in the library) -- blank the panel now so
+        // nothing is left on screen when that reset happens.
+        ui_blank_screen_for_reset();
     }
 }
