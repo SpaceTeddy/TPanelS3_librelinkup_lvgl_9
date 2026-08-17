@@ -271,7 +271,7 @@ void espResetCommand(uuid::console::Shell &shell, const std::vector<std::string>
  */
 void espStatusCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
     esp_status();
-    shell.printfln(F("ESP status: WiFi connected, free heap: %d"), ESP.getFreeHeap());
+    //shell.printfln(F("ESP status: WiFi connected, free heap: %d"), ESP.getFreeHeap());
 }
 
 /**
