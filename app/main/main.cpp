@@ -103,6 +103,27 @@ volatile const char* g_loop_breadcrumb = "idle";
 static const uint32_t LOOP_TASK_WDT_TIMEOUT_S = 90;
 /// @}
 
+volatile uint32_t g_lv_mem_used_max = 0;   ///< LVGL's own high-water mark, bytes
+volatile uint32_t g_lv_mem_free = 0;       ///< free bytes at the last sample
+volatile uint8_t  g_lv_mem_used_pct = 0;   ///< pool usage at the last sample
+volatile uint8_t  g_lv_mem_frag_pct = 0;   ///< fragmentation at the last sample
+
+/// Refresh the LVGL pool figures. Cheap, but pointless more than once a second.
+static void sample_lvgl_mem()
+{
+    static uint32_t last_ms = 0;
+    const uint32_t now = millis();
+    if ((uint32_t)(now - last_ms) < 1000) return;
+    last_ms = now;
+
+    lv_mem_monitor_t m;
+    lv_mem_monitor(&m);
+    g_lv_mem_used_max  = (uint32_t)m.max_used;
+    g_lv_mem_free      = (uint32_t)m.free_size;
+    g_lv_mem_used_pct  = m.used_pct;
+    g_lv_mem_frag_pct  = m.frag_pct;
+}
+
 ///////////////////// JSON PARSER ////////////////////
 
 #include <ArduinoJson.h>
@@ -1391,6 +1412,12 @@ void update_glucose_data()
         {
             handle_sensor_reconnect();
         }
+        else if (glucoseMeasurement_backup == 0)
+        {
+            // There is no previous reading after boot. Do not report the
+            // current glucose value as the first delta.
+            glucose_delta = 0;
+        }
         else
         {
             glucose_delta = librelinkup.glucose_data().glucoseMeasurement -
@@ -1411,6 +1438,11 @@ void update_glucose_data()
         draw_chart_glucose_data(3);
 
         glucoseMeasurement_backup = librelinkup.glucose_data().glucoseMeasurement;
+
+        logger.notice("LVGL mem: used=%u%% max_used=%u/%u bytes free=%u frag=%u%%",
+                      (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
+                      (unsigned)LV_MEM_SIZE, (unsigned)g_lv_mem_free,
+                      (unsigned)g_lv_mem_frag_pct);
     }
     else
     {
@@ -2333,6 +2365,7 @@ void loop()
 
         // --- LVGL: let the GUI process pending work ------------------------------
         lv_timer_handler();
+        sample_lvgl_mem();
         delay(1);
 
         if (g_sim_sensor_pending) {
