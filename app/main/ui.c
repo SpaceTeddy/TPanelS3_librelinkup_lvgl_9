@@ -585,7 +585,7 @@ void ui_Main_screen_init(void)
     // API activity indicator. Reuse this existing status label so the
     // indicator adds no LVGL object and performs no runtime text allocation.
     ui_Label_LiebreViewAPIActivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
-                                                      0xFFFF00, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
+                                                      UI_COLOR_WHITE, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
     if (ui_Label_LiebreViewAPIActivity != NULL) {
         lv_label_set_text(ui_Label_LiebreViewAPIActivity, "*");
         lv_obj_add_flag(ui_Label_LiebreViewAPIActivity, LV_OBJ_FLAG_HIDDEN);
