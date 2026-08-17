@@ -142,52 +142,29 @@ static void highlight_last_point()
 ///////////////////// STATUS INDICATION ////////////////////
 
 /**
- * @brief Shows/hides LCD API activity status indicator
+ * @brief Shows/hides the LCD API activity status indicator
  *
- * Displays a colored asterisk (*) in the corner to indicate LibreLinkUp
- * API activity and status.
+ * Toggles visibility of a yellow asterisk (*) in the corner to indicate
+ * LibreLinkUp API activity. Reuses ui_Label_LiebreViewAPIActivity (created once,
+ * hidden by default) instead of allocating text each call -- the color
+ * parameter is no longer used since call sites only ever passed one value.
  *
  * @param[in] on_off Enable/disable indicator
- *                   - 0: Hide indicator (blank)
- *                   - 1: Show indicator with color
- * @param[in] color  Color code for indicator
- *                   - 0: Yellow (0xFFFF00) - Warning/Processing
- *                   - 1: White (0xFFFFFF) - Normal
- *                   - 2: Red (0xFF0000) - Error
- *                   - Other: Default to white
+ * @param[in] color  Unused, kept for call-site compatibility
  *
  * @note Calls lv_timer_handler() to update display immediately
  * @note 5ms delay ensures display update completes
  */
 void lcd_status_indication(bool on_off, uint8_t color)
 {
-    if (on_off == 0)
-    {
-        lv_label_set_text(ui_Label_LiebreViewAPIActivity, " ");
-    }
-    else if (on_off == 1)
-    {
-        switch (color)
-        {
-        case 0:
-            lv_obj_set_style_text_color(ui_Label_LiebreViewAPIActivity,
-                                        lv_color_hex(0xFFFF00), LV_PART_MAIN | LV_STATE_DEFAULT);
-            break;
-        case 1:
-            lv_obj_set_style_text_color(ui_Label_LiebreViewAPIActivity,
-                                        lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-            break;
-        case 2:
-            lv_obj_set_style_text_color(ui_Label_LiebreViewAPIActivity,
-                                        lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
-            break;
+    (void)color;
 
-        default:
-            lv_obj_set_style_text_color(ui_Label_LiebreViewAPIActivity,
-                                        lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-            break;
-        }
-        lv_label_set_text(ui_Label_LiebreViewAPIActivity, "*");
+    if (ui_Label_LiebreViewAPIActivity != NULL)
+    {
+        if (on_off)
+            lv_obj_clear_flag(ui_Label_LiebreViewAPIActivity, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(ui_Label_LiebreViewAPIActivity, LV_OBJ_FLAG_HIDDEN);
     }
     lv_timer_handler();
     delay(5);

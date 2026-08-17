@@ -13,6 +13,7 @@
  */
 
 #include "ui.h"
+#include "ui_logo.h"
 
 ///////////////////// CONSTANTS ////////////////////
 
@@ -37,13 +38,13 @@ lv_obj_t * ui_Label_GlucoseTrendMessage;
 
 // Main screen - Status indicators
 lv_obj_t * ui_Label_LiebreViewAPIActivity;
-lv_obj_t * ui_Label_ESP32Connectivity;
 lv_obj_t * ui_Label_FWUpdateHint = NULL;
 
 // Firmware update elements
 lv_obj_t * ui_Label_FWUpdateInfo;
 lv_obj_t * ui_Label_FWUpdateProgress_percent;
-lv_obj_t * ui_Bar_FWUpdateProgress;
+lv_obj_t * ui_Label_FWUpdateTitle = NULL;
+lv_obj_t * ui_Arc_FWUpdate = NULL;
 
 // Chart objects
 lv_obj_t * ui_Chart_Glucose_5Min;
@@ -514,14 +515,20 @@ void ui_Welcome_screen_init(void)
     lv_obj_clear_flag(ui_Welcome_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui_Welcome_screen, lv_color_black(), LV_PART_MAIN);
 
+    lv_obj_t *ui_Img_WelcomeLogo = lv_image_create(ui_Welcome_screen);
+    lv_image_set_src(ui_Img_WelcomeLogo, &ui_img_logo);
+    lv_obj_align(ui_Img_WelcomeLogo, LV_ALIGN_CENTER, 0, -120);
+    lv_obj_set_style_opa(ui_Img_WelcomeLogo, LV_OPA_TRANSP, 0);
+    lv_obj_fade_in(ui_Img_WelcomeLogo, 2000, 0);
+
     ui_Label_WelcomeInfo = create_styled_label(ui_Welcome_screen, &JetBrainsMonoLight56,
-                                                UI_COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -60);
+                                                UI_COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 75);
     if (ui_Label_WelcomeInfo != NULL) {
         lv_obj_set_style_text_align(ui_Label_WelcomeInfo, LV_TEXT_ALIGN_CENTER, 0);
     }
 
     ui_Label_WelcomeWifiInfo = create_styled_label(ui_Welcome_screen, &JetBrainsMonoLight24,
-                                                    UI_COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 150);
+                                                    UI_COLOR_WHITE, WELCOME_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 190);
     if (ui_Label_WelcomeWifiInfo != NULL) {
         lv_obj_set_style_text_align(ui_Label_WelcomeWifiInfo, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(ui_Label_WelcomeWifiInfo, "");
@@ -575,18 +582,13 @@ void ui_Main_screen_init(void)
         lv_label_set_text(ui_Label_GlucoseTrendMessage, "");
     }
 
-    // API Activity indicator
+    // API activity indicator. Reuse this existing status label so the
+    // indicator adds no LVGL object and performs no runtime text allocation.
     ui_Label_LiebreViewAPIActivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight36,
-                                                          UI_COLOR_WHITE, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
+                                                      0xFFFF00, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
     if (ui_Label_LiebreViewAPIActivity != NULL) {
-        lv_label_set_text(ui_Label_LiebreViewAPIActivity, " ");
-    }
-
-    // Connectivity indicator
-    ui_Label_ESP32Connectivity = create_styled_label(ui_Main_screen, &JetBrainsMonoLight24,
-                                                      UI_COLOR_GREEN, API_ACTIVITY_WIDTH, LV_ALIGN_CENTER, 100, -180);
-    if (ui_Label_ESP32Connectivity != NULL) {
-        lv_label_set_text(ui_Label_ESP32Connectivity, " ");
+        lv_label_set_text(ui_Label_LiebreViewAPIActivity, "*");
+        lv_obj_add_flag(ui_Label_LiebreViewAPIActivity, LV_OBJ_FLAG_HIDDEN);
     }
     
     // Chart limit labels
@@ -848,18 +850,47 @@ void ui_FWUpdate_screen_init(void)
     lv_obj_clear_flag(ui_FWUpdate_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui_FWUpdate_screen, lv_color_black(), LV_PART_MAIN);
 
-    // Update info message
-    ui_Label_FWUpdateInfo = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight36,
-                                                 UI_COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -100);
-    if (ui_Label_FWUpdateInfo != NULL) {
-        lv_label_set_text(ui_Label_FWUpdateInfo, "FW Update ...");
+    // Progress ring, mirroring the sensor-warmup screen (ui_warmup_screen() in
+    // ui_display.cpp): same size, geometry and colours, so both "device is busy"
+    // screens read the same way.
+    ui_Arc_FWUpdate = lv_arc_create(ui_FWUpdate_screen);
+    if (ui_Arc_FWUpdate != NULL) {
+        lv_obj_set_size(ui_Arc_FWUpdate, 320, 320);
+        lv_obj_center(ui_Arc_FWUpdate);
+        lv_arc_set_rotation(ui_Arc_FWUpdate, 270);
+        lv_arc_set_bg_angles(ui_Arc_FWUpdate, 0, 360);
+        lv_arc_set_range(ui_Arc_FWUpdate, 0, 100);
+        lv_arc_set_value(ui_Arc_FWUpdate, 0);
+        lv_obj_remove_style(ui_Arc_FWUpdate, NULL, LV_PART_KNOB);
+        lv_obj_clear_flag(ui_Arc_FWUpdate, LV_OBJ_FLAG_CLICKABLE);
+
+        lv_obj_set_style_arc_color(ui_Arc_FWUpdate, lv_color_hex(0x2a2d3a), LV_PART_MAIN);
+        lv_obj_set_style_arc_width(ui_Arc_FWUpdate, 14, LV_PART_MAIN);
+        lv_obj_set_style_arc_color(ui_Arc_FWUpdate, lv_color_hex(0xFFA500), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_width(ui_Arc_FWUpdate, 14, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_rounded(ui_Arc_FWUpdate, true, LV_PART_INDICATOR);
     }
 
-    // Progress percentage display
-    ui_Label_FWUpdateProgress_percent = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight72,
-                                                             UI_COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 50);
+    // Title inside the ring, same slot as "Sensor Warmup" on the warmup screen.
+    ui_Label_FWUpdateTitle = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight24,
+                                                 0xFFA500, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -40);
+    if (ui_Label_FWUpdateTitle != NULL) {
+        lv_label_set_text(ui_Label_FWUpdateTitle, "Firmware Update");
+    }
+
+    // Percentage inside the ring, same slot as the warmup countdown.
+    ui_Label_FWUpdateProgress_percent = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight56,
+                                                             UI_COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 20);
     if (ui_Label_FWUpdateProgress_percent != NULL) {
         lv_label_set_text(ui_Label_FWUpdateProgress_percent, "0%");
+    }
+
+    // Status message below the ring. Kept outside because the end-of-update
+    // texts are multi-line and would not fit inside the 320 px circle.
+    ui_Label_FWUpdateInfo = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight24,
+                                                 UI_COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 195);
+    if (ui_Label_FWUpdateInfo != NULL) {
+        lv_label_set_text(ui_Label_FWUpdateInfo, "");
     }
 }
 

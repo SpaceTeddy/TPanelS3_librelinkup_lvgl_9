@@ -54,12 +54,12 @@ void h2_send(const char *cmd)
 {
     SerialPort.print(cmd);
     SerialPort.print('\n');
-    logger.notice("[H2] TX: %s", cmd);
+    logger.debug("[H2] TX: %s", cmd);
 }
 
 static void h2_handle_message(const String &line)
 {
-    logger.notice("[H2] raw: %s", line.c_str());
+    logger.debug("[H2] raw: %s", line.c_str());
 
     JsonDocument doc;
     if (deserializeJson(doc, line) != DeserializationError::Ok)
@@ -124,11 +124,11 @@ static void h2_handle_message(const String &line)
         int  idx       = streaming ? doc["idx"].as<int>() : 0;
         int  total     = streaming ? doc["total"].as<int>() : (int)devices.size();
         if (!streaming) {
-            logger.notice("[H2] devices (%s): %d entries", type, (int)devices.size());
+            logger.debug("[H2] devices (%s): %d entries", type, (int)devices.size());
         }
         for (JsonObject d : devices) {
             if (streaming) {
-                logger.notice("[H2] device (%s) %d/%d: 0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
+                logger.debug("[H2] device (%s) %d/%d: 0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
                     type, idx, total,
                     d["addr"].as<uint16_t>(), d["ieee"] | "?", d["mfr"]  | "?",
                     d["model"] | "?", d["ep"].as<uint8_t>(), (int)(d["online"] | false),
@@ -136,7 +136,7 @@ static void h2_handle_message(const String &line)
                     d["temp"].isNull() ? 0.0f : (float)d["temp"].as<float>(),
                     d["bat"].isNull() ? -1 : (int)d["bat"].as<int>());
             } else {
-                logger.notice("[H2]  0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
+                logger.debug("[H2]  0x%04x %s  mfr=%s model=%s ep=%u online=%d occ=%d temp=%.1f bat=%d",
                     d["addr"].as<uint16_t>(), d["ieee"] | "?", d["mfr"]  | "?",
                     d["model"] | "?", d["ep"].as<uint8_t>(), (int)(d["online"] | false),
                     d["occ"].isNull() ? -1 : (int)d["occ"].as<bool>(),
@@ -147,11 +147,11 @@ static void h2_handle_message(const String &line)
     }
     else if (strcmp(type, "ack") == 0)
     {
-        logger.notice("[H2] ack [%s] ok=%d %s", doc["cmd"] | "?", (bool)(doc["ok"] | false), doc["msg"] | "");
+        logger.debug("[H2] ack [%s] ok=%d %s", doc["cmd"] | "?", (bool)(doc["ok"] | false), doc["msg"] | "");
     }
     else if (strcmp(type, "status") == 0)
     {
-        logger.notice("[H2] status  ch=%d  pan=0x%04x  epid=%s  coord=%s  role=%s  joined=%d  factory_new=%d  tx=%ddBm  nwk_upd=%d  devices=%d  heap=%u  uptime=%us",
+        logger.debug("[H2] status  ch=%d  pan=0x%04x  epid=%s  coord=%s  role=%s  joined=%d  factory_new=%d  tx=%ddBm  nwk_upd=%d  devices=%d  heap=%u  uptime=%us",
             doc["ch"]          | -1,
             doc["pan"]         | 0,
             doc["epid"]        | "?",
@@ -170,37 +170,37 @@ static void h2_handle_message(const String &line)
         size_t count = 0;
         if (!doc["nets"].isNull()) count = doc["nets"].size();
         else if (!doc["networks"].isNull()) count = doc["networks"].size();
-        logger.notice("[H2] scan: %d networks found", (int)count);
+        logger.debug("[H2] scan: %d networks found", (int)count);
     }
     else if (strcmp(type, "channel") == 0)
     {
-        logger.notice("[H2] channel  current=%d  configured=%d",
+        logger.debug("[H2] channel  current=%d  configured=%d",
                       doc["ch"] | -1, doc["configured"] | -1);
     }
     else if (strcmp(type, "wakeup") == 0)
     {
-        logger.notice("[H2] wakeup reason: %s", doc["reason"] | "?");
+        logger.debug("[H2] wakeup reason: %s", doc["reason"] | "?");
     }
     else if (strcmp(type, "ota_progress") == 0)
     {
-        logger.notice("[H2] OTA: %d / %d bytes", doc["written"].as<int>(), doc["total"].as<int>());
+        logger.debug("[H2] OTA: %d / %d bytes", doc["written"].as<int>(), doc["total"].as<int>());
     }
     else if (strcmp(type, "version") == 0)
     {
-        logger.notice("[H2] version fw=%s build=%s",
+        logger.debug("[H2] version fw=%s build=%s",
                       g_h2_fw_version.length() ? g_h2_fw_version.c_str() : "-",
                       g_h2_fw_build.length() ? g_h2_fw_build.c_str() : "-");
     }
     else if (strcmp(type, "chipinfo") == 0)
     {
-        logger.notice("[H2] chipinfo model=%s rev=%s mac=%s",
+        logger.debug("[H2] chipinfo model=%s rev=%s mac=%s",
                       g_h2_chip_model.length() ? g_h2_chip_model.c_str() : "-",
                       g_h2_chip_rev.length() ? g_h2_chip_rev.c_str() : "-",
                       g_h2_chip_mac.length() ? g_h2_chip_mac.c_str() : "-");
     }
     else if (strcmp(type, "chip") == 0)
     {
-        logger.notice("[H2] chip model=%s rev=%s cores=%s cpuMHz=%s mac=%s",
+        logger.debug("[H2] chip model=%s rev=%s cores=%s cpuMHz=%s mac=%s",
                       g_h2_chip_model.length() ? g_h2_chip_model.c_str() : "-",
                       g_h2_chip_rev.length() ? g_h2_chip_rev.c_str() : "-",
                       g_h2_chip_cores.length() ? g_h2_chip_cores.c_str() : "-",
@@ -210,20 +210,20 @@ static void h2_handle_message(const String &line)
     else if (strcmp(type, "motion") == 0)
     {
         const bool occ = doc["occ"] | false;
-        logger.notice("[H2] motion occ=%d lux=%d temp=%.1f bat=%d",
+        logger.debug("[H2] motion occ=%d lux=%d temp=%.1f bat=%d",
                       (int)occ, doc["lux"] | -1, doc["temp"] | 0.0, doc["bat"] | -1);
         if (occ)
             app_fsm_notify_user_activity(g_fsm);
     }
     else if (strcmp(type, "sensor") == 0)
     {
-        logger.notice("[H2] sensor lux=%d temp=%.1f bat=%d",
+        logger.debug("[H2] sensor lux=%d temp=%.1f bat=%d",
                       doc["lux"] | -1, doc["temp"] | 0.0, doc["bat"] | -1);
         app_fsm_notify_user_activity(g_fsm);
     }
     else
     {
-        logger.notice("[H2] msg [%s]: %s", type, line.c_str());
+        logger.debug("[H2] msg [%s]: %s", type, line.c_str());
     }
 }
 
@@ -240,7 +240,7 @@ void zigbee_h2_poll_uart()
                 if (uart_ipc_buf.startsWith("{"))
                     h2_handle_message(uart_ipc_buf);
                 else
-                    logger.notice("[H2] %s", uart_ipc_buf.c_str());
+                    logger.debug("[H2] %s", uart_ipc_buf.c_str());
                 uart_ipc_buf.clear();
             }
         }

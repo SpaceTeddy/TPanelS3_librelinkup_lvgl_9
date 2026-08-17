@@ -1439,7 +1439,7 @@ void update_glucose_data()
 
         glucoseMeasurement_backup = librelinkup.glucose_data().glucoseMeasurement;
 
-        logger.notice("LVGL mem: used=%u%% max_used=%u/%u bytes free=%u frag=%u%%",
+        logger.debug("LVGL mem: used=%u%% max_used=%u/%u bytes free=%u frag=%u%%",
                       (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
                       (unsigned)LV_MEM_SIZE, (unsigned)g_lv_mem_free,
                       (unsigned)g_lv_mem_frag_pct);
@@ -1699,6 +1699,16 @@ void setup_tpanels3()
     ui_warmup_screen(); // Sensor warmup progress ring (hidden until SENSOR_STARTING)
     lv_label_set_text(ui_Label_WelcomeInfo, "LibreLinkUp\nClient");
     lv_timer_handler(); // Let the GUI do its work
+
+    // Keep pumping LVGL until the logo fade-in (started in
+    // ui_Welcome_screen_init()) finishes, otherwise the upcoming blocking
+    // setup_wifi() call freezes rendering mid-fade and it jumps straight
+    // to full opacity instead of animating.
+    const uint32_t fade_deadline_ms = millis() + 2000;
+    while (millis() < fade_deadline_ms) {
+        lv_timer_handler();
+        delay(5);
+    }
 }
 
 /**

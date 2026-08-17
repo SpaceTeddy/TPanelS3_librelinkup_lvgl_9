@@ -119,8 +119,7 @@ extern lv_obj_t * ui_Label_GlucoseTrendMessage; ///< Alert/warning message
 
 /// @name Status Indicators
 /// @{
-extern lv_obj_t * ui_Label_LiebreViewAPIActivity; ///< API activity indicator
-extern lv_obj_t * ui_Label_ESP32Connectivity;     ///< Device connectivity status
+extern lv_obj_t * ui_Label_LiebreViewAPIActivity;     ///< API activity indicator (reused status label)
 extern lv_obj_t * ui_Label_FWUpdateHint;          ///< Firmware update available hint
 /// @}
 
@@ -196,7 +195,8 @@ extern lv_obj_t * btn_label;            ///< Login button label
 /// @{
 extern lv_obj_t * ui_Label_FWUpdateInfo;            ///< Update status message
 extern lv_obj_t * ui_Label_FWUpdateProgress_percent;///< Progress percentage display
-extern lv_obj_t * ui_Bar_FWUpdateProgress;          ///< Progress bar
+extern lv_obj_t * ui_Label_FWUpdateTitle;           ///< Title inside the progress ring
+extern lv_obj_t * ui_Arc_FWUpdate;                  ///< Progress ring (warmup-screen style)
 /// @}
 
 ///////////////////// PROGRESS BAR INSTANCES ////////////////////

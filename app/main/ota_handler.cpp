@@ -52,6 +52,8 @@ uint8_t update_ota_progress_screen(int progress)
     char progress_text[10];
     snprintf(progress_text, sizeof(progress_text), "%d%%", progress);
     lv_label_set_text(ui_Label_FWUpdateProgress_percent, progress_text);
+    if (ui_Arc_FWUpdate != NULL)
+        lv_arc_set_value(ui_Arc_FWUpdate, progress);
     lv_timer_handler();
     delay(5);
     return 1;
@@ -67,7 +69,11 @@ void onOTAStart()
     if (lv_screen_active() != ui_FWUpdate_screen)
     {
         lv_disp_load_scr(ui_FWUpdate_screen);
-        lv_label_set_text(ui_Label_FWUpdateInfo, "Firmware Update in progress...");
+        // No "in progress" text: the ring and the percentage already say that.
+        lv_label_set_text(ui_Label_FWUpdateInfo, "");
+        lv_label_set_text(ui_Label_FWUpdateProgress_percent, "0%");
+        if (ui_Arc_FWUpdate != NULL)
+            lv_arc_set_value(ui_Arc_FWUpdate, 0);
         lv_timer_handler();
     }
 }
@@ -100,7 +106,10 @@ void onOTAEnd(bool success)
     {
         ota_in_progress = 0;
         lv_label_set_text(ui_Label_FWUpdateProgress_percent, "100%");
-        lv_label_set_text(ui_Label_FWUpdateInfo, "FWUpdate successful!\n\nperforming Reset");
+        if (ui_Arc_FWUpdate != NULL)
+            lv_arc_set_value(ui_Arc_FWUpdate, 100);
+        if (ui_Label_FWUpdateTitle != NULL)
+            lv_label_set_text(ui_Label_FWUpdateTitle, "Update finished");
         lv_task_handler();
         delay(255);
     }

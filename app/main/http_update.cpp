@@ -219,13 +219,13 @@ static void fw_ui_progress_update(int current, int total) {
 /**
  * @brief Update the UI to show a successful firmware installation.
  *
- * Sets progress to 100% and displays the success message. Called immediately
+ * Sets progress to 100% and updates the ring title. Called immediately
  * before ESP.restart() so the user sees the final state briefly.
  */
 static void fw_ui_finish_success() {
     update_ota_progress_screen(100);
-    if (ui_Label_FWUpdateInfo != nullptr) {
-        lv_label_set_text(ui_Label_FWUpdateInfo, "FWUpdate successful!\n\nperforming Reset");
+    if (ui_Label_FWUpdateTitle != nullptr) {
+        lv_label_set_text(ui_Label_FWUpdateTitle, "Update finished");
     }
 }
 
