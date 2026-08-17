@@ -167,10 +167,22 @@ using uuid::console::Commands;
 using uuid::console::Shell;
 using LogFacility = ::uuid::log::Facility;
 
+/// Number of log messages a telnet shell may buffer before it starts discarding.
+///
+/// uuid::console::Shell::MAX_LOG_MESSAGES defaults to 20, and on overflow the
+/// *oldest* message is dropped (shell_log.cpp). A command that logs more than
+/// that in one burst therefore loses its first lines: esp_status() emits ~27 and
+/// silently lost its whole heap block. The shell cannot drain in between because
+/// it runs on the same LoopTask that is busy inside the command.
+static const size_t SHELL_LOG_QUEUE = 64;
+
 /// Custom shell: overrides display_banner() to show a welcome screen on connect.
 class AppTelnetShell : public uuid::console::Shell {
 public:
-    using uuid::console::Shell::Shell;
+    AppTelnetShell(Stream &stream, std::shared_ptr<uuid::console::Commands> commands)
+        : uuid::console::Shell(stream, commands) {
+        maximum_log_messages(SHELL_LOG_QUEUE);
+    }
 protected:
     void display_banner() override { displayWelcomeBanner(*this); }
 };
@@ -378,13 +390,10 @@ void esp_status()
     // LVGL allocates from its own fixed pool, not from the ESP heap above -- the
     // two say nothing about each other. Values come from the loop task's last
     // sample (see sample_lvgl_mem); this runs on the console task.
-    logger.notice("===== LVGL Memory Status =====");
-    logger.notice("Pool size      : %u Bytes", (unsigned)g_lv_mem_total);
-    logger.notice("Currently used : %u %%", (unsigned)g_lv_mem_used_pct);
-    logger.notice("Free           : %u Bytes", (unsigned)g_lv_mem_free);
-    logger.notice("Max used ever  : %u Bytes", (unsigned)g_lv_mem_used_max);
-    logger.notice("Fragmentation  : %u %%", (unsigned)g_lv_mem_frag_pct);
-    logger.notice("==============================");
+    logger.notice("LVGL mem: %u%% used, max_used %u/%u Bytes, free %u, frag %u%%",
+                  (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
+                  (unsigned)g_lv_mem_total, (unsigned)g_lv_mem_free,
+                  (unsigned)g_lv_mem_frag_pct);
 
     logger.notice("WiFi Reconnects : %d", esp_status_counter_wifi_restart);
     logger.notice("WG Reinits      : %d", esp_status_counter_wg_reinit);
