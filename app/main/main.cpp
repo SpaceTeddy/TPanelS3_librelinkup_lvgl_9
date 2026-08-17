@@ -113,12 +113,18 @@ void feed_loop_heartbeat()
 static const uint32_t LOOP_TASK_WDT_TIMEOUT_S = 90;
 /// @}
 
+volatile uint32_t g_lv_mem_total = 0;      ///< pool size reported by LVGL, bytes
 volatile uint32_t g_lv_mem_used_max = 0;   ///< LVGL's own high-water mark, bytes
 volatile uint32_t g_lv_mem_free = 0;       ///< free bytes at the last sample
 volatile uint8_t  g_lv_mem_used_pct = 0;   ///< pool usage at the last sample
 volatile uint8_t  g_lv_mem_frag_pct = 0;   ///< fragmentation at the last sample
 
 /// Refresh the LVGL pool figures. Cheap, but pointless more than once a second.
+///
+/// Only ever called from the Arduino loop task: lv_mem_monitor() walks the pool's
+/// block list, so doing it from another task while this one allocates would read
+/// half-updated structures. Everything else (esp_status on the console task, the
+/// stall log on LoopTask) reads the sampled values below instead.
 static void sample_lvgl_mem()
 {
     static uint32_t last_ms = 0;
@@ -128,6 +134,7 @@ static void sample_lvgl_mem()
 
     lv_mem_monitor_t m;
     lv_mem_monitor(&m);
+    g_lv_mem_total     = (uint32_t)m.total_size;
     g_lv_mem_used_max  = (uint32_t)m.max_used;
     g_lv_mem_free      = (uint32_t)m.free_size;
     g_lv_mem_used_pct  = m.used_pct;
@@ -368,7 +375,19 @@ void esp_status()
     logger.notice("PSRAM available: %d Bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     logger.notice("==============================");
 
+    // LVGL allocates from its own fixed pool, not from the ESP heap above -- the
+    // two say nothing about each other. Values come from the loop task's last
+    // sample (see sample_lvgl_mem); this runs on the console task.
+    logger.notice("===== LVGL Memory Status =====");
+    logger.notice("Pool size      : %u Bytes", (unsigned)g_lv_mem_total);
+    logger.notice("Currently used : %u %%", (unsigned)g_lv_mem_used_pct);
+    logger.notice("Free           : %u Bytes", (unsigned)g_lv_mem_free);
+    logger.notice("Max used ever  : %u Bytes", (unsigned)g_lv_mem_used_max);
+    logger.notice("Fragmentation  : %u %%", (unsigned)g_lv_mem_frag_pct);
+    logger.notice("==============================");
+
     logger.notice("WiFi Reconnects : %d", esp_status_counter_wifi_restart);
+    logger.notice("WG Reinits      : %d", esp_status_counter_wg_reinit);
     logger.notice("LLU count reAuth: %d", esp_status_counter_llu_reauth);
     logger.notice("LLU count reTou : %d", esp_status_counter_llu_retou);
     logger.notice("OTA Server      : %d", settings.config.ota_update);
@@ -1449,9 +1468,11 @@ void update_glucose_data()
 
         glucoseMeasurement_backup = librelinkup.glucose_data().glucoseMeasurement;
 
+        // g_lv_mem_total, not LV_MEM_SIZE: that macro only exists while the
+        // builtin allocator is selected and would break the build under CLIB.
         logger.debug("LVGL mem: used=%u%% max_used=%u/%u bytes free=%u frag=%u%%",
                       (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
-                      (unsigned)LV_MEM_SIZE, (unsigned)g_lv_mem_free,
+                      (unsigned)g_lv_mem_total, (unsigned)g_lv_mem_free,
                       (unsigned)g_lv_mem_frag_pct);
     }
     else
