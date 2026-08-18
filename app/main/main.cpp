@@ -1317,6 +1317,25 @@ void update_trend_message()
         break;
 
     case SENSOR_READY:
+    {
+        // A sensor that has just finished warmup has not produced a reading yet,
+        // so the newest measurement still belongs to the *previous* sensor and is
+        // over an hour old. check_valid_timestamp_factory() only judges age, so it
+        // reports SENSOR_LOST -- alarming, and wrong. Comparing the measurement
+        // against this sensor's activation time (API field sensor.a) separates
+        // "no reading from this sensor yet" from "sensor really lost".
+        const uint32_t activation = librelinkup.sensor_data().sensor_non_activ_unixtime;
+        int64_t meas_epoch = 0;
+        if (activation != 0 &&
+            parse_factory_timestamp_utc(librelinkup.glucose_data().str_measurement_factorytimestamp,
+                                        meas_epoch) &&
+            meas_epoch < (int64_t)activation)
+        {
+            librelinkup.glucose_data().str_TrendMessage = "waiting for data";
+            logger.notice("Sensor ready, newest measurement predates activation -> waiting for first reading");
+            return;
+        }
+
         // Only for ready sensors, timestamp status decides delayed/lost overlays.
         if (librelinkup.status().timestamp_status == SENSOR_LOST)
         {
@@ -1332,6 +1351,7 @@ void update_trend_message()
         }
         librelinkup.glucose_data().str_TrendMessage = "";
         break;
+    }
     }
 }
 
