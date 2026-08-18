@@ -524,7 +524,13 @@ void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
         lv_label_set_text(ui_Label_GlucoseDelta, buf_label3);
     }
 
-    if (strcmp(_trendmessage.c_str(), "null") != 0)
+    // During warmup the API puts its own countdown text into TrendMessage. The
+    // warmup overlay hides this label, but only on its next 1 s tick, so writing
+    // it here made the counter flash on the main screen for up to a second after
+    // a sensor change. The warmup arc is the only place that state belongs.
+    if (librelinkup.status().sensor_state == SENSOR_STARTING)
+        lv_label_set_text(ui_Label_GlucoseTrendMessage, "");
+    else if (strcmp(_trendmessage.c_str(), "null") != 0)
         lv_label_set_text(ui_Label_GlucoseTrendMessage, _trendmessage.c_str());
     else
         lv_label_set_text(ui_Label_GlucoseTrendMessage, "");
@@ -761,8 +767,11 @@ static void warmup_arc_tick_cb(lv_timer_t *)
 
     uint32_t elapsed = (now > (time_t)activation) ? (uint32_t)(now - activation) : 0;
     if (elapsed > WARMUP_ARC_DURATION_SEC) elapsed = WARMUP_ARC_DURATION_SEC;
+    const uint32_t remaining = WARMUP_ARC_DURATION_SEC - elapsed;
 
-    int32_t target = (elapsed * 100) / WARMUP_ARC_DURATION_SEC;
+    // Drains rather than fills: this is a countdown, so the ring should show how
+    // much warmup is left, matching the mm:ss label in its centre.
+    int32_t target = (int32_t)((remaining * 100) / WARMUP_ARC_DURATION_SEC);
 
     lv_anim_t a;
     lv_anim_init(&a);
@@ -772,7 +781,6 @@ static void warmup_arc_tick_cb(lv_timer_t *)
     lv_anim_set_time(&a, 900); // just under the 1s tick -> no visible jump
     lv_anim_start(&a);
 
-    uint32_t remaining = WARMUP_ARC_DURATION_SEC - elapsed;
     lv_label_set_text_fmt(ui_Label_SensorWarmupTime, "%02u:%02u",
                           (unsigned)(remaining / 60), (unsigned)(remaining % 60));
 }
@@ -792,7 +800,7 @@ void ui_warmup_screen()
     lv_arc_set_rotation(ui_Arc_SensorWarmup, 270);
     lv_arc_set_bg_angles(ui_Arc_SensorWarmup, 0, 360);
     lv_arc_set_range(ui_Arc_SensorWarmup, 0, 100);
-    lv_arc_set_value(ui_Arc_SensorWarmup, 0);
+    lv_arc_set_value(ui_Arc_SensorWarmup, 100); // countdown starts full
     lv_obj_remove_style(ui_Arc_SensorWarmup, NULL, LV_PART_KNOB); // pure progress ring, no handle
     lv_obj_clear_flag(ui_Arc_SensorWarmup, LV_OBJ_FLAG_CLICKABLE);
 
