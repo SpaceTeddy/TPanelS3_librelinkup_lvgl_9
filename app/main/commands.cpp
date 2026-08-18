@@ -286,22 +286,11 @@ void switch_screensCommand(uuid::console::Shell &shell, const std::vector<std::s
     if (!arguments.empty()) {
         String screen_argument = arguments[0].c_str(); // next or previous
 
+        // Same order as the swipe gesture; see screen_rotation_next() in main.cpp.
         if (screen_argument == "next") {
-            if (lv_scr_act() == ui_Main_screen) {
-                lv_disp_load_scr(ui_Debug_screen);
-            } else if (lv_scr_act() == ui_Debug_screen) {
-                lv_disp_load_scr(ui_Login_screen);
-            } else if (lv_scr_act() == ui_Login_screen) {
-                lv_disp_load_scr(ui_Main_screen);
-            }
+            lv_disp_load_scr(screen_rotation_next(lv_scr_act(), 1));
         } else if ((screen_argument == "prev")) {
-            if (lv_scr_act() == ui_Main_screen) {
-                lv_disp_load_scr(ui_Login_screen);
-            } else if (lv_scr_act() == ui_Login_screen) {
-                lv_disp_load_scr(ui_Debug_screen);
-            } else if (lv_scr_act() == ui_Debug_screen) {
-                lv_disp_load_scr(ui_Main_screen);
-            }
+            lv_disp_load_scr(screen_rotation_next(lv_scr_act(), -1));
         } else {
             shell.printfln("invalid argument: %s", screen_argument.c_str());
         }

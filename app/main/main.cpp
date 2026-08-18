@@ -483,6 +483,68 @@ static void brightness_on_off_cb(lv_event_t *event)
  *
  * @warning Touch point is screen coordinates, not relative to any object
  */
+/// Opens the firmware info screen from the update hint on the main screen.
+static void fw_hint_click_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    app_fsm_notify_user_activity(g_fsm);
+    ui_fwinfo_refresh();
+    lv_disp_load_scr(ui_FWInfo_screen);
+}
+
+/// @name Firmware action requests
+/// @brief The buttons run inside lv_timer_handler(), while
+/// fw_update_request_install() takes a mutex with a one second wait. Blocking
+/// there would stall the renderer, so the buttons only record the wish and
+/// loop() performs it afterwards.
+/// @{
+static volatile int8_t g_fw_action_request = 0;  ///< 1 = install, 2 = check
+
+static void process_fw_action_request()
+{
+    const int8_t action = g_fw_action_request;
+    g_fw_action_request = 0;
+    if (action == 0) return;
+
+    if (action == 1)
+    {
+        String msg;
+        const bool ok = fw_update_request_install(msg);
+        logger.notice("FW install requested from touch UI: %s (%s)",
+                      ok ? "accepted" : "rejected", msg.c_str());
+    }
+    else
+    {
+        fw_update_request_check_now();
+        logger.notice("FW check requested from touch UI");
+    }
+    ui_fwinfo_refresh();
+}
+/// @}
+
+static void btn_fwinfo_install_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    app_fsm_notify_user_activity(g_fsm);
+    g_fw_action_request = 1;
+    // fw_ui_start_install() switches to the progress ring screen by itself once
+    // the FSM picks the request up, so nothing to load here.
+}
+
+static void btn_fwinfo_check_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    app_fsm_notify_user_activity(g_fsm);
+    g_fw_action_request = 2;
+}
+
+static void btn_fwinfo_cancel_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    app_fsm_notify_user_activity(g_fsm);
+    lv_disp_load_scr(ui_Main_screen);
+}
+
 static void touch_gesture_cb(lv_event_t *event)
 {
     // Get current input device and position
@@ -514,34 +576,14 @@ static void touch_gesture_cb(lv_event_t *event)
     {
     case LV_DIR_LEFT:
         logger.debug("Touch gesture: left");
-        if (active == ui_Login_screen)
-        {
-            lv_disp_load_scr(ui_Debug_screen);
-        }
-        else if (active == ui_Debug_screen)
-        {
-            lv_disp_load_scr(ui_Main_screen);
-        }
-        else if (active == ui_Main_screen)
-        {
-            lv_disp_load_scr(ui_Login_screen);
-        }
+        if (screen_rotation_next(active, -1) == ui_FWInfo_screen) ui_fwinfo_refresh();
+        lv_disp_load_scr(screen_rotation_next(active, -1));
         break;
 
     case LV_DIR_RIGHT:
         logger.debug("Touch gesture: right");
-        if (active == ui_Main_screen)
-        {
-            lv_disp_load_scr(ui_Debug_screen);
-        }
-        else if (active == ui_Debug_screen)
-        {
-            lv_disp_load_scr(ui_Login_screen);
-        }
-        else if (active == ui_Login_screen)
-        {
-            lv_disp_load_scr(ui_Main_screen);
-        }
+        if (screen_rotation_next(active, 1) == ui_FWInfo_screen) ui_fwinfo_refresh();
+        lv_disp_load_scr(screen_rotation_next(active, 1));
         break;
 
     case LV_DIR_TOP:
@@ -2322,6 +2364,11 @@ void setup()
 
     // Global gesture navigation across screens
     lv_obj_add_event_cb(ui_Main_screen, touch_gesture_cb, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(ui_FWInfo_screen, touch_gesture_cb, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(ui_Label_FWUpdateHint, fw_hint_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_btn_fwinfo_install, btn_fwinfo_install_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_btn_fwinfo_check, btn_fwinfo_check_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_btn_fwinfo_cancel, btn_fwinfo_cancel_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(ui_Debug_screen, touch_gesture_cb, LV_EVENT_GESTURE, NULL);
 
     // Toolbar buttons (WireGuard / MQTT / OTA toggles)
@@ -2425,6 +2472,7 @@ void loop()
 
         // --- Application state machine (connectivity/fetch/publish) -----------------
         app_fsm_poll(g_fsm);
+        process_fw_action_request();
 
         // 1 s tick: update debug view labels if visible (and not during OTA)
         if (flag_debug_screen == true)

@@ -540,6 +540,77 @@ void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
 
 ///////////////////// FIRMWARE UPDATE HINT ////////////////////
 
+/**
+ * @brief Next screen in the user-facing rotation.
+ *
+ * The order lives here only, because it is consumed from three places (swipe
+ * left, swipe right and the `screens` console command) that otherwise drift
+ * apart. Order: Main -> FW Info -> Debug -> Login -> Main.
+ *
+ * @param active Screen currently loaded.
+ * @param dir    >0 forward, <0 backward.
+ * @return Screen to load; the main screen if @p active is not part of the
+ *         rotation (e.g. the welcome or update progress screen).
+ */
+lv_obj_t *screen_rotation_next(lv_obj_t *active, int dir)
+{
+    lv_obj_t *order[] = { ui_Main_screen, ui_FWInfo_screen, ui_Debug_screen, ui_Login_screen };
+    const int n = (int)(sizeof(order) / sizeof(order[0]));
+
+    for (int i = 0; i < n; ++i)
+    {
+        if (order[i] != active) continue;
+        const int step = (dir > 0) ? 1 : (n - 1);
+        return order[(i + step) % n];
+    }
+    return ui_Main_screen;
+}
+
+/**
+ * @brief Fill the firmware info screen with the current updater state.
+ *
+ * Called right before the screen is shown (and by the Check button) so the
+ * values are never stale. Lives here rather than in ui.c because that file is
+ * compiled as C and cannot reach the C++ fw_update API.
+ */
+void ui_fwinfo_refresh()
+{
+    if (ui_Label_FWInfoInstalled == NULL) return;
+
+    lv_label_set_text_fmt(ui_Label_FWInfoInstalled, "Installed: %s",
+                          fw_update_get_current_version());
+
+    const char *latest = fw_update_get_latest_version();
+    if (latest != NULL && strlen(latest) > 0)
+        lv_label_set_text_fmt(ui_Label_FWInfoAvailable, "Available: %s", latest);
+    else
+        lv_label_set_text(ui_Label_FWInfoAvailable, "Available: -");
+
+    lv_label_set_text_fmt(ui_Label_FWInfoStatus, "Status: %s", fw_update_get_status());
+
+    // Installing only makes sense when the manifest actually offers something
+    // newer; greying the button out is clearer than letting it do nothing.
+    if (ui_btn_fwinfo_install != NULL)
+    {
+        const bool enabled = fw_update_is_update_available();
+        if (enabled)
+            lv_obj_clear_state(ui_btn_fwinfo_install, LV_STATE_DISABLED);
+        else
+            lv_obj_add_state(ui_btn_fwinfo_install, LV_STATE_DISABLED);
+
+        // The caption is a child object and does not pick up the button's
+        // DISABLED state, so its colour has to be set explicitly -- otherwise a
+        // greyed-out button would still carry bright orange text.
+        lv_obj_t *caption = lv_obj_get_child(ui_btn_fwinfo_install, 0);
+        if (caption != NULL)
+        {
+            lv_obj_set_style_text_color(caption,
+                                        lv_color_hex(enabled ? UI_COLOR_ACCENT : UI_COLOR_DIMMED),
+                                        LV_PART_MAIN | LV_STATE_DEFAULT);
+        }
+    }
+}
+
 void ui_update_fw_hint()
 {
     if (ui_Label_FWUpdateHint == NULL) return;
@@ -804,15 +875,15 @@ void ui_warmup_screen()
     lv_obj_remove_style(ui_Arc_SensorWarmup, NULL, LV_PART_KNOB); // pure progress ring, no handle
     lv_obj_clear_flag(ui_Arc_SensorWarmup, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_set_style_arc_color(ui_Arc_SensorWarmup, lv_color_hex(0x2a2d3a), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(ui_Arc_SensorWarmup, lv_color_hex(UI_COLOR_RING_TRACK), LV_PART_MAIN);
     lv_obj_set_style_arc_width(ui_Arc_SensorWarmup, 14, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(ui_Arc_SensorWarmup, lv_color_hex(0xFFA500), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(ui_Arc_SensorWarmup, lv_color_hex(UI_COLOR_ACCENT), LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(ui_Arc_SensorWarmup, 14, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(ui_Arc_SensorWarmup, true, LV_PART_INDICATOR);
 
     ui_Label_SensorWarmupTitle = lv_label_create(ui_Main_screen);
     lv_obj_set_style_text_font(ui_Label_SensorWarmupTitle, &JetBrainsMonoLight32, 0);
-    lv_obj_set_style_text_color(ui_Label_SensorWarmupTitle, lv_color_hex(0xFFA500), 0);
+    lv_obj_set_style_text_color(ui_Label_SensorWarmupTitle, lv_color_hex(UI_COLOR_ACCENT), 0);
     lv_obj_align(ui_Label_SensorWarmupTitle, LV_ALIGN_CENTER, 0, -40);
     lv_label_set_text(ui_Label_SensorWarmupTitle, "Sensor Warmup");
 

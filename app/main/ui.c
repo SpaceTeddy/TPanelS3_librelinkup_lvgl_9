@@ -46,6 +46,16 @@ lv_obj_t * ui_Label_FWUpdateProgress_percent;
 lv_obj_t * ui_Label_FWUpdateTitle = NULL;
 lv_obj_t * ui_Arc_FWUpdate = NULL;
 
+// Firmware update info screen
+lv_obj_t * ui_FWInfo_screen = NULL;
+lv_obj_t * ui_Label_FWInfoTitle = NULL;
+lv_obj_t * ui_Label_FWInfoInstalled = NULL;
+lv_obj_t * ui_Label_FWInfoAvailable = NULL;
+lv_obj_t * ui_Label_FWInfoStatus = NULL;
+lv_obj_t * ui_btn_fwinfo_install = NULL;
+lv_obj_t * ui_btn_fwinfo_check = NULL;
+lv_obj_t * ui_btn_fwinfo_cancel = NULL;
+
 // Chart objects
 lv_obj_t * ui_Chart_Glucose_5Min;
 lv_obj_t * ui_Chart_Valid_Sensor;
@@ -664,6 +674,13 @@ void ui_Main_screen_init(void)
     if (ui_Label_FWUpdateHint != NULL) {
         lv_label_set_text(ui_Label_FWUpdateHint, "");
         lv_obj_add_flag(ui_Label_FWUpdateHint, LV_OBJ_FLAG_HIDDEN);
+        // Tapping the hint opens the firmware info screen (handler in main.cpp).
+        // Labels are not clickable by default; the extended click area gives this
+        // 16 pt text a finger-sized target without changing how it looks. It also
+        // stops a tap here from reaching the main screen's brightness toggle,
+        // which is intended.
+        lv_obj_add_flag(ui_Label_FWUpdateHint, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_ext_click_area(ui_Label_FWUpdateHint, 24);
     }
 }
 
@@ -864,16 +881,16 @@ void ui_FWUpdate_screen_init(void)
         lv_obj_remove_style(ui_Arc_FWUpdate, NULL, LV_PART_KNOB);
         lv_obj_clear_flag(ui_Arc_FWUpdate, LV_OBJ_FLAG_CLICKABLE);
 
-        lv_obj_set_style_arc_color(ui_Arc_FWUpdate, lv_color_hex(0x2a2d3a), LV_PART_MAIN);
+        lv_obj_set_style_arc_color(ui_Arc_FWUpdate, lv_color_hex(UI_COLOR_RING_TRACK), LV_PART_MAIN);
         lv_obj_set_style_arc_width(ui_Arc_FWUpdate, 14, LV_PART_MAIN);
-        lv_obj_set_style_arc_color(ui_Arc_FWUpdate, lv_color_hex(0xFFA500), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(ui_Arc_FWUpdate, lv_color_hex(UI_COLOR_ACCENT), LV_PART_INDICATOR);
         lv_obj_set_style_arc_width(ui_Arc_FWUpdate, 14, LV_PART_INDICATOR);
         lv_obj_set_style_arc_rounded(ui_Arc_FWUpdate, true, LV_PART_INDICATOR);
     }
 
     // Title inside the ring, same slot as "Sensor Warmup" on the warmup screen.
     ui_Label_FWUpdateTitle = create_styled_label(ui_FWUpdate_screen, &JetBrainsMonoLight24,
-                                                 0xFFA500, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -40);
+                                                 UI_COLOR_ACCENT, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -40);
     if (ui_Label_FWUpdateTitle != NULL) {
         lv_label_set_text(ui_Label_FWUpdateTitle, "Firmware Update");
     }
@@ -904,6 +921,92 @@ void ui_FWUpdate_screen_init(void)
  * 
  * @param[in] parent Parent object to attach buttons to (should be ui_Debug_screen)
  */
+/**
+ * @brief Creates a labelled button for the firmware info screen.
+ */
+static lv_obj_t* create_fwinfo_button(lv_obj_t *parent, const char *text, lv_coord_t x_offset)
+{
+    lv_obj_t *btn = lv_btn_create(parent);
+    if (btn == NULL) {
+        return NULL;
+    }
+    lv_obj_set_size(btn, 140, 64);
+    lv_obj_align(btn, LV_ALIGN_CENTER, x_offset, 160);
+
+    // Outline style echoing the progress rings: dark track, orange accent. The
+    // default theme's grey fill and drop shadow would look out of place next to
+    // the flat ring screens, so both are overridden here.
+    lv_obj_set_style_bg_color(btn, lv_color_hex(UI_COLOR_RING_TRACK), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(btn, lv_color_hex(UI_COLOR_ACCENT), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(btn, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(btn, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // Pressed: lift the fill instead of flooding it orange, which would leave
+    // orange text on an orange ground (child labels do not inherit the button's
+    // state, so the label colour cannot follow along).
+    lv_obj_set_style_bg_color(btn, lv_color_hex(UI_COLOR_RING_PRESSED), LV_PART_MAIN | LV_STATE_PRESSED);
+
+    lv_obj_set_style_bg_color(btn, lv_color_hex(UI_COLOR_RING_DISABLED), LV_PART_MAIN | LV_STATE_DISABLED);
+    lv_obj_set_style_border_color(btn, lv_color_hex(UI_COLOR_DIMMED), LV_PART_MAIN | LV_STATE_DISABLED);
+
+    lv_obj_t *label = lv_label_create(btn);
+    if (label != NULL) {
+        lv_obj_center(label);
+        lv_obj_set_style_text_font(label, &JetBrainsMonoLight20, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_ACCENT), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_label_set_text(label, text);
+    }
+    return btn;
+}
+
+/**
+ * @brief Initializes the firmware update info screen
+ *
+ * Reachable by tapping the update hint on the main screen and via the screen
+ * rotation. Shows the installed and offered versions plus the updater status,
+ * and offers Install / Check / Cancel. Styling follows the progress-ring
+ * screens (black ground, orange heading, white values) so the firmware screens
+ * read as one family.
+ *
+ * Text content is filled in by ui_fwinfo_refresh() (ui_display.cpp), which has
+ * access to the fw_update API; this file only builds the widgets.
+ */
+void ui_FWInfo_screen_init(void)
+{
+    ui_FWInfo_screen = lv_obj_create(NULL);
+    lv_obj_clear_flag(ui_FWInfo_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_FWInfo_screen, lv_color_black(), LV_PART_MAIN);
+
+    ui_Label_FWInfoTitle = create_styled_label(ui_FWInfo_screen, &JetBrainsMonoLight32,
+                                               UI_COLOR_ACCENT, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -150);
+    if (ui_Label_FWInfoTitle != NULL) {
+        lv_label_set_text(ui_Label_FWInfoTitle, "Firmware Update");
+    }
+
+    ui_Label_FWInfoInstalled = create_styled_label(ui_FWInfo_screen, &JetBrainsMonoLight24,
+                                                   UI_COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -60);
+    if (ui_Label_FWInfoInstalled != NULL) {
+        lv_label_set_text(ui_Label_FWInfoInstalled, "");
+    }
+
+    ui_Label_FWInfoAvailable = create_styled_label(ui_FWInfo_screen, &JetBrainsMonoLight24,
+                                                    UI_COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, -10);
+    if (ui_Label_FWInfoAvailable != NULL) {
+        lv_label_set_text(ui_Label_FWInfoAvailable, "");
+    }
+
+    ui_Label_FWInfoStatus = create_styled_label(ui_FWInfo_screen, &JetBrainsMonoLight24,
+                                                 UI_COLOR_WHITE, FWUPDATE_MESSAGE_WIDTH, LV_ALIGN_CENTER, 0, 40);
+    if (ui_Label_FWInfoStatus != NULL) {
+        lv_label_set_text(ui_Label_FWInfoStatus, "");
+    }
+
+    ui_btn_fwinfo_install = create_fwinfo_button(ui_FWInfo_screen, "Install", -150);
+    ui_btn_fwinfo_check   = create_fwinfo_button(ui_FWInfo_screen, "Check",      0);
+    ui_btn_fwinfo_cancel  = create_fwinfo_button(ui_FWInfo_screen, "Cancel",   150);
+}
+
 void ui_btn_debug_screen_init(lv_obj_t * parent)
 {
     if (parent == NULL) {
@@ -985,6 +1088,7 @@ void ui_init(void)
     ui_Debug_screen_init();
     ui_Login_screen_init();
     ui_FWUpdate_screen_init();
+    ui_FWInfo_screen_init();
     
     // Initialize debug screen buttons
     ui_btn_debug_screen_init(ui_Debug_screen);

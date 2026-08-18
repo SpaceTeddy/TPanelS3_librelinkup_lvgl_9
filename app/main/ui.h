@@ -53,6 +53,17 @@ extern "C" {
 #define UI_COLOR_GREEN                 (0x00FF00)
 #define UI_COLOR_BLACK                 (0x000000)
 
+/// @name Progress-ring palette
+/// @brief Shared by the sensor warmup ring, the firmware progress ring and the
+/// firmware info buttons so those screens read as one family.
+/// @{
+#define UI_COLOR_ACCENT                (0xFFA500)  ///< Orange indicator/heading
+#define UI_COLOR_RING_TRACK            (0x2a2d3a)  ///< Dark ring track / button fill
+#define UI_COLOR_RING_PRESSED          (0x3d4356)  ///< Button fill while pressed
+#define UI_COLOR_RING_DISABLED         (0x1a1c24)  ///< Button fill when disabled
+#define UI_COLOR_DIMMED                (0x4a4f60)  ///< Disabled border/text
+/// @}
+
 /// Block sizes for progress bars
 #define MIN_BLOCK_SIZE              (5)      ///< Minimum block size for visual clarity
 #define BLOCK_SPACING               (2)      ///< Spacing between blocks in pixels
@@ -97,6 +108,7 @@ extern lv_obj_t * ui_Main_screen;       ///< Main glucose monitoring screen
 extern lv_obj_t * ui_Debug_screen;      ///< Debug information screen
 extern lv_obj_t * ui_FWUpdate_screen;   ///< Firmware update progress screen
 extern lv_obj_t * ui_Login_screen;      ///< Login credentials input screen
+extern lv_obj_t * ui_FWInfo_screen;     ///< Firmware update info + install/cancel screen
 /// @}
 
 ///////////////////// WELCOME SCREEN ELEMENTS ////////////////////
@@ -197,6 +209,17 @@ extern lv_obj_t * ui_Label_FWUpdateInfo;            ///< Update status message
 extern lv_obj_t * ui_Label_FWUpdateProgress_percent;///< Progress percentage display
 extern lv_obj_t * ui_Label_FWUpdateTitle;           ///< Title inside the progress ring
 extern lv_obj_t * ui_Arc_FWUpdate;                  ///< Progress ring (warmup-screen style)
+
+/// @name Firmware Update Info Screen
+/// @{
+extern lv_obj_t * ui_Label_FWInfoTitle;             ///< "Firmware Update" heading
+extern lv_obj_t * ui_Label_FWInfoInstalled;         ///< Currently running version
+extern lv_obj_t * ui_Label_FWInfoAvailable;         ///< Version offered by the manifest
+extern lv_obj_t * ui_Label_FWInfoStatus;            ///< fw_update status string
+extern lv_obj_t * ui_btn_fwinfo_install;            ///< Start the installation
+extern lv_obj_t * ui_btn_fwinfo_check;              ///< Re-check the manifest
+extern lv_obj_t * ui_btn_fwinfo_cancel;             ///< Back to the main screen
+/// @}
 /// @}
 
 ///////////////////// PROGRESS BAR INSTANCES ////////////////////
@@ -265,6 +288,7 @@ void ui_Login_screen_init(void);
  * Creates screen for displaying OTA firmware update progress.
  */
 void ui_FWUpdate_screen_init(void);
+void ui_FWInfo_screen_init(void);
 
 /**
  * @brief Initializes debug screen control buttons
