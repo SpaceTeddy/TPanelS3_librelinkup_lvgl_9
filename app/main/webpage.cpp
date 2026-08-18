@@ -213,6 +213,15 @@ static const char dashboard_html[] PROGMEM = R"rawliteral(
   </div>
 </div>
 
+<!-- Firmware update notice. Hidden unless /api/fw/status reports one. This only
+     points at the config page: the install controls stay there, so the open
+     dashboard cannot trigger a flash without the config page's authentication. -->
+<a id="fwNotice" class="card" href="/configuration"
+   style="display:none; text-decoration:none; color:inherit; border-left:4px solid var(--warn);">
+  <strong>Firmware update available</strong>
+  <span id="fwNoticeVersion" style="color:var(--muted);"></span>
+</a>
+
 <div class="card">
   <div class="controls">
     <div class="seg">
@@ -841,6 +850,25 @@ setZoom(12);
 window.addEventListener("resize", ()=>drawChart());
 
 refresh();
+async function refreshFwNotice(){
+  try{
+    const d = await fetch("/api/fw/status", {cache:"no-store"}).then(r=>r.json());
+    const el = document.getElementById("fwNotice");
+    if(!el) return;
+    if(d.update_available){
+      document.getElementById("fwNoticeVersion").textContent =
+        " \u2014 v" + (d.latest_version || "?") + ", installed v" + (d.current_version || "?");
+      el.style.display = "block";
+    }else{
+      el.style.display = "none";
+    }
+  }catch(e){
+    // Leave the notice as it is: a failed poll says nothing about the firmware.
+  }
+}
+refreshFwNotice();
+setInterval(refreshFwNotice, 60000);
+
 setInterval(refresh, 15000);
 </script>
 </body>
