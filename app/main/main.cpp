@@ -805,44 +805,75 @@ static void btn_login_event_cb(lv_event_t *event)
 ///////////////////// CHART INTERACTION CALLBACKS ////////////////////
 
 
+/// True while the main glucose header shows a touched value instead of the
+/// live reading. Guards the restore below so a drag does not rewrite the
+/// header labels on every LV_EVENT_PRESSING tick.
+static bool s_header_shows_cursor = false;
+
 /**
- * @brief Hides the chart touch cursor (crosshair line, dot, value/time labels).
+ * @brief Hides the chart touch cursor and restores the live glucose header.
  *
- * Bound to LV_EVENT_RELEASED and LV_EVENT_PRESS_LOST on the chart. The main
- * glucose header is never touched by touch_event_cb() below, so there is
- * nothing to restore there -- only the cursor overlay needs to disappear.
+ * touch_event_cb() writes the touched reading into the main glucose header, so
+ * ending the touch has to put the live reading back. The validity gate is the
+ * same one the fetch loop uses: without a valid timestamp the header falls back
+ * to dashes (mode 0) instead of showing a stale value.
+ */
+static void chart_cursor_hide(void)
+{
+    lv_obj_add_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
+
+    if (!s_header_shows_cursor)
+        return;
+    s_header_shows_cursor = false;
+
+    const bool live_valid =
+        (librelinkup.status().timestamp_status == SENSOR_TIMECODE_VALID);
+
+    draw_labels(live_valid ? 1 : 0,
+                librelinkup.glucose_data().measurement_color,
+                librelinkup.glucose_data().glucoseMeasurement,
+                librelinkup.glucose_data().str_trendArrow,
+                librelinkup.glucose_data().str_TrendMessage,
+                live_valid ? glucose_delta : 0);
+}
+
+/**
+ * @brief Chart touch release callback.
+ *
+ * Bound to LV_EVENT_RELEASED and LV_EVENT_PRESS_LOST on the chart.
  *
  * @param[in] e LVGL event data (unused; same handler for both events)
  */
 static void chart_touch_release_cb(lv_event_t *e)
 {
-    lv_obj_add_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_Chart_Cursor_Value_Label, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
+    (void)e;
+    chart_cursor_hide();
 }
 
 /**
  * @brief Touch event callback for glucose chart interaction
  *
  * Shows a crosshair at the touched position, matching the official
- * LibreLinkUp app: a vertical line, a dot on the curve, a value readout
- * pinned above the line, and a time readout pinned below it at the x-axis.
+ * LibreLinkUp app: a vertical line, a dot on the curve, and a time readout
+ * pinned below it at the x-axis. The touched glucose value goes into the main
+ * glucose header rather than into a label that slides along with the finger --
+ * a readout moving under the fingertip was hard to read on the panel.
  *
  * ui_Chart_Glucose_5Min_last_point_marker (the green "live value" dot) is
  * intentionally left alone here -- it used to be reused as the touch marker,
  * which meant touching the chart hijacked the live-value indicator until the
  * next periodic redraw put it back. It now always shows the live reading,
  * same as the app's screenshot, while ui_Chart_Cursor_Dot is the separate
- * touch indicator. The main glucose header is likewise left alone; the
- * touched value only appears in the in-chart readout, not the header.
+ * touch indicator.
  *
  * Algorithm:
  * 1. Convert screen coordinates to chart-relative coordinates
  * 2. Map X-coordinate to data point index
  * 3. Retrieve glucose value + timestamp at that index
  * 4. Calculate Y-position by scaling glucose value to chart height
- * 5. Position the crosshair line, dot, and value/time labels
+ * 5. Position the crosshair line and dot, write the header, place the time
  *
  * @param[in] e LVGL event data containing touch information
  *
@@ -879,7 +910,7 @@ static void touch_event_cb(lv_event_t *e)
     // Hide cursor if no valid value at this point
     if (value == LV_CHART_POINT_NONE || value == 0)
     {
-        chart_touch_release_cb(e);
+        chart_cursor_hide();
         return;
     }
 
@@ -910,17 +941,27 @@ static void touch_event_cb(lv_event_t *e)
     lv_obj_clear_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(ui_Chart_Cursor_Dot);
 
-    // --- Value readout, pinned near the top, clamped horizontally ---
-    char value_text[24];
-    snprintf(value_text, sizeof(value_text), "%d mg/dL", value);
-    lv_label_set_text(ui_Chart_Cursor_Value_Label, value_text);
-    lv_coord_t value_w = lv_obj_get_width(ui_Chart_Cursor_Value_Label);
-    lv_coord_t value_x = relative_x - value_w / 2;
-    if (value_x < 0) value_x = 0;
-    if (value_x > chart_width - value_w) value_x = chart_width - value_w;
-    lv_obj_set_pos(ui_Chart_Cursor_Value_Label, value_x, 4);
-    lv_obj_clear_flag(ui_Chart_Cursor_Value_Label, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_Chart_Cursor_Value_Label);
+    // --- Touched value into the main glucose header ---
+    // The delta line keeps its meaning while scrubbing: it reports the touched
+    // point against the previous valid sample, not the live delta.
+    int16_t cursor_delta = 0;
+    for (int prev = index - 1; prev >= 0; prev--)
+    {
+        int16_t prev_value = librelinkup.sensor_history_data().graph_data[prev];
+        if (prev_value != LV_CHART_POINT_NONE && prev_value != 0)
+        {
+            cursor_delta = value - prev_value;
+            break;
+        }
+    }
+
+    draw_labels(1,                      // mode 1: show actual values
+                out_of_range ? 4 : 1,   // GlucoseLabelColor RED : WHITE
+                (uint16_t)value,
+                librelinkup.glucose_data().str_trendArrow,
+                librelinkup.glucose_data().str_TrendMessage,
+                cursor_delta);
+    s_header_shows_cursor = true;
 
     // --- Time readout, pinned near the bottom (x-axis), same clamping ---
     char time_text[8] = "--:--";
@@ -934,7 +975,7 @@ static void touch_event_cb(lv_event_t *e)
     lv_coord_t time_x = relative_x - time_w / 2;
     if (time_x < 0) time_x = 0;
     if (time_x > chart_width - time_w) time_x = chart_width - time_w;
-    lv_obj_set_pos(ui_Chart_Cursor_Time_Label, time_x, CHART_HEIGHT - 22);
+    lv_obj_set_pos(ui_Chart_Cursor_Time_Label, time_x, CHART_HEIGHT - 41);
     lv_obj_clear_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(ui_Chart_Cursor_Time_Label);
 }

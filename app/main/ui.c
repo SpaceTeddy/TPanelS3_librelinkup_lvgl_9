@@ -69,7 +69,6 @@ lv_obj_t *ui_Chart_x_label_middle;
 lv_obj_t *ui_Chart_x_label_end;
 lv_obj_t *ui_Chart_Cursor_Line;
 lv_obj_t *ui_Chart_Cursor_Dot;
-lv_obj_t *ui_Chart_Cursor_Value_Label;
 lv_obj_t *ui_Chart_Cursor_Time_Label;
 
 // Chart data series
@@ -672,16 +671,6 @@ void ui_Main_screen_init(void)
     lv_obj_set_style_radius(ui_Chart_Cursor_Dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_color(ui_Chart_Cursor_Dot, lv_color_hex(0x14161B), 0);
     lv_obj_set_style_border_width(ui_Chart_Cursor_Dot, 3, 0);
-
-    ui_Chart_Cursor_Value_Label = lv_label_create(ui_Chart_Glucose_5Min);
-    lv_obj_add_flag(ui_Chart_Cursor_Value_Label, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_Chart_Cursor_Value_Label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_text_font(ui_Chart_Cursor_Value_Label, &JetBrainsMonoLight32, 0);
-    lv_obj_set_style_text_color(ui_Chart_Cursor_Value_Label, lv_color_white(), 0);
-    lv_obj_set_style_text_align(ui_Chart_Cursor_Value_Label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(ui_Chart_Cursor_Value_Label, 130);
-    lv_label_set_long_mode(ui_Chart_Cursor_Value_Label, LV_LABEL_LONG_MODE_CLIP);
-    lv_label_set_text(ui_Chart_Cursor_Value_Label, "");
 
     ui_Chart_Cursor_Time_Label = lv_label_create(ui_Chart_Glucose_5Min);
     lv_obj_add_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);

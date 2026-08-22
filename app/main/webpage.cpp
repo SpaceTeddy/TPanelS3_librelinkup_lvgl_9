@@ -274,7 +274,11 @@ document.addEventListener('visibilitychange', ()=>{
   if(document.hidden) setPulse(false);
 });
 
-const PAD_L=54, PAD_R=14, PAD_T=16, PAD_B=40;
+// PAD_T carries the hover value readout, which is drawn above the plot so the
+// curve can never run through it. dpr-scaled because the readout font is: it
+// has to fit the glyphs plus a 3/4-font gap down to the plot, so the value
+// reads as its own row rather than as part of the chart.
+const PAD_L=54, PAD_R=14, PAD_T=Math.max(60, Math.round((window.devicePixelRatio||1)*34)), PAD_B=40;
 
 function css(name){ return getComputedStyle(document.body).getPropertyValue(name).trim(); }
 
@@ -638,11 +642,11 @@ for(let i=values.length-1;i>=0;i--){
 setPulse(liveFound);
 
   // Hover/touch cursor — mirrors the LibreLinkUp app: a vertical line through
-  // the touched point, a dot on the curve, a value readout pinned above the
-  // plot and a time readout pinned below it at the x-axis (both following the
-  // cursor's x position, clamped so they never run off the canvas). Kept in
-  // sync with the device's own touch cursor (main.cpp: touch_event_cb) so
-  // both surfaces read the same way.
+  // the touched point, a dot on the curve, a value readout above the plot and
+  // a time readout pinned below it at the x-axis (both following the cursor's
+  // x position, clamped so they never run off the canvas). The device shows
+  // the same crosshair (main.cpp: touch_event_cb) but puts its value into the
+  // main glucose header instead, where a panel-sized font fits.
   if(hoverIndex>=0 && hoverIndex<values.length && values[hoverIndex]!==null){
     const dpr = (window.devicePixelRatio||1);
     const v=values[hoverIndex];
@@ -671,13 +675,15 @@ setPulse(liveFound);
     const t1 = `${v} mg/dL`;
     const t2 = fmtTime(ts); // "HH:MM", matching the reference app's cursor label
 
-    // Value readout, pinned near the top of the plot, following x
+    // Value readout, pinned in the padding band ABOVE the plot, following x.
+    // It used to sit inside the plot, where the curve ran straight through it
+    // whenever the reading was near the top of the y-scale.
     ctx.font = `${Math.round(dpr*15)}px Arial`;
     ctx.textBaseline = "alphabetic";
     const t1w = ctx.measureText(t1).width;
     const t1x = Math.min(Math.max(x - t1w/2, PAD_L), PAD_L + plotW - t1w);
     ctx.fillStyle = css("--fg");
-    ctx.fillText(t1, t1x, PAD_T + Math.round(dpr*14));
+    ctx.fillText(t1, t1x, PAD_T - Math.round(dpr*18));
 
     // Time readout, pinned near the bottom of the plot (the x-axis), following x
     ctx.font = `${Math.round(dpr*11)}px Arial`;

@@ -154,7 +154,6 @@ extern lv_obj_t * ui_Chart_x_label_end;                   ///< X-axis end time l
 /// @{
 extern lv_obj_t * ui_Chart_Cursor_Line;                   ///< Vertical crosshair line at the touched X
 extern lv_obj_t * ui_Chart_Cursor_Dot;                    ///< Dot on the curve at the touched point
-extern lv_obj_t * ui_Chart_Cursor_Value_Label;             ///< Floating "NNN mg/dL" readout above the line
 extern lv_obj_t * ui_Chart_Cursor_Time_Label;              ///< Floating "HH:MM" readout below the line
 /// @}
 /// @}
