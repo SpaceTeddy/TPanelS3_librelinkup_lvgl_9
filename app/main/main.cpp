@@ -840,6 +840,39 @@ static void chart_cursor_hide(void)
 }
 
 /**
+ * @brief Charted value at point @p id, or LV_CHART_POINT_NONE.
+ *
+ * The glucose curve is drawn from two series -- in-range points live in
+ * glucoseValueSeries_5Min, out-of-range points in glucoseValueSeries_alert
+ * (see draw_chart_glucose_data()) -- so a point has to be looked up in both.
+ * Reading the value back out of the chart instead of out of graph_data[] is
+ * what keeps the cursor on the drawn curve: it is the same array LVGL renders
+ * from, so the dot cannot disagree with the line.
+ *
+ * @param[in]  chart   The glucose chart.
+ * @param[in]  id      Chart point id.
+ * @param[out] ser_out Series that owns the point (may be NULL).
+ * @return Value in mg/dL, or LV_CHART_POINT_NONE if no series has this point.
+ */
+static int32_t chart_value_at(lv_obj_t *chart, int id, lv_chart_series_t **ser_out)
+{
+    lv_chart_series_t *candidates[2] = { glucoseValueSeries_5Min, glucoseValueSeries_alert };
+
+    for (int i = 0; i < 2; i++)
+    {
+        int32_t *y_array = lv_chart_get_series_y_array(chart, candidates[i]);
+        if (y_array != NULL && y_array[id] != LV_CHART_POINT_NONE && y_array[id] != 0)
+        {
+            if (ser_out != NULL)
+                *ser_out = candidates[i];
+            return y_array[id];
+        }
+    }
+
+    return LV_CHART_POINT_NONE;
+}
+
+/**
  * @brief Chart touch release callback.
  *
  * Bound to LV_EVENT_RELEASED and LV_EVENT_PRESS_LOST on the chart.
@@ -872,13 +905,16 @@ static void chart_touch_release_cb(lv_event_t *e)
  * 1. Convert screen coordinates to chart-relative coordinates
  * 2. Map X-coordinate to data point index
  * 3. Retrieve glucose value + timestamp at that index
- * 4. Calculate Y-position by scaling glucose value to chart height
+ * 4. Ask LVGL for the pixel position of that point
  * 5. Position the crosshair line and dot, write the header, place the time
  *
  * @param[in] e LVGL event data containing touch information
  *
- * @note Touch position is relative to chart object, not screen
- * @note Y-axis range is fixed at 40-225 mg/dL
+ * @note Cursor children are positioned in content-box coordinates, while
+ *       lv_chart_get_point_pos_by_id() reports from the chart's outer edge --
+ *       content_ofs_x/y bridges the two
+ * @note The y mapping is LVGL's own, so lv_chart_set_range() stays the single
+ *       source of truth for the axis
  * @note Cursor is hidden if the touched position has no valid data
  *
  * @warning Index clamping prevents out-of-bounds array access
@@ -889,46 +925,83 @@ static void touch_event_cb(lv_event_t *e)
     lv_point_t point;
     lv_indev_get_point(indev, &point);
 
-    // Calculate X coordinate relative to chart
-    lv_coord_t chart_x = lv_obj_get_x(ui_Chart_Glucose_5Min);
-    lv_coord_t chart_width = lv_obj_get_width(ui_Chart_Glucose_5Min);
-    lv_coord_t relative_x = point.x - chart_x;
+    lv_obj_t *chart = ui_Chart_Glucose_5Min;
 
-    // Convert X coordinate to data point index
-    int num_points = lv_chart_get_point_count(ui_Chart_Glucose_5Min);
-    int index = (relative_x * num_points) / chart_width;
+    // The touch point is in display coordinates, while a chart lays its points
+    // out inside its *content* box -- the default theme puts a pad_small on
+    // charts, so that box is inset by roughly 10-14 px per side. Children
+    // positioned with lv_obj_set_pos() live in that same content box, so
+    // everything below is content-relative and the two agree by construction.
+    lv_area_t chart_area;
+    lv_area_t content;
+    lv_obj_get_coords(chart, &chart_area);
+    lv_obj_get_content_coords(chart, &content);
+    lv_coord_t content_w = lv_area_get_width(&content);
 
-    // Clamp index to valid range
-    if (index >= num_points)
-        index = num_points - 1;
-    if (index < 0)
+    // Distance from the chart's outer edge to its content box (pad + border).
+    // lv_chart_get_point_pos_by_id() adds this to every point it reports, but
+    // lv_obj_set_pos() on a child already counts from the content box -- so it
+    // has to come back off, or the cursor sits pad_left/pad_top off the curve.
+    lv_coord_t content_ofs_x = content.x1 - chart_area.x1;
+    lv_coord_t content_ofs_y = content.y1 - chart_area.y1;
+
+    int num_points = (int)lv_chart_get_point_count(chart);
+    if (num_points < 2 || content_w <= 0)
+        return;
+
+    lv_coord_t relative_x = point.x - content.x1;
+
+    // Same mapping LVGL uses internally (lv_chart.c: get_index_from_x): a line
+    // chart puts point id at x = content_w * id / (num_points - 1), so the
+    // nearest point is round(x * (num_points - 1) / content_w).
+    int index;
+    if (relative_x <= 0)
         index = 0;
+    else if (relative_x >= content_w)
+        index = num_points - 1;
+    else
+        index = ((int)relative_x * (num_points - 1) + content_w / 2) / content_w;
 
-    // Get Y value from chart series
-    int16_t value = librelinkup.sensor_history_data().graph_data[index];
-
-    // Hide cursor if no valid value at this point
-    if (value == LV_CHART_POINT_NONE || value == 0)
+    // Hide cursor if no series has a value at this point
+    lv_chart_series_t *ser = NULL;
+    int32_t charted = chart_value_at(chart, index, &ser);
+    if (charted == LV_CHART_POINT_NONE)
     {
         chart_cursor_hide();
         return;
     }
+    const int16_t value = (int16_t)charted;
 
-    // Get chart dimensions (without padding)
-    lv_coord_t chart_height = lv_obj_get_height(ui_Chart_Glucose_5Min);
-    lv_coord_t y_min = 40;  ///< Chart Y-axis minimum (mg/dL)
-    lv_coord_t y_max = 225; ///< Chart Y-axis maximum (mg/dL)
+    // Exact pixel of that point, straight from LVGL: no second copy of the
+    // value->y mapping here that could drift from lv_chart_set_range().
+    lv_point_t p;
+    lv_chart_get_point_pos_by_id(chart, ser, (uint32_t)index, &p);
 
-    // Scale Y value to chart height
-    lv_coord_t y_pos = chart_height - ((value - y_min) * chart_height) / (y_max - y_min);
+    const lv_coord_t point_x = p.x - content_ofs_x;
+    const lv_coord_t point_y = p.y - content_ofs_y;
 
     const bool out_of_range = (value >= librelinkup.glucose_data().glucosetargetHigh ||
                                 value <= librelinkup.glucose_data().glucoseAlarmLow);
 
+    // Cursor geometry, logged once per point (not per touch tick) so the
+    // numbers stay readable while dragging. If the cursor ever looks off the
+    // curve again, this says whether the touch->index mapping or the point
+    // position is to blame, instead of leaving it to guesswork.
+    static int last_logged_index = -1;
+    if (index != last_logged_index)
+    {
+        last_logged_index = index;
+        logger.debug("cursor: idx=%d rel_x=%d content=[x%d y%d %dx%d] point=(%d,%d) child=(%d,%d) val=%d",
+                      index, (int)relative_x, (int)content.x1, (int)content.y1,
+                      (int)content_w, (int)lv_area_get_height(&content),
+                      (int)p.x, (int)p.y, (int)point_x, (int)point_y, (int)value);
+    }
+
     // --- Vertical crosshair line, clamped inside the chart ---
-    lv_coord_t line_x = relative_x - 1; // center the 2px line on the touch point
+    // Snapped to the point, not to the fingertip, so line, dot and curve meet.
+    lv_coord_t line_x = point_x - 1; // center the 2px line on the point
     if (line_x < 0) line_x = 0;
-    if (line_x > chart_width - 2) line_x = chart_width - 2;
+    if (line_x > content_w - 2) line_x = content_w - 2;
     lv_obj_set_pos(ui_Chart_Cursor_Line, line_x, 0);
     lv_obj_clear_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(ui_Chart_Cursor_Line);
@@ -937,7 +1010,7 @@ static void touch_event_cb(lv_event_t *e)
     lv_obj_set_style_border_color(ui_Chart_Cursor_Dot,
                                   out_of_range ? lv_palette_main(LV_PALETTE_RED)
                                                : lv_palette_main(LV_PALETTE_GREEN), 0);
-    lv_obj_set_pos(ui_Chart_Cursor_Dot, relative_x - 7, y_pos - 7);
+    lv_obj_set_pos(ui_Chart_Cursor_Dot, point_x - 7, point_y - 7);
     lv_obj_clear_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(ui_Chart_Cursor_Dot);
 
@@ -947,10 +1020,10 @@ static void touch_event_cb(lv_event_t *e)
     int16_t cursor_delta = 0;
     for (int prev = index - 1; prev >= 0; prev--)
     {
-        int16_t prev_value = librelinkup.sensor_history_data().graph_data[prev];
-        if (prev_value != LV_CHART_POINT_NONE && prev_value != 0)
+        int32_t prev_value = chart_value_at(chart, prev, NULL);
+        if (prev_value != LV_CHART_POINT_NONE)
         {
-            cursor_delta = value - prev_value;
+            cursor_delta = (int16_t)(value - prev_value);
             break;
         }
     }
@@ -972,9 +1045,9 @@ static void touch_event_cb(lv_event_t *e)
     }
     lv_label_set_text(ui_Chart_Cursor_Time_Label, time_text);
     lv_coord_t time_w = lv_obj_get_width(ui_Chart_Cursor_Time_Label);
-    lv_coord_t time_x = relative_x - time_w / 2;
+    lv_coord_t time_x = point_x - time_w / 2;
     if (time_x < 0) time_x = 0;
-    if (time_x > chart_width - time_w) time_x = chart_width - time_w;
+    if (time_x > content_w - time_w) time_x = content_w - time_w;
     lv_obj_set_pos(ui_Chart_Cursor_Time_Label, time_x, CHART_HEIGHT - 41);
     lv_obj_clear_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(ui_Chart_Cursor_Time_Label);

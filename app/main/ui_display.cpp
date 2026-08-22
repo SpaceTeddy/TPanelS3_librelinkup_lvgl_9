@@ -82,22 +82,29 @@ int16_t get_last_valid_x_position(lv_obj_t *chart, lv_chart_series_t *series)
  * - Red: Out of target range (high or low alarm)
  * - Green: Within target range
  *
- * Position is calculated by scaling the data index to chart dimensions.
+ * The position comes from lv_chart_get_point_pos_by_id(), i.e. from LVGL's own
+ * point layout, in the same content-box coordinates lv_obj_set_pos() expects.
+ * The previous version scaled the index against the chart's *outer* size and
+ * corrected the result with two hand-tuned offsets (24 px / 12 px), which left
+ * the marker a few pixels off the curve -- most visibly at low values, and
+ * against the touch cursor, which reads its position from the chart directly.
  *
  * @note Automatically hides marker if no valid value exists
- * @note Uses fixed Y-axis range of 40-225 mg/dL
+ * @note lv_chart_set_range() stays the only place the Y-axis range is defined
  */
 static void highlight_last_point()
 {
-    const uint8_t x_pos_offset = 24; ///< X-axis offset for marker centering
-    const uint8_t y_pos_offset = 12; ///< Y-axis offset for marker centering
+    lv_obj_t *chart = ui_Chart_Glucose_5Min;
+    const uint16_t last_index = librelinkup.GRAPHDATAARRAYSIZE +
+                                librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1;
 
-    // Get last stored value from array
-    int16_t last_value = librelinkup.sensor_history_data().graph_data[librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1];
+    // Read the value back out of the chart: it is the array LVGL renders from,
+    // so marker and curve cannot disagree about what the last point is.
+    int32_t *y_array = lv_chart_get_series_y_array(chart, glucoseValueSeries_5Min);
+    int32_t last_value = (y_array != NULL) ? y_array[last_index] : LV_CHART_POINT_NONE;
 
     // Hide marker if no valid value exists
-    if (last_value == LV_CHART_POINT_NONE ||
-        librelinkup.sensor_history_data().graph_data[librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1] == 0)
+    if (last_value == LV_CHART_POINT_NONE || last_value == 0)
     {
         lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
         return;
@@ -106,20 +113,6 @@ static void highlight_last_point()
     {
         lv_obj_clear_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
     }
-
-    // Calculate X position (scale point index to chart width)
-    lv_coord_t chart_width = lv_obj_get_width(ui_Chart_Glucose_5Min);
-    uint16_t last_index = librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE - 1;
-
-    lv_coord_t x_pos = ((chart_width * last_index) /
-                        (librelinkup.GRAPHDATAARRAYSIZE + librelinkup.GRAPHDATAARRAYSIZE_PLUS_ONE)) -
-                       x_pos_offset;
-
-    // Calculate Y position (scale Y value to chart height)
-    lv_coord_t y_min = 40;
-    lv_coord_t y_max = 225;
-    lv_coord_t chart_height = lv_obj_get_height(ui_Chart_Glucose_5Min);
-    lv_coord_t y_pos = (chart_height - ((last_value - y_min) * chart_height) / (y_max - y_min)) - y_pos_offset;
 
     // Set marker color based on glucose range
     if (last_value >= librelinkup.glucose_data().glucosetargetHigh ||
@@ -134,8 +127,23 @@ static void highlight_last_point()
                                   lv_palette_main(LV_PALETTE_GREEN), 0);
     }
 
-    // Set marker position
-    lv_obj_set_pos(ui_Chart_Glucose_5Min_last_point_marker, x_pos, y_pos);
+    // Set marker position: LVGL's pixel for that point, centered on the marker.
+    // lv_chart_get_point_pos_by_id() reports relative to the chart's outer
+    // edge, lv_obj_set_pos() counts from its content box -- so the padding in
+    // between has to be subtracted once.
+    lv_area_t chart_area;
+    lv_area_t content;
+    lv_obj_get_coords(chart, &chart_area);
+    lv_obj_get_content_coords(chart, &content);
+
+    lv_point_t p;
+    lv_chart_get_point_pos_by_id(chart, glucoseValueSeries_5Min, last_index, &p);
+
+    lv_obj_set_pos(ui_Chart_Glucose_5Min_last_point_marker,
+                   p.x - (content.x1 - chart_area.x1) -
+                       lv_obj_get_width(ui_Chart_Glucose_5Min_last_point_marker) / 2,
+                   p.y - (content.y1 - chart_area.y1) -
+                       lv_obj_get_height(ui_Chart_Glucose_5Min_last_point_marker) / 2);
 
     // Move marker to foreground layer
     lv_obj_move_foreground(ui_Chart_Glucose_5Min_last_point_marker);
