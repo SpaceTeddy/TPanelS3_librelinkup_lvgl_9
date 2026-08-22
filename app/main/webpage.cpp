@@ -637,12 +637,19 @@ for(let i=values.length-1;i>=0;i--){
 }
 setPulse(liveFound);
 
-  // Hover tooltip
+  // Hover/touch cursor — mirrors the LibreLinkUp app: a vertical line through
+  // the touched point, a dot on the curve, a value readout pinned above the
+  // plot and a time readout pinned below it at the x-axis (both following the
+  // cursor's x position, clamped so they never run off the canvas). Kept in
+  // sync with the device's own touch cursor (main.cpp: touch_event_cb) so
+  // both surfaces read the same way.
   if(hoverIndex>=0 && hoverIndex<values.length && values[hoverIndex]!==null){
+    const dpr = (window.devicePixelRatio||1);
     const v=values[hoverIndex];
     const ts=tsArr[hoverIndex];
     const x=xOf(hoverIndex), y=yOf(v);
 
+    // Vertical line
     ctx.strokeStyle = document.body.classList.contains("dark") ? "rgba(231,234,240,0.28)" : "rgba(0,0,0,0.25)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -650,28 +657,36 @@ setPulse(liveFound);
     ctx.lineTo(x, PAD_T+plotH);
     ctx.stroke();
 
-    const t1 = `${v} mg/dL`;
-    const t2 = fmtDateTime(ts);
-
-    ctx.font = `${Math.round((window.devicePixelRatio||1)*12)}px Arial`;
-    const tw = Math.max(ctx.measureText(t1).width, ctx.measureText(t2).width);
-    const bx = Math.min(x + 12, W - tw - 24);
-    const by = Math.max(y - 54, 22);
-
-    ctx.fillStyle = css("--tooltipBg");
-    ctx.strokeStyle = css("--tooltipBorder");
+    // Cursor dot on the curve — white with a dark ring, distinct from the
+    // pulsing green "live" marker drawn above.
+    const dotR = Math.max(5, Math.round(dpr*4.5));
+    ctx.fillStyle = "#ffffff";
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(bx, by-18, tw+16, 60, 8);
-    else ctx.rect(bx, by-18, tw+16, 60);
-    ctx.fill(); ctx.stroke();
+    ctx.arc(x, y, dotR, 0, Math.PI*2);
+    ctx.fill();
+    ctx.lineWidth = Math.max(2, Math.round(dpr*1.5));
+    ctx.strokeStyle = document.body.classList.contains("dark") ? "#14161b" : "#0b0f14";
+    ctx.stroke();
 
+    const t1 = `${v} mg/dL`;
+    const t2 = fmtTime(ts); // "HH:MM", matching the reference app's cursor label
+
+    // Value readout, pinned near the top of the plot, following x
+    ctx.font = `${Math.round(dpr*15)}px Arial`;
+    ctx.textBaseline = "alphabetic";
+    const t1w = ctx.measureText(t1).width;
+    const t1x = Math.min(Math.max(x - t1w/2, PAD_L), PAD_L + plotW - t1w);
     ctx.fillStyle = css("--fg");
-    ctx.fillText(t1, bx+8, by);
-    ctx.fillStyle = css("--muted");
-    ctx.font = `${Math.round((window.devicePixelRatio||1)*10)}px Arial`;
-    ctx.fillText(t2, bx+8, by+34);
+    ctx.fillText(t1, t1x, PAD_T + Math.round(dpr*14));
 
-    document.getElementById("hover").textContent = `Cursor: ${t1} @ ${t2}`;
+    // Time readout, pinned near the bottom of the plot (the x-axis), following x
+    ctx.font = `${Math.round(dpr*11)}px Arial`;
+    const t2w = ctx.measureText(t2).width;
+    const t2x = Math.min(Math.max(x - t2w/2, PAD_L), PAD_L + plotW - t2w);
+    ctx.fillStyle = css("--muted");
+    ctx.fillText(t2, t2x, PAD_T + plotH - Math.round(dpr*4));
+
+    document.getElementById("hover").textContent = `Cursor: ${t1} @ ${fmtDateTime(ts)}`;
   } else {
     document.getElementById("hover").textContent = "Cursor: --";
   }

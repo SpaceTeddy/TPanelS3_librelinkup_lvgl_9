@@ -806,44 +806,66 @@ static void btn_login_event_cb(lv_event_t *event)
 
 
 /**
+ * @brief Hides the chart touch cursor (crosshair line, dot, value/time labels).
+ *
+ * Bound to LV_EVENT_RELEASED and LV_EVENT_PRESS_LOST on the chart. The main
+ * glucose header is never touched by touch_event_cb() below, so there is
+ * nothing to restore there -- only the cursor overlay needs to disappear.
+ *
+ * @param[in] e LVGL event data (unused; same handler for both events)
+ */
+static void chart_touch_release_cb(lv_event_t *e)
+{
+    lv_obj_add_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Chart_Cursor_Value_Label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
+}
+
+/**
  * @brief Touch event callback for glucose chart interaction
  *
- * Displays glucose value at the touched position on the chart.
- * Features:
- * - Shows circular marker at touch point
- * - Updates main label with glucose value
- * - Color-codes marker (red=out of range, green=in range)
- * - Scales touch position to data index
+ * Shows a crosshair at the touched position, matching the official
+ * LibreLinkUp app: a vertical line, a dot on the curve, a value readout
+ * pinned above the line, and a time readout pinned below it at the x-axis.
+ *
+ * ui_Chart_Glucose_5Min_last_point_marker (the green "live value" dot) is
+ * intentionally left alone here -- it used to be reused as the touch marker,
+ * which meant touching the chart hijacked the live-value indicator until the
+ * next periodic redraw put it back. It now always shows the live reading,
+ * same as the app's screenshot, while ui_Chart_Cursor_Dot is the separate
+ * touch indicator. The main glucose header is likewise left alone; the
+ * touched value only appears in the in-chart readout, not the header.
  *
  * Algorithm:
  * 1. Convert screen coordinates to chart-relative coordinates
  * 2. Map X-coordinate to data point index
- * 3. Retrieve glucose value at that index
+ * 3. Retrieve glucose value + timestamp at that index
  * 4. Calculate Y-position by scaling glucose value to chart height
- * 5. Position marker and update display
+ * 5. Position the crosshair line, dot, and value/time labels
  *
  * @param[in] e LVGL event data containing touch information
  *
  * @note Touch position is relative to chart object, not screen
  * @note Y-axis range is fixed at 40-225 mg/dL
- * @note Marker is hidden if touched position has no valid data
+ * @note Cursor is hidden if the touched position has no valid data
  *
  * @warning Index clamping prevents out-of-bounds array access
  */
 static void touch_event_cb(lv_event_t *e)
 {
-    lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_point_t point;
     lv_indev_get_point(indev, &point);
 
     // Calculate X coordinate relative to chart
     lv_coord_t chart_x = lv_obj_get_x(ui_Chart_Glucose_5Min);
+    lv_coord_t chart_width = lv_obj_get_width(ui_Chart_Glucose_5Min);
     lv_coord_t relative_x = point.x - chart_x;
 
     // Convert X coordinate to data point index
     int num_points = lv_chart_get_point_count(ui_Chart_Glucose_5Min);
-    int index = (relative_x * num_points) / lv_obj_get_width(ui_Chart_Glucose_5Min);
+    int index = (relative_x * num_points) / chart_width;
 
     // Clamp index to valid range
     if (index >= num_points)
@@ -854,15 +876,11 @@ static void touch_event_cb(lv_event_t *e)
     // Get Y value from chart series
     int16_t value = librelinkup.sensor_history_data().graph_data[index];
 
-    // Hide marker if no valid value
+    // Hide cursor if no valid value at this point
     if (value == LV_CHART_POINT_NONE || value == 0)
     {
-        lv_obj_add_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
+        chart_touch_release_cb(e);
         return;
-    }
-    else
-    {
-        lv_obj_clear_flag(ui_Chart_Glucose_5Min_last_point_marker, LV_OBJ_FLAG_HIDDEN);
     }
 
     // Get chart dimensions (without padding)
@@ -873,47 +891,52 @@ static void touch_event_cb(lv_event_t *e)
     // Scale Y value to chart height
     lv_coord_t y_pos = chart_height - ((value - y_min) * chart_height) / (y_max - y_min);
 
-    // Offset correction for exact positioning
-    const uint8_t x_pos_offset = 24; ///< X-axis centering offset
-    const uint8_t y_pos_offset = 6;  ///< Y-axis centering offset
+    const bool out_of_range = (value >= librelinkup.glucose_data().glucosetargetHigh ||
+                                value <= librelinkup.glucose_data().glucoseAlarmLow);
 
-    // Set marker color based on glucose range
-    if (value >= librelinkup.glucose_data().glucosetargetHigh ||
-        value <= librelinkup.glucose_data().glucoseAlarmLow)
+    // --- Vertical crosshair line, clamped inside the chart ---
+    lv_coord_t line_x = relative_x - 1; // center the 2px line on the touch point
+    if (line_x < 0) line_x = 0;
+    if (line_x > chart_width - 2) line_x = chart_width - 2;
+    lv_obj_set_pos(ui_Chart_Cursor_Line, line_x, 0);
+    lv_obj_clear_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui_Chart_Cursor_Line);
+
+    // --- Dot on the curve at the touched point ---
+    lv_obj_set_style_border_color(ui_Chart_Cursor_Dot,
+                                  out_of_range ? lv_palette_main(LV_PALETTE_RED)
+                                               : lv_palette_main(LV_PALETTE_GREEN), 0);
+    lv_obj_set_pos(ui_Chart_Cursor_Dot, relative_x - 7, y_pos - 7);
+    lv_obj_clear_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui_Chart_Cursor_Dot);
+
+    // --- Value readout, pinned near the top, clamped horizontally ---
+    char value_text[24];
+    snprintf(value_text, sizeof(value_text), "%d mg/dL", value);
+    lv_label_set_text(ui_Chart_Cursor_Value_Label, value_text);
+    lv_coord_t value_w = lv_obj_get_width(ui_Chart_Cursor_Value_Label);
+    lv_coord_t value_x = relative_x - value_w / 2;
+    if (value_x < 0) value_x = 0;
+    if (value_x > chart_width - value_w) value_x = chart_width - value_w;
+    lv_obj_set_pos(ui_Chart_Cursor_Value_Label, value_x, 4);
+    lv_obj_clear_flag(ui_Chart_Cursor_Value_Label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui_Chart_Cursor_Value_Label);
+
+    // --- Time readout, pinned near the bottom (x-axis), same clamping ---
+    char time_text[8] = "--:--";
+    uint32_t point_ts = librelinkup.sensor_history_data().timestamp[index];
+    if (point_ts > 0)
     {
-        lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker,
-                                  lv_palette_main(LV_PALETTE_RED), 0);
+        helper.format_time(time_text, sizeof(time_text), (time_t)point_ts);
     }
-    else
-    {
-        lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker,
-                                  lv_palette_main(LV_PALETTE_GREEN), 0);
-    }
-
-    // Set marker position
-    lv_obj_set_pos(ui_Chart_Glucose_5Min_last_point_marker,
-                   relative_x - x_pos_offset,
-                   y_pos - y_pos_offset);
-
-    // Move marker to foreground layer
-    lv_obj_move_foreground(ui_Chart_Glucose_5Min_last_point_marker);
-
-    // Update main display with touched value
-    uint8_t mode = 1; // Display mode: show value
-    uint8_t color = (value >= librelinkup.glucose_data().glucosetargetHigh ||
-                     value <= librelinkup.glucose_data().glucoseAlarmLow)
-                        ? 4  // GlucoseLabelColor RED
-                        : 1; // GlucoseLabelColor WHITE
-    uint16_t glucose_value = value;
-
-    draw_labels(mode, color, glucose_value,
-                librelinkup.glucose_data().str_trendArrow,
-                librelinkup.glucose_data().str_TrendMessage, 0);
-
-    // Debug output
-    logger.notice("Touch X (rel): %d, Index: %d, Value: %d, Y: %d",
-                  relative_x, index, value, y_pos);
-
+    lv_label_set_text(ui_Chart_Cursor_Time_Label, time_text);
+    lv_coord_t time_w = lv_obj_get_width(ui_Chart_Cursor_Time_Label);
+    lv_coord_t time_x = relative_x - time_w / 2;
+    if (time_x < 0) time_x = 0;
+    if (time_x > chart_width - time_w) time_x = chart_width - time_w;
+    lv_obj_set_pos(ui_Chart_Cursor_Time_Label, time_x, CHART_HEIGHT - 22);
+    lv_obj_clear_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui_Chart_Cursor_Time_Label);
 }
 
 /**
@@ -2379,8 +2402,10 @@ void setup()
     // Main screen: short press toggles brightness (handled by brightness_on_off_cb)
     lv_obj_add_event_cb(ui_Main_screen, brightness_on_off_cb, LV_EVENT_PRESSED, NULL);
 
-    // Chart: live touch tracking for marker/labels while pressing
+    // Chart: crosshair cursor while pressing, hidden again on release/press-lost
     lv_obj_add_event_cb(ui_Chart_Glucose_5Min, touch_event_cb, LV_EVENT_PRESSING, NULL);
+    lv_obj_add_event_cb(ui_Chart_Glucose_5Min, chart_touch_release_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(ui_Chart_Glucose_5Min, chart_touch_release_cb, LV_EVENT_PRESS_LOST, NULL);
 
     // Global gesture navigation across screens
     lv_obj_add_event_cb(ui_Main_screen, touch_gesture_cb, LV_EVENT_GESTURE, NULL);

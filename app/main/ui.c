@@ -67,6 +67,10 @@ lv_obj_t * ui_Chart_Glucose_5Min_last_point_marker;
 lv_obj_t *ui_Chart_x_label_start;
 lv_obj_t *ui_Chart_x_label_middle;
 lv_obj_t *ui_Chart_x_label_end;
+lv_obj_t *ui_Chart_Cursor_Line;
+lv_obj_t *ui_Chart_Cursor_Dot;
+lv_obj_t *ui_Chart_Cursor_Value_Label;
+lv_obj_t *ui_Chart_Cursor_Time_Label;
 
 // Chart data series
 lv_chart_series_t * glucoseValueSeries_upperlimit;
@@ -644,7 +648,49 @@ void ui_Main_screen_init(void)
     lv_obj_set_style_bg_color(ui_Chart_Glucose_5Min_last_point_marker, lv_palette_main(LV_PALETTE_GREEN), 0);
     lv_obj_set_style_radius(ui_Chart_Glucose_5Min_last_point_marker, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_color(ui_Chart_Glucose_5Min_last_point_marker, lv_color_white(), 0);
-    lv_obj_set_style_border_width(ui_Chart_Glucose_5Min_last_point_marker, 2, 0); 
+    lv_obj_set_style_border_width(ui_Chart_Glucose_5Min_last_point_marker, 2, 0);
+
+    // --- Touch cursor: crosshair shown while dragging a finger across the chart ---
+    // All four objects are children of the chart (same coordinate space as
+    // ui_Chart_Glucose_5Min_last_point_marker above) and start hidden; touch_event_cb()
+    // in main.cpp positions and reveals them, chart_touch_release_cb() hides them again.
+
+    ui_Chart_Cursor_Line = lv_obj_create(ui_Chart_Glucose_5Min);
+    lv_obj_add_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(ui_Chart_Cursor_Line, 2, CHART_HEIGHT);
+    lv_obj_set_style_bg_color(ui_Chart_Cursor_Line, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(ui_Chart_Cursor_Line, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(ui_Chart_Cursor_Line, 0, 0);
+    lv_obj_set_style_radius(ui_Chart_Cursor_Line, 0, 0);
+
+    ui_Chart_Cursor_Dot = lv_obj_create(ui_Chart_Glucose_5Min);
+    lv_obj_add_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(ui_Chart_Cursor_Dot, 14, 14);
+    lv_obj_set_style_bg_color(ui_Chart_Cursor_Dot, lv_color_white(), 0);
+    lv_obj_set_style_radius(ui_Chart_Cursor_Dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_color(ui_Chart_Cursor_Dot, lv_color_hex(0x14161B), 0);
+    lv_obj_set_style_border_width(ui_Chart_Cursor_Dot, 3, 0);
+
+    ui_Chart_Cursor_Value_Label = lv_label_create(ui_Chart_Glucose_5Min);
+    lv_obj_add_flag(ui_Chart_Cursor_Value_Label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_Chart_Cursor_Value_Label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_text_font(ui_Chart_Cursor_Value_Label, &JetBrainsMonoLight32, 0);
+    lv_obj_set_style_text_color(ui_Chart_Cursor_Value_Label, lv_color_white(), 0);
+    lv_obj_set_style_text_align(ui_Chart_Cursor_Value_Label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(ui_Chart_Cursor_Value_Label, 130);
+    lv_label_set_long_mode(ui_Chart_Cursor_Value_Label, LV_LABEL_LONG_MODE_CLIP);
+    lv_label_set_text(ui_Chart_Cursor_Value_Label, "");
+
+    ui_Chart_Cursor_Time_Label = lv_label_create(ui_Chart_Glucose_5Min);
+    lv_obj_add_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_text_font(ui_Chart_Cursor_Time_Label, &JetBrainsMonoLight16, 0);
+    lv_obj_set_style_text_color(ui_Chart_Cursor_Time_Label, lv_color_hex(0x9A9488), 0);
+    lv_obj_set_style_text_align(ui_Chart_Cursor_Time_Label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(ui_Chart_Cursor_Time_Label, 70);
+    lv_label_set_text(ui_Chart_Cursor_Time_Label, "");
 
     // Create X-axis labels
     ui_Chart_x_label_start = lv_label_create(ui_Main_screen);

@@ -141,10 +141,22 @@ extern lv_obj_t * ui_Chart_Glucose_5Min;                  ///< Main glucose hist
 extern lv_obj_t * ui_Chart_Valid_Sensor;                  ///< Sensor validity chart
 extern lv_obj_t * ui_Label_Chart_GlucoseLimitLow;         ///< Low limit label
 extern lv_obj_t * ui_Label_Chart_GlucoseLimitHigh;        ///< High limit label
-extern lv_obj_t * ui_Chart_Glucose_5Min_last_point_marker;///< Marker for latest value
+extern lv_obj_t * ui_Chart_Glucose_5Min_last_point_marker;///< Marker for latest (live) value — never moved by touch
 extern lv_obj_t * ui_Chart_x_label_start;                 ///< X-axis start time label
 extern lv_obj_t * ui_Chart_x_label_middle;                ///< X-axis middle time label
 extern lv_obj_t * ui_Chart_x_label_end;                   ///< X-axis end time label
+
+/// @name Chart Touch Cursor
+/// @brief Crosshair shown while dragging a finger across the glucose chart:
+/// a vertical line, a dot on the curve at the touched point, and floating
+/// value/time readouts. Kept separate from ui_Chart_Glucose_5Min_last_point_marker
+/// so touching the chart never disturbs the live-value marker.
+/// @{
+extern lv_obj_t * ui_Chart_Cursor_Line;                   ///< Vertical crosshair line at the touched X
+extern lv_obj_t * ui_Chart_Cursor_Dot;                    ///< Dot on the curve at the touched point
+extern lv_obj_t * ui_Chart_Cursor_Value_Label;             ///< Floating "NNN mg/dL" readout above the line
+extern lv_obj_t * ui_Chart_Cursor_Time_Label;              ///< Floating "HH:MM" readout below the line
+/// @}
 /// @}
 
 /// @name Chart Data Series
