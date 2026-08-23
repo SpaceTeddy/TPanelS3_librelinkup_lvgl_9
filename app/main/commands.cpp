@@ -1013,10 +1013,15 @@ void wgSettingCommand(uuid::console::Shell &shell, const std::vector<std::string
         String wireguard_argument = arguments[0].c_str();
         if (wireguard_argument == "enable") {
             settings.config.wg_mode = 1;
+            // Persist, like the touchscreen button and the web API do. Without
+            // this the toggle only lived in RAM, so a reboot silently reverted
+            // to whatever /config.json still held and WG was never attempted.
+            settings.saveConfiguration(settings.config_filename, settings.config);
             setup_wg(1);
             shell.println(F("WireGuard enabled."));
         } else if ((wireguard_argument == "disable")) {
             settings.config.wg_mode = 0;
+            settings.saveConfiguration(settings.config_filename, settings.config);
             setup_wg(0);
             shell.println(F("WireGuard disabled."));
         } else {

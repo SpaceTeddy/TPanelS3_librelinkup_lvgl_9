@@ -11,6 +11,7 @@
 #include <string.h>
 #include <ArduinoJson.h>
 #include <StreamUtils.h>
+#include <lvgl.h>   // only for the post-write repaint below
 
 #include "commands.h"
 #include "main.h"
@@ -53,7 +54,13 @@ void SETTINGS::loadConfiguration(const char* filename, Config &config) {
     config.brightness       = doc["brightness"];
     config.telnet_port      = doc["telnet_port"];
     config.mqttServer       = doc["mqttServer"].as<String>();
-    config.mqtt_port        = doc["mqtt_port"];
+    // "| existing value" keeps the struct default when the key is missing or not
+    // convertible, instead of silently zeroing it. Without this, a /config.json
+    // without "mqtt_port" left the port at 0: MQTT itself still worked (it uses
+    // mqtt.mqtt_port), but the FSM's broker probe connected to port 0, always
+    // failed, and declared the WireGuard tunnel sick until it rebooted the
+    // device every 5 minutes. Every other field here has the same weakness.
+    config.mqtt_port        = doc["mqtt_port"] | config.mqtt_port;
     config.mqttUsername     = doc["mqttUsername"].as<String>();
     config.mqttPassword     = doc["mqttPassword"].as<String>();
     config.wgPrivateKey     = doc["wgPrivateKey"].as<String>();
@@ -163,4 +170,11 @@ void SETTINGS::saveConfiguration(const char *filename, Config &config) {
     file.close();
     doc.clear();
 
+    // Writing to LittleFS disables the flash cache, which starves the RGB
+    // panel's DMA and leaves stripes on screen until something repaints. Doing
+    // it here rather than at the ~10 call sites keeps every config write
+    // covered, including the ones reached from the web API and MQTT.
+    lv_obj_t *active_screen = lv_screen_active();
+    if (active_screen != NULL)
+        lv_obj_invalidate(active_screen);
 }

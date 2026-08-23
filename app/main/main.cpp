@@ -325,8 +325,20 @@ int app_check_host_status(const char* host, uint16_t port)
 {
     IPAddress addr;
     if (!WiFi.hostByName(host, addr))
+    {
+        logger.debug("[probe] DNS failed for %s", host);
         return 0;
-    return helper.check_internet_status(addr, port);
+    }
+
+    // Logged because the raw result is a bare 0/1: when the FSM declares the
+    // tunnel "sick" while MQTT is demonstrably exchanging data, the resolved
+    // address is the first thing worth comparing against the address the MQTT
+    // client actually uses.
+    const int result = helper.check_internet_status(addr, port);
+    logger.debug("[probe] %s -> %s:%u = %s",
+                 host, addr.toString().c_str(), (unsigned)port,
+                 result ? "reachable" : "FAILED");
+    return result;
 }
 
 void start_ap_mode(); // defined later in this file
@@ -1717,6 +1729,17 @@ void update_glucose_json_logging()
     uint32_t unixtime_now = librelinkup.get_epoch_time();
     hba1c.addGlucoseValue(unixtime_now, librelinkup.glucose_data().glucoseMeasurement);
     // logger.debug("addGlucoseValue to LittleFS: %d / %d", unixtime_now, librelinkup.glucose_data().glucoseMeasurement);
+
+    // Writing to LittleFS disables the flash cache, which starves the RGB
+    // panel's DMA and leaves the picture torn until something redraws it.
+    // Bounce buffers (see Arduino_ESP32RGBPanel.cpp) widen the tolerance but
+    // cannot close the window entirely, because the refill ISR is not
+    // IRAM-safe in the prebuilt IDF libraries. Repainting right afterwards
+    // repairs whatever the write disturbed instead of leaving it on screen
+    // until the next unrelated update.
+    lv_obj_t *active_screen = lv_screen_active();
+    if (active_screen != NULL)
+        lv_obj_invalidate(active_screen);
 }
 
 /**
@@ -2307,14 +2330,42 @@ bool setup_wg(bool enable, bool force_reinit)
         return result;
     }
 
-    // Brief settle after wg.begin() — WireGuard handshake needs a moment.
-    // We do NOT block here trying to reach the MQTT broker: that IP routes through
-    // the WG tunnel, so a slow peer response would block the main loop for seconds
-    // and cause external connection timeouts. Trust wg.begin() result instead.
-    delay(500);
-    bool ok = begin_ok; // wg.begin() succeeded → interface is up
+    // wg.begin() only reports that the interface was created -- it says nothing
+    // about the handshake, which needs a round trip to the endpoint. Waiting for
+    // the peer to actually come up avoids firing the first fetch into a tunnel
+    // that is not carrying traffic yet.
+    //
+    // Bounded on purpose: setup_OTA() runs after this, so blocking here for long
+    // would delay the recovery path that lets us re-flash over LAN.
+    constexpr uint32_t wg_peer_wait_ms = 5000;
+    constexpr uint32_t wg_peer_poll_ms = 100;
 
-    Serial.printf("[setup_wg] post-begin: wg.begin ok=%d, settling 500ms\n", (int)ok);
+    IPAddress peer_ip;
+    bool peer_up = false;
+    const uint32_t wait_start = millis();
+    while ((millis() - wait_start) < wg_peer_wait_ms)
+    {
+        if (wg.isUp(peer_ip))
+        {
+            peer_up = true;
+            break;
+        }
+        lv_timer_handler(); // keep the UI alive while waiting
+        delay(wg_peer_poll_ms);
+    }
+    const uint32_t waited_ms = millis() - wait_start;
+
+    bool ok = begin_ok; // wg.begin() succeeded → interface exists
+
+    if (peer_up)
+        logger.notice("[setup_wg] peer handshake up after %ums, peer=%s",
+                      (unsigned)waited_ms, peer_ip.toString().c_str());
+    else
+        logger.notice("[setup_wg] peer did NOT come up within %ums -- interface is "
+                      "created but no traffic will pass yet", (unsigned)wg_peer_wait_ms);
+
+    Serial.printf("[setup_wg] post-begin: wg.begin ok=%d, peer_up=%d after %ums\n",
+                  (int)ok, (int)peer_up, (unsigned)waited_ms);
 
     if (ok)
     {
@@ -2580,22 +2631,46 @@ void setup()
     // (timeout, panic). Arduino may already have started the TWDT itself, in
     // which case init reports ESP_ERR_INVALID_STATE and the timeout has to be
     // applied with esp_task_wdt_reconfigure() instead.
+    // Keep whatever idle-task watching the core was configured with instead of
+    // silently switching it off -- Arduino enables CPU0 by default.
+    uint32_t idle_core_mask = 0;
+#if defined(CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0)
+    idle_core_mask |= (1 << 0);
+#endif
+#if defined(CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1)
+    idle_core_mask |= (1 << 1);
+#endif
+
     esp_task_wdt_config_t twdt_config = {
         .timeout_ms     = LOOP_TASK_WDT_TIMEOUT_S * 1000,
-        .idle_core_mask = 0,     // do not watch the idle tasks
+        .idle_core_mask = idle_core_mask,
         .trigger_panic  = true,  // panic + coredump instead of a silent reset
     };
 
+    // Arduino starts the TWDT itself when CONFIG_ESP_TASK_WDT_INIT is set, and
+    // calling init() again logs an ESP_LOGE("TWDT already initialized") before
+    // returning ESP_ERR_INVALID_STATE. Go straight to reconfigure() in that
+    // case so the boot log stays free of a scary but meaningless error.
+#if defined(CONFIG_ESP_TASK_WDT_INIT)
+    esp_err_t twdt_err = esp_task_wdt_reconfigure(&twdt_config);
+#else
     esp_err_t twdt_err = esp_task_wdt_init(&twdt_config);
-    if (twdt_err == ESP_ERR_INVALID_STATE)
-        twdt_err = esp_task_wdt_reconfigure(&twdt_config);
+#endif
     if (twdt_err != ESP_OK)
         logger.err("Task watchdog setup failed: %s", esp_err_to_name(twdt_err));
 #else
     esp_task_wdt_init(LOOP_TASK_WDT_TIMEOUT_S, true);
 #endif
 
-    esp_task_wdt_add(NULL); // subscribes the calling task (setup()/loop())
+    // Subscribe this task (setup()/loop()). Logged because a failure here is
+    // exactly what produces "task_wdt: esp_task_wdt_reset(): task not found"
+    // later on, and that error alone does not say why the task is missing.
+    const esp_err_t twdt_add_err = esp_task_wdt_add(NULL);
+    if (twdt_add_err != ESP_OK)
+        logger.err("Task watchdog subscribe failed: %s", esp_err_to_name(twdt_add_err));
+    else
+        logger.notice("Task watchdog: loop task subscribed, timeout %us",
+                      (unsigned)LOOP_TASK_WDT_TIMEOUT_S);
 
     // ------------------------ Initial data & UI push -------------------------
     if (settings.config.mqtt_master_mode == true)

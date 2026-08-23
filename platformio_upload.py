@@ -214,4 +214,10 @@ def on_upload(source, target, env):
             print("\nUpload successful\nServer response: " + response.text)
 
 
-env.Replace(UPLOADCMD=on_upload)
+# Only take over the upload when the project actually selected this protocol.
+# The script used to replace UPLOADCMD unconditionally, so a serial upload
+# (upload_protocol = esptool) still ended up in on_upload() and died on the
+# missing custom_upload_url -- which made it look like enabling extra_scripts
+# broke the build, when in fact only `-t upload` was affected.
+if env.GetProjectOption("upload_protocol", "") == "custom":
+    env.Replace(UPLOADCMD=on_upload)
