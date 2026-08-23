@@ -55,6 +55,9 @@ extern SETTINGS settings;
 
 // Root CA bundle embedded from data/cert/x509_crt_bundle.bin (136 Mozilla root CAs)
 extern const uint8_t x509_crt_bundle_start[] asm("_binary_data_cert_x509_crt_bundle_bin_start");
+extern const uint8_t x509_crt_bundle_end[]   asm("_binary_data_cert_x509_crt_bundle_bin_end");
+/// Bundle length, required by Arduino core 3.x setCACertBundle().
+static const size_t x509_crt_bundle_size = x509_crt_bundle_end - x509_crt_bundle_start;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
@@ -287,7 +290,11 @@ static void fw_update_check_manifest_now() {
     const uint32_t t0 = millis();
 
     WiFiClientSecure client;
+#if defined(ESP_ARDUINO_VERSION) && ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+    client.setCACertBundle(x509_crt_bundle_start, x509_crt_bundle_size);
+#else
     client.setCACertBundle(x509_crt_bundle_start);
+#endif
 
     HTTPClient http;
     http.setTimeout(10000);
@@ -405,7 +412,11 @@ static void fw_update_install_now() {
     fw_ui_start_install();
 
     WiFiClientSecure client;
+#if defined(ESP_ARDUINO_VERSION) && ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+    client.setCACertBundle(x509_crt_bundle_start, x509_crt_bundle_size);
+#else
     client.setCACertBundle(x509_crt_bundle_start);
+#endif
 
     httpUpdate.onStart([]() {});
     httpUpdate.onProgress([](int current, int total) {

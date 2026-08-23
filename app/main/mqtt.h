@@ -11,6 +11,8 @@
 
 #include <Arduino.h>
 #include <PubSubClient.h>
+#include <WiFiClient.h>      // core 3.x: WiFiClientSecure.h is only a typedef
+                            // header now and no longer pulls this in
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <StreamUtils.h>

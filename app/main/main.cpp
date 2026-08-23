@@ -2373,6 +2373,9 @@ void setup_mdns()
 
 /// Root CA bundle embedded from data/cert/x509_crt_bundle.bin (see platformio.ini embed_files)
 extern const uint8_t x509_crt_bundle_start[] asm("_binary_data_cert_x509_crt_bundle_bin_start");
+extern const uint8_t x509_crt_bundle_end[]   asm("_binary_data_cert_x509_crt_bundle_bin_end");
+/// Bundle length, required by Arduino core 3.x setCACertBundle().
+static const size_t x509_crt_bundle_size = x509_crt_bundle_end - x509_crt_bundle_start;
 
 /**
  * @brief Initializes LibreLinkUp API client
@@ -2399,7 +2402,7 @@ void setup_librelinkup()
     uint8_t ca_mode = 3; // 0=none, 1=API_ROOT_CA, 2=GoogleTrustService Root R4 from littleFS, 3=bundle
     librelinkup.begin(ca_mode);
     if (ca_mode == 3){
-        librelinkup.setCACertBundle(x509_crt_bundle_start);
+        librelinkup.setCACertBundle(x509_crt_bundle_start, x509_crt_bundle_size);
     }
 }
 
@@ -2572,7 +2575,26 @@ void setup()
     // (called each loop() iteration) within LOOP_TASK_WDT_TIMEOUT_S, ESP-IDF panics
     // with a full backtrace, writes a coredump to flash, and reboots -- turning a
     // silent, permanent hang into an automatic recovery plus a diagnosable crash log.
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    // ESP-IDF 5.x (Arduino core 3.x) takes a config struct here instead of
+    // (timeout, panic). Arduino may already have started the TWDT itself, in
+    // which case init reports ESP_ERR_INVALID_STATE and the timeout has to be
+    // applied with esp_task_wdt_reconfigure() instead.
+    esp_task_wdt_config_t twdt_config = {
+        .timeout_ms     = LOOP_TASK_WDT_TIMEOUT_S * 1000,
+        .idle_core_mask = 0,     // do not watch the idle tasks
+        .trigger_panic  = true,  // panic + coredump instead of a silent reset
+    };
+
+    esp_err_t twdt_err = esp_task_wdt_init(&twdt_config);
+    if (twdt_err == ESP_ERR_INVALID_STATE)
+        twdt_err = esp_task_wdt_reconfigure(&twdt_config);
+    if (twdt_err != ESP_OK)
+        logger.err("Task watchdog setup failed: %s", esp_err_to_name(twdt_err));
+#else
     esp_task_wdt_init(LOOP_TASK_WDT_TIMEOUT_S, true);
+#endif
+
     esp_task_wdt_add(NULL); // subscribes the calling task (setup()/loop())
 
     // ------------------------ Initial data & UI push -------------------------

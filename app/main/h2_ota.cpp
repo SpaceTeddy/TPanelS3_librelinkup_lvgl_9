@@ -2,6 +2,8 @@
 
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <WiFiClient.h>      // core 3.x: WiFiClientSecure.h is only a typedef
+                            // header now and no longer pulls this in
 #include <WiFiClientSecure.h>
 #include "mbedtls/base64.h"
 #include <esp_heap_caps.h>
@@ -10,6 +12,9 @@
 extern HardwareSerial SerialPort;
 
 extern const uint8_t x509_crt_bundle_start[] asm("_binary_data_cert_x509_crt_bundle_bin_start");
+extern const uint8_t x509_crt_bundle_end[]   asm("_binary_data_cert_x509_crt_bundle_bin_end");
+/// Bundle length, required by Arduino core 3.x setCACertBundle().
+static const size_t x509_crt_bundle_size = x509_crt_bundle_end - x509_crt_bundle_start;
 
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 
@@ -274,7 +279,11 @@ struct HttpSource : ChunkSource {
     int              total  = 0;
 
     bool begin(const char* url) {
+#if defined(ESP_ARDUINO_VERSION) && ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+        tls.setCACertBundle(x509_crt_bundle_start, x509_crt_bundle_size);
+#else
         tls.setCACertBundle(x509_crt_bundle_start);
+#endif
         bool is_https = strncmp(url, "https://", 8) == 0;
         if (is_https) http.begin(tls, url);
         else          http.begin(url);

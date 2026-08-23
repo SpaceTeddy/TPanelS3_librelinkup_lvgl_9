@@ -17,6 +17,7 @@
 #include "main.h"
 #include "http_update.h"
 #include "ui_display.h"
+#include "tpanels3.h"
 
 
 //------------------------[uuid logger]-----------------------------------
@@ -59,8 +60,12 @@ extern bool g_force_ap_mode;
 // Diagnostic breadcrumb for the main-loop hang detector (main.cpp).
 extern volatile const char* g_loop_breadcrumb;
 
-// Backlight PWM
-extern void ledcWrite(uint8_t channel, uint32_t duty);
+// Backlight PWM. Arduino core 3.x dropped the LEDC channel API (ledcSetup /
+// ledcAttachPin), and its ledcWrite() now takes the *pin*, not the channel --
+// the hand-rolled `extern void ledcWrite(uint8_t channel, uint32_t duty)` that
+// used to sit here would have addressed GPIO 0 instead of the backlight. Go
+// through the panel driver, which owns the pin, like the rest of the code does.
+extern TPanelS3 tpanels3;
 
 //------------------------[FSM implementation]-----------------------------------
 /** @brief Clamp @p v to [@p lo, @p hi]. */
@@ -414,7 +419,7 @@ static bool should_dim_display(const AppFsm &fsm)
  * @brief Decrement backlight brightness by one step if the step interval has elapsed.
  *
  * Rate-limited by cfg.display_dim_step_ms (default 30 ms). Stops at 0.
- * Writes directly to the LEDC channel via ledcWrite().
+ * Writes through TPanelS3::set_backlight_brightness().
  *
  * @param fsm FSM instance; brightness and step timestamp are updated in-place.
  */
@@ -428,7 +433,7 @@ static void display_dim_step(AppFsm &fsm)
     if (settings.config.brightness == 0)
         return;
     settings.config.brightness--;
-    ledcWrite(0, settings.config.brightness);
+    tpanels3.set_backlight_brightness(settings.config.brightness);
 }
 
 /**
@@ -448,7 +453,7 @@ static void display_undim_step(AppFsm &fsm)
     if (settings.config.brightness >= fsm.display_undim_target)
         return;
     settings.config.brightness++;
-    ledcWrite(0, settings.config.brightness);
+    tpanels3.set_backlight_brightness(settings.config.brightness);
 }
 
 /**
