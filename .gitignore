@@ -1,2 +1,6 @@
 .pio
 .vscode
+.dummy
+managed_components
+sdkconfig.defaults
+sdkconfig.main
