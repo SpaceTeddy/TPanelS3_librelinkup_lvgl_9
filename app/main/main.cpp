@@ -395,7 +395,13 @@ void esp_status()
     logger.notice("===== Heap Memory Status =====");
     logger.notice("Total free heap: %d Bytes", esp_get_free_heap_size());
     logger.notice("Largest free block: %d Bytes", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-    logger.notice("Internal RAM (DMA capable): %d Bytes", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    // MALLOC_CAP_INTERNAL alone also counts the IRAM heap, which is 32-bit-only
+    // and permanently full (see the build's IRAM line: 100% used). Its minimum
+    // dominates the aggregate and makes the number meaningless. Byte-addressable
+    // internal memory is what mbedTLS, WiFi and the drivers actually draw from.
+    logger.notice("Internal RAM (8-bit): %d Bytes (min ever: %d)",
+                  heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                  heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     logger.notice("PSRAM available: %d Bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     logger.notice("==============================");
 
@@ -1690,6 +1696,19 @@ void update_glucose_data()
 
         // g_lv_mem_total, not LV_MEM_SIZE: that macro only exists while the
         // builtin allocator is selected and would break the build under CLIB.
+        // A TLS connection needs roughly 32 KB of internal RAM
+        // (CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN=16384, one buffer per direction).
+        // Warn while there is still room to react, instead of only finding out
+        // via "(-32512) SSL - Memory allocation failed" once a fetch fails.
+        // Logged at warning level so it shows up on telnet without debug on.
+        {
+            const size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            const size_t internal_min  = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (internal_free < 60000)
+                logger.notice("Internal RAM low: %u free, %u min ever -- a TLS handshake needs ~32k",
+                               (unsigned)internal_free, (unsigned)internal_min);
+        }
+
         logger.debug("LVGL mem: used=%u%% max_used=%u/%u bytes free=%u frag=%u%%",
                       (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
                       (unsigned)g_lv_mem_total, (unsigned)g_lv_mem_free,
