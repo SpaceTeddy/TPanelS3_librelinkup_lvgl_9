@@ -1988,6 +1988,12 @@ void setup_load_system_config()
 {
     settings.loadConfiguration(settings.config_filename, settings.config);
     librelinkup.timezone_offset() = settings.config.timezone;
+
+    // settings.config.mqtt* (config.json / web UI) was never applied to the
+    // live mqtt object that setup_mqtt() actually connects with - see
+    // MQTT::applyConfig() in mqtt.h.
+    mqtt.applyConfig(settings.config.mqttServer, settings.config.mqtt_port,
+                      settings.config.mqttUsername, settings.config.mqttPassword);
 }
 
 /**

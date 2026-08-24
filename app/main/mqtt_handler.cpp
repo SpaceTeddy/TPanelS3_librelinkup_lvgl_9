@@ -473,7 +473,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
 
 bool setup_mqtt()
 {
-    mqtt_client.setServer(mqtt.mqtt_server, mqtt.mqtt_port);
+    mqtt_client.setServer(mqtt.mqtt_server.c_str(), mqtt.mqtt_port);
     mqtt_client.setCallback(mqtt_callback);
     mqtt_client.setBufferSize(16384);
     mqtt_client.setSocketTimeout(3);
@@ -492,9 +492,9 @@ bool setup_mqtt()
     if (mqtt_client.connected()) return true;
 
     logger.notice("MQTT: connecting... clientId=%s target=%s:%u",
-                  clientId.c_str(), mqtt.mqtt_server, (unsigned)mqtt.mqtt_port);
+                  clientId.c_str(), mqtt.mqtt_server.c_str(), (unsigned)mqtt.mqtt_port);
 
-    const bool ok = mqtt_client.connect(clientId.c_str(), mqtt.mqtt_user, mqtt.mqtt_password);
+    const bool ok = mqtt_client.connect(clientId.c_str(), mqtt.mqtt_user.c_str(), mqtt.mqtt_password.c_str());
     logger.debug("MQTT connect ok=%d state=%d", (int)ok, mqtt_client.state());
 
     if (!ok || !mqtt_client.connected())

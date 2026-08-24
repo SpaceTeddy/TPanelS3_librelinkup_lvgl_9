@@ -38,8 +38,12 @@
 #include "tpanels3.h"
 #include "main.h"
 #include "http_update.h"
+#include "mqtt.h"
 #include "mqtt_handler.h"
 #include "h2_ota.h"
+
+extern MQTT         mqtt;
+extern PubSubClient mqtt_client;
 
 //------------------------[ uuid logger ]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -2094,6 +2098,14 @@ static void handleConfigureMQTT(AsyncWebServerRequest *request) {
     settings.config.mqtt_port    = port;
     settings.config.mqttUsername = user;
     settings.config.mqttPassword = pass;
+
+    // Apply to the live client too, not just settings.config - otherwise this
+    // form silently has no effect until the next reboot (see mqtt.h). Drop the
+    // current connection so setup_mqtt() reconnects with the new broker/port
+    // on its next call instead of staying attached to the old one.
+    mqtt.applyConfig(serverName, (uint16_t)port, user, pass);
+    if (mqtt_client.connected())
+        mqtt_client.disconnect();
 
     logger.notice("MQTT configuration parsed and saved");
     settings.saveConfiguration(settings.config_filename, settings.config);

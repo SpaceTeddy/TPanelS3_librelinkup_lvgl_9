@@ -48,11 +48,30 @@ public:
 
     /**
      * @brief MQTT server settings.
+     *
+     * These are what setup_mqtt() actually connects with - settings.config.mqtt*
+     * (loaded from config.json / set via the web UI) is a separate copy that
+     * nothing used to apply here, so a broker/port changed on the config page
+     * silently had no effect on the live connection. applyConfig() below is
+     * the fix; call it after settings.loadConfiguration() and whenever the
+     * web UI saves new MQTT settings.
      */
-    const char* mqtt_server = "192.168.0.202"; ///< MQTT broker IP address
+    String mqtt_server = "192.168.0.202"; ///< MQTT broker IP address
     uint16_t mqtt_port = 1883; ///< MQTT broker port
-    const char* mqtt_user = "mqtt"; ///< MQTT username
-    const char* mqtt_password = "proxmox_mqtt"; ///< MQTT password
+    String mqtt_user = "mqtt"; ///< MQTT username
+    String mqtt_password = "proxmox_mqtt"; ///< MQTT password
+
+    /**
+     * @brief Apply broker connection settings loaded from persistent config.
+     * @details Empty/zero values are ignored so the defaults above still
+     *          apply on a fresh install before any MQTT settings are saved.
+     */
+    void applyConfig(const String& server, uint16_t port, const String& user, const String& password) {
+        if (!server.isEmpty()) mqtt_server = server;
+        if (port != 0)         mqtt_port   = port;
+        if (!user.isEmpty())   mqtt_user   = user;
+        mqtt_password = password; // empty is valid (anonymous broker auth)
+    }
 
     /**
      * @brief MQTT buffer and topics.
