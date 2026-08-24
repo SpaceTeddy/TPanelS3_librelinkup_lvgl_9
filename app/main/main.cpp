@@ -232,6 +232,12 @@ HBA1C hba1c; ///< HbA1c calculation engine
 
 LIBRELINKUP librelinkup; ///< LibreLinkUp API client instance
 
+/// Lowest byte-addressable internal heap seen during normal operation.
+/// Tracked separately from heap_caps_get_minimum_free_size(), whose all-time
+/// value is dominated by a boot-time dip (XIP-from-PSRAM sets up its mapping
+/// with large temporary internal buffers) and therefore never moves again.
+size_t g_internal_min_runtime = SIZE_MAX;
+
 int16_t glucose_delta = 0;              ///< Change from last reading (mg/dL)
 uint16_t glucoseMeasurement_backup = 0; ///< Previous glucose measurement
 
@@ -399,8 +405,9 @@ void esp_status()
     // and permanently full (see the build's IRAM line: 100% used). Its minimum
     // dominates the aggregate and makes the number meaningless. Byte-addressable
     // internal memory is what mbedTLS, WiFi and the drivers actually draw from.
-    logger.notice("Internal RAM (8-bit): %d Bytes (min ever: %d)",
+    logger.notice("Internal RAM (8-bit): %d Bytes (min since boot: %d, incl. boot: %d)",
                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                  (g_internal_min_runtime == SIZE_MAX) ? -1 : (int)g_internal_min_runtime,
                   heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     logger.notice("PSRAM available: %d Bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     logger.notice("==============================");
@@ -1703,10 +1710,12 @@ void update_glucose_data()
         // Logged at warning level so it shows up on telnet without debug on.
         {
             const size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            const size_t internal_min  = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (internal_free < g_internal_min_runtime)
+                g_internal_min_runtime = internal_free;
+
             if (internal_free < 60000)
-                logger.notice("Internal RAM low: %u free, %u min ever -- a TLS handshake needs ~32k",
-                               (unsigned)internal_free, (unsigned)internal_min);
+                logger.notice("Internal RAM low: %u free, %u min since boot -- a TLS handshake needs ~32k",
+                               (unsigned)internal_free, (unsigned)g_internal_min_runtime);
         }
 
         logger.debug("LVGL mem: used=%u%% max_used=%u/%u bytes free=%u frag=%u%%",

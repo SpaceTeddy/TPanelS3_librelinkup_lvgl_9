@@ -26,6 +26,7 @@
 #include <uuid/log.h>
 
 extern bool              ota_in_progress;
+extern size_t g_internal_min_runtime; ///< see main.cpp
 extern bool              g_ap_mode;
 extern TaskHandle_t      LvglTaskHandle;
 extern AsyncWebServer    server;
@@ -87,6 +88,16 @@ void onOTAProgress(size_t current, size_t final)
         const float progress = ((float)current / (float)final) * 100.0f;
         if (ota_in_progress == 1)
         {
+            // Sample the internal heap here too. The low-water tracker in
+            // main.cpp only runs per fetch, and there are no fetches during
+            // OTA_MODE -- so it missed exactly the load case it exists for:
+            // TLS download, web server, MQTT and display all at once, on top
+            // of a continuous flash write.
+            const size_t internal_free =
+                heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (internal_free < g_internal_min_runtime)
+                g_internal_min_runtime = internal_free;
+
             update_ota_progress_screen((int)progress);
             logger.notice("FWUpdate Progress: %.2f%% (%d / %d Bytes)", progress, current, final);
         }
