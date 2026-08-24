@@ -1089,7 +1089,7 @@ static const char debug_html[] PROGMEM = R"rawliteral(
       <div class="small">WebSocket bridge. Nur im eigenen LAN verwenden.</div>
     </div>
     <div class="row">
-      <input id="tnHost" placeholder="Host (z.B. 192.168.178.20)" style="width:220px;"/>
+      <input id="tnHost" placeholder="Host (127.0.0.1 = dieses Ger&auml;t)" style="width:220px;"/>
       <input id="tnPort" placeholder="Port" style="width:90px;" inputmode="numeric"/>
       <button class="btn" id="tnConnect">Connect</button>
       <button class="btn" id="tnSelf">This device</button>
@@ -1442,7 +1442,7 @@ function tnInsert(ch){
 function tnInit(){
   const hostEl=document.getElementById("tnHost");
   const portEl=document.getElementById("tnPort");
-  const h=localStorage.getItem("tnHost")||"";
+  const h=localStorage.getItem("tnHost")||"127.0.0.1";
   const p=localStorage.getItem("tnPort")||"23";
   if(hostEl) hostEl.value=h||window.location.hostname;
   if(portEl) portEl.value=p||"23";
@@ -2115,6 +2115,7 @@ static void handleConfigureMQTT(AsyncWebServerRequest *request) {
 
 
 // -------------------- Telnet WebSocket bridge --------------------
+#include <errno.h>
 // Browser can't do raw TCP; this bridges WebSocket <-> Telnet TCP (LAN use).
 #include <Ticker.h>
 #include <map>
@@ -2271,12 +2272,51 @@ static void ws_telnet_on_event(AsyncWebSocket *server, AsyncWebSocketClient *cli
             if (sess.tcp_connected) sess.tcp.stop();
             sess.host = host;
             sess.port = port;
+
+            // Connecting to our OWN address does not work on this lwIP build.
+            // The port sets LWIP_HAVE_LOOPIF=1, which compiles out ip4_output's
+            // "destination equals my own address -> loop back internally"
+            // shortcut. Such a packet is put on the wire instead, the AP does
+            // not reflect it, and connect() sits in select() until it times out
+            // (visible as errno 119 EINPROGRESS). The dedicated lo0 interface
+            // at 127.0.0.1 is the path this configuration actually provides.
+            // Done here rather than in the browser so a host already stored in
+            // localStorage keeps working.
+            const IPAddress sta_ip = WiFi.localIP();
+            const IPAddress ap_ip  = WiFi.softAPIP();
+            if ((sta_ip && sess.host == sta_ip.toString()) ||
+                (ap_ip  && sess.host == ap_ip.toString())) {
+                logger.debug("[ws-telnet] %s is our own address, using 127.0.0.1 (lo0)",
+                             sess.host.c_str());
+                sess.host = "127.0.0.1";
+            }
+
             sess.tcp.setTimeout(2000);
 
             telnet_send_status(client, "connecting...");
+
+            // "connect failed" on its own says nothing about why. Arduino logs
+            // the real reason via ESP_LOGE to Serial only, which is useless on
+            // a deployed device -- so carry errno back to the browser and into
+            // the uuid log (telnet) as well.
+            errno = 0;
             bool ok = sess.tcp.connect(sess.host.c_str(), sess.port);
+            const int connect_errno = errno;
             sess.tcp_connected = ok;
-            telnet_send_status(client, ok ? "connected" : "connect failed");
+
+            if (ok) {
+                telnet_send_status(client, "connected");
+            } else {
+                logger.err("[ws-telnet] connect to %s:%u failed, errno=%d (%s)",
+                           sess.host.c_str(), (unsigned)sess.port,
+                           connect_errno, strerror(connect_errno));
+                String why("connect failed, errno=");
+                why += connect_errno;
+                why += " (";
+                why += strerror(connect_errno);
+                why += ")";
+                telnet_send_status(client, why);
+            }
             return;
         }
 
