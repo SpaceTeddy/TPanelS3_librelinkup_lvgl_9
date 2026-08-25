@@ -836,6 +836,14 @@ static void btn_login_event_cb(lv_event_t *event)
 ///////////////////// CHART INTERACTION CALLBACKS ////////////////////
 
 
+/// Data point the cursor currently sits on, and whether its objects are
+/// already raised. LV_EVENT_PRESSING fires every few milliseconds while a
+/// finger is down, but at ~2.8 px per point most of those events land on the
+/// point already shown. Repeating the work then costs a full-height invalidate
+/// of the chart -- which redraws the 141-point series -- for no visible change.
+static int  s_cursor_index   = -1;
+static bool s_cursor_visible = false;
+
 /// True while the main glucose header shows a touched value instead of the
 /// live reading. Guards the restore below so a drag does not rewrite the
 /// header labels on every LV_EVENT_PRESSING tick.
@@ -854,6 +862,9 @@ static void chart_cursor_hide(void)
     lv_obj_add_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
+
+    s_cursor_index   = -1;
+    s_cursor_visible = false;
 
     if (!s_header_shows_cursor)
         return;
@@ -1003,6 +1014,13 @@ static void touch_event_cb(lv_event_t *e)
     }
     const int16_t value = (int16_t)charted;
 
+    // Nothing moved to a new data point: the cursor already shows exactly this,
+    // so skip the repositioning entirely. This is what keeps a drag from
+    // invalidating the chart on every touch tick.
+    if (s_cursor_visible && index == s_cursor_index)
+        return;
+    s_cursor_index = index;
+
     // Exact pixel of that point, straight from LVGL: no second copy of the
     // value->y mapping here that could drift from lv_chart_set_range().
     lv_point_t p;
@@ -1035,7 +1053,6 @@ static void touch_event_cb(lv_event_t *e)
     if (line_x > content_w - 2) line_x = content_w - 2;
     lv_obj_set_pos(ui_Chart_Cursor_Line, line_x, 0);
     lv_obj_clear_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_Chart_Cursor_Line);
 
     // --- Dot on the curve at the touched point ---
     lv_obj_set_style_border_color(ui_Chart_Cursor_Dot,
@@ -1043,7 +1060,6 @@ static void touch_event_cb(lv_event_t *e)
                                                : lv_palette_main(LV_PALETTE_GREEN), 0);
     lv_obj_set_pos(ui_Chart_Cursor_Dot, point_x - 7, point_y - 7);
     lv_obj_clear_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_Chart_Cursor_Dot);
 
     // --- Touched value into the main glucose header ---
     // The delta line keeps its meaning while scrubbing: it reports the touched
@@ -1081,7 +1097,16 @@ static void touch_event_cb(lv_event_t *e)
     if (time_x > content_w - time_w) time_x = content_w - time_w;
     lv_obj_set_pos(ui_Chart_Cursor_Time_Label, time_x, CHART_HEIGHT - 41);
     lv_obj_clear_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_Chart_Cursor_Time_Label);
+
+    // Raising the objects reorders the parent's child list and invalidates
+    // them; once per touch is enough, doing it per move was pure overhead.
+    if (!s_cursor_visible)
+    {
+        lv_obj_move_foreground(ui_Chart_Cursor_Line);
+        lv_obj_move_foreground(ui_Chart_Cursor_Dot);
+        lv_obj_move_foreground(ui_Chart_Cursor_Time_Label);
+        s_cursor_visible = true;
+    }
 }
 
 /**

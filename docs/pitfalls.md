@@ -129,48 +129,83 @@ leer definiert, ein `#ifdef` ist also nicht nötig. Die DNS-Auflösung muss
 
 ## Speicher: nicht die Summe, sondern der größte Block
 
-**Symptom:** Der Fetch scheitert mit `[HTTP] GET... failed, error: connection
-refused`, im Detail `tls=SSL - Memory allocation failed` — obwohl `esp_status`
-58 KB freien internen Speicher meldet. Tritt auf, sobald mehrere Telnet-
-Sitzungen oder das Dashboard offen sind.
+**Symptom:** Der Fetch scheitert mit `connection refused`, im Detail
+`tls=SSL - Memory allocation failed` — obwohl `esp_status` ~58 KB freien
+internen Speicher meldet. Tritt auf, sobald Telnet-Sitzungen oder das Dashboard
+offen sind.
 
-**Ursache:** mbedTLS braucht **zwei zusammenhängende 16-KB-Blöcke**
-(`CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN=16384`, je einer pro Richtung). Der interne
-Heap fragmentiert unter Last: 58 KB frei, aber nur 17,4 KB am Stück. Der erste
-Puffer passt gerade noch, der zweite nicht mehr.
+**Ursache:** mbedTLS braucht **zusammenhängende** Puffer. Der interne Heap
+fragmentiert unter Last: 58 KB frei, aber nur 17,4 KB am Stück.
 
-**Fix:** `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y` über `custom_sdkconfig`. mbedTLS
-allokiert dann im PSRAM, wo ~3,9 MB in einem Stück verfügbar sind.
+**Fix:** `CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y` mit `IN=16384` /
+`OUT=4096`. ESP-IDF hat das ohnehin als Standard, der Arduino-Build schaltet es
+ab und erzwingt 16 KB in **beide** Richtungen. Wiedereinschalten senkt den
+Bedarf von 2×16 KB auf 16 KB + 4 KB und spart 12 KB pro Verbindung.
 
-Wirkung, gemessen:
+`IN` bei 16384 belassen: TLS erlaubt Records bis 16 KB, ein Server der einen
+solchen schickt würde die Verbindung abbrechen.
 
-| | vorher | nachher |
-|---|---|---|
-| größter interner Block | 17.396 | **30.708** |
-| internes RAM gesamt | 58.736 | 66.124 |
-| Fetch mit 2 Telnet-Sitzungen | scheitert | läuft |
+### Nicht mit `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` lösen
 
-Dass die Instruktionen bereits über `CONFIG_SPIRAM_XIP_FROM_PSRAM` aus dem PSRAM
-kommen, macht die zusätzlichen TLS-Puffer dort bandbreitenmäßig unerheblich.
+Die Puffer ins PSRAM zu legen behebt die Allokation — der größte interne Block
+stieg von 17.396 auf 30.708 — **bringt aber das Display-Flimmern zurück**, beim
+Fetch wie beim Scrollen über den Graphen. Der PSRAM-Bus trägt bereits den
+Framebuffer der LCD-DMA (~10,6 MB/s bei 480×480×2 und ~23 Hz), die
+LVGL-Zeichenpuffer und seit XIP auch Code und Rodata. Zusätzlicher Verkehr
+dort lässt die DMA verhungern.
+
+**Merksatz:** Bedarf senken, nicht auf den PSRAM-Bus verschieben.
+
+### Warum 120 MHz PSRAM nicht geht
+
+`CONFIG_SPIRAM_SPEED_120M` wäre +50 % auf genau diesem Engpass, und IDF nennt
+Quad-PSRAM bei 120 MHz stabil. Flash und PSRAM teilen sich auf dem ESP32-S3
+aber den MSPI-Takt, und `mspi_timing_tuning_configs.h` besteht per
+`ESP_STATIC_ASSERT` darauf, dass der PSRAM-Takt ein Vielfaches des Flash-Takts
+ist. Bei Flash mit 80 MHz scheidet 120 aus; es ginge nur mit Flash auf 120 MHz
+(eigenes Risiko) oder 40 MHz — was LittleFS-Schreibvorgänge verlangsamt und
+damit gegenläufig wäre.
 
 ### Zwei Messfallen
 
-- **`MALLOC_CAP_INTERNAL` allein** zählt das IRAM mit — einen nur
-  32-bit-adressierbaren, zu 100 % belegten Heap. Richtig ist
+- **`MALLOC_CAP_INTERNAL` allein** zählt das IRAM mit, einen nur
+  32-bit-adressierbaren, voll belegten Heap. Richtig ist
   `MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`.
 - **Die Summe sagt nichts.** Entscheidend ist
-  `heap_caps_get_largest_free_block()`. `esp_status` zeigt beides; nur der
-  größte Block beantwortet die Frage, ob eine TLS-Verbindung zustande kommt.
+  `heap_caps_get_largest_free_block()`. `esp_status` zeigt beides.
 
-`main.cpp` führt zusätzlich mit `g_internal_min_runtime` einen eigenen
-Tiefstand, gemessen **vor** jedem Fetch-Versuch. Der IDF-Wert
-`heap_caps_get_minimum_free_size()` ist von einem Boot-Ausreißer dominiert und
-als Frühwarnung unbrauchbar. Der eigene Wert ist eine Stichprobe, kein exaktes
-Minimum — er kann kurzzeitig über dem aktuellen Stand liegen.
+`heap_caps_get_minimum_free_size()` wird von einem Boot-Ausreißer dominiert;
+`main.cpp` führt deshalb mit `g_internal_min_runtime` einen eigenen Tiefstand,
+gemessen **vor** jedem Fetch-Versuch. Es ist eine Stichprobe, kein exaktes
+Minimum.
 
-Reserve, falls es je wieder eng wird: `CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096`
-oder `CONFIG_MBEDTLS_DYNAMIC_BUFFER=y`. Den Eingangspuffer bei 16384 belassen,
-sonst brechen Server mit großen TLS-Records die Verbindung ab.
+## custom_sdkconfig wirkt additiv
+
+Eine Zeile aus `custom_sdkconfig` zu **entfernen** stellt den alten Wert nicht
+wieder her — die generierte `sdkconfig.main` behält ihn. Zum Zurücknehmen
+entweder den Gegenwert explizit setzen oder `sdkconfig.main` und
+`sdkconfig.defaults` löschen und neu bauen.
+
+Bei einer Kconfig-`choice` reicht es außerdem nicht, die gewünschte Alternative
+zu setzen; die bestehende muss explizit deaktiviert werden
+(`CONFIG_SPIRAM_SPEED_80M=n` neben `CONFIG_SPIRAM_SPEED_120M=y`).
+
+Und: eine Änderung an `custom_sdkconfig` löst eine IDF-Neukonfiguration aus,
+bei der der **erste** Build-Lauf an einem veralteten CMake-Cache scheitern kann.
+Ein zweiter Aufruf läuft dann durch.
+
+## Chart-Cursor: Neuzeichnen drosseln
+
+`touch_event_cb()` läuft bei jedem `LV_EVENT_PRESSING`, also alle paar
+Millisekunden. Bei 400 px Chartbreite und 141 Punkten (~2,8 px pro Punkt) landen
+viele dieser Ereignisse auf **demselben** Datenpunkt. Ohne frühen Ausstieg wird
+dann jedes Mal die volle Cursor-Positionierung ausgeführt — und weil die
+Cursor-Linie volle Chart-Höhe hat, invalidiert das einen Streifen über die
+gesamte Höhe und zwingt LVGL, den 141-Punkte-Linienzug neu zu zeichnen.
+
+Zwei Regeln: bei unverändertem Index sofort zurückkehren, und
+`lv_obj_move_foreground()` nur beim Sichtbarwerden aufrufen, nicht bei jeder
+Bewegung.
 
 ## Chart: Versatz zwischen Chart-ID und Datenindex
 
