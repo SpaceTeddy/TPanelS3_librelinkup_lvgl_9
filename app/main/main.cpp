@@ -415,8 +415,6 @@ void esp_status()
                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                   (g_internal_min_runtime == SIZE_MAX) ? -1 : (int)g_internal_min_runtime,
                   heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-    logger.notice("PSRAM available: %d Bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    logger.notice("==============================");
 
     // LVGL allocates from its own fixed pool, not from the ESP heap above -- the
     // two say nothing about each other. Values come from the loop task's last
@@ -425,6 +423,9 @@ void esp_status()
                   (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
                   (unsigned)g_lv_mem_total, (unsigned)g_lv_mem_free,
                   (unsigned)g_lv_mem_frag_pct);
+
+    logger.notice("PSRAM available: %d Bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    logger.notice("==============================");
 
     logger.notice("WiFi Reconnects : %d", esp_status_counter_wifi_restart);
     logger.notice("WG Reinits      : %d", esp_status_counter_wg_reinit);
