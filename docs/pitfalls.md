@@ -127,31 +127,50 @@ Sperre schlägt eine Assertion zu. Die Makros sind bei abgeschaltetem Core-Locki
 leer definiert, ein `#ifdef` ist also nicht nötig. Die DNS-Auflösung muss
 **außerhalb** der Sperre bleiben — sie ist Socket-API und würde blockieren.
 
-## Speicher richtig messen
+## Speicher: nicht die Summe, sondern der größte Block
 
-Der interne Heap ist die knappe Ressource; PSRAM ist reichlich vorhanden.
+**Symptom:** Der Fetch scheitert mit `[HTTP] GET... failed, error: connection
+refused`, im Detail `tls=SSL - Memory allocation failed` — obwohl `esp_status`
+58 KB freien internen Speicher meldet. Tritt auf, sobald mehrere Telnet-
+Sitzungen oder das Dashboard offen sind.
 
-**Eine TLS-Verbindung braucht rund 32 KB** (`CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN
-=16384`, je ein Puffer pro Richtung). Gemessener Tiefstand unter Volllast
-(OTA-Download bei laufendem Betrieb): **~45,5 KB** — also etwa 13 KB Reserve.
+**Ursache:** mbedTLS braucht **zwei zusammenhängende 16-KB-Blöcke**
+(`CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN=16384`, je einer pro Richtung). Der interne
+Heap fragmentiert unter Last: 58 KB frei, aber nur 17,4 KB am Stück. Der erste
+Puffer passt gerade noch, der zweite nicht mehr.
 
-Zwei Messfallen:
+**Fix:** `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y` über `custom_sdkconfig`. mbedTLS
+allokiert dann im PSRAM, wo ~3,9 MB in einem Stück verfügbar sind.
 
-- **`MALLOC_CAP_INTERNAL` allein** zählt das IRAM mit, einen nur 32-bit-adressier­
-  baren Heap, der zu 100 % belegt ist. Richtig ist
+Wirkung, gemessen:
+
+| | vorher | nachher |
+|---|---|---|
+| größter interner Block | 17.396 | **30.708** |
+| internes RAM gesamt | 58.736 | 66.124 |
+| Fetch mit 2 Telnet-Sitzungen | scheitert | läuft |
+
+Dass die Instruktionen bereits über `CONFIG_SPIRAM_XIP_FROM_PSRAM` aus dem PSRAM
+kommen, macht die zusätzlichen TLS-Puffer dort bandbreitenmäßig unerheblich.
+
+### Zwei Messfallen
+
+- **`MALLOC_CAP_INTERNAL` allein** zählt das IRAM mit — einen nur
+  32-bit-adressierbaren, zu 100 % belegten Heap. Richtig ist
   `MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`.
-- **`heap_caps_get_minimum_free_size()`** wird von einem Boot-Ausreißer dominiert
-  (XIP-from-PSRAM richtet sein Mapping mit großen temporären Puffern ein) und
-  meldet für immer ~200 Bytes. Deshalb führt `main.cpp` mit
-  `g_internal_min_runtime` einen eigenen Tiefstand ab dem ersten Fetch.
+- **Die Summe sagt nichts.** Entscheidend ist
+  `heap_caps_get_largest_free_block()`. `esp_status` zeigt beides; nur der
+  größte Block beantwortet die Frage, ob eine TLS-Verbindung zustande kommt.
 
-Der Zähler wird an zwei Stellen aktualisiert: im Fetch-Block und im
-OTA-Fortschritts-Callback. Ohne die zweite Stelle verpasst er ausgerechnet den
-Lastfall, für den er gedacht ist — während `OTA_MODE` gibt es keine Fetches.
+`main.cpp` führt zusätzlich mit `g_internal_min_runtime` einen eigenen
+Tiefstand, gemessen **vor** jedem Fetch-Versuch. Der IDF-Wert
+`heap_caps_get_minimum_free_size()` ist von einem Boot-Ausreißer dominiert und
+als Frühwarnung unbrauchbar. Der eigene Wert ist eine Stichprobe, kein exaktes
+Minimum — er kann kurzzeitig über dem aktuellen Stand liegen.
 
-Reserve, falls es je eng wird: `CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096` bringt
-rund 12 KB zurück. Den Eingangspuffer sollte man bei 16384 belassen, sonst
-brechen Server mit großen TLS-Records die Verbindung ab.
+Reserve, falls es je wieder eng wird: `CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096`
+oder `CONFIG_MBEDTLS_DYNAMIC_BUFFER=y`. Den Eingangspuffer bei 16384 belassen,
+sonst brechen Server mit großen TLS-Records die Verbindung ab.
 
 ## Chart: Versatz zwischen Chart-ID und Datenindex
 

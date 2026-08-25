@@ -405,6 +405,12 @@ void esp_status()
     // and permanently full (see the build's IRAM line: 100% used). Its minimum
     // dominates the aggregate and makes the number meaningless. Byte-addressable
     // internal memory is what mbedTLS, WiFi and the drivers actually draw from.
+    // The decisive number for mbedTLS is not the sum but the largest
+    // CONTIGUOUS internal block: a TLS session needs one 16 KB buffer per
+    // direction in one piece. A fragmented heap can show 60 KB free and still
+    // fail with "memory allocation failed".
+    logger.notice("Internal largest block: %d Bytes (TLS needs ~16k contiguous)",
+                  heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     logger.notice("Internal RAM (8-bit): %d Bytes (min since boot: %d, incl. boot: %d)",
                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                   (g_internal_min_runtime == SIZE_MAX) ? -1 : (int)g_internal_min_runtime,
@@ -1585,6 +1591,24 @@ void update_five_minute_counter()
  */
 void update_glucose_data()
 {
+    // Sampled before the fetch, not after a successful one: the interesting
+    // moment is right before the TLS connection is attempted, and a failing
+    // fetch never reached the old location -- which left the low-water mark
+    // frozen at a value above the current one.
+    {
+        const size_t internal_free =
+            heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (internal_free < g_internal_min_runtime)
+            g_internal_min_runtime = internal_free;
+
+        // The contiguous block is what decides whether mbedTLS can allocate;
+        // the sum can look healthy while the largest piece is too small.
+        const size_t largest =
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (largest < 20000)
+            logger.notice("Internal heap fragmented: largest block %u -- TLS needs ~16k contiguous",
+                          (unsigned)largest);
+    }
 
     // Check WiFi connection first
     if (WiFi.status() != WL_CONNECTED)
@@ -1708,16 +1732,6 @@ void update_glucose_data()
         // Warn while there is still room to react, instead of only finding out
         // via "(-32512) SSL - Memory allocation failed" once a fetch fails.
         // Logged at warning level so it shows up on telnet without debug on.
-        {
-            const size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            if (internal_free < g_internal_min_runtime)
-                g_internal_min_runtime = internal_free;
-
-            if (internal_free < 60000)
-                logger.notice("Internal RAM low: %u free, %u min since boot -- a TLS handshake needs ~32k",
-                               (unsigned)internal_free, (unsigned)g_internal_min_runtime);
-        }
-
         logger.debug("LVGL mem: used=%u%% max_used=%u/%u bytes free=%u frag=%u%%",
                       (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
                       (unsigned)g_lv_mem_total, (unsigned)g_lv_mem_free,
