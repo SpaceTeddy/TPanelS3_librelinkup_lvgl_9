@@ -2517,7 +2517,11 @@ void setup_librelinkup()
 {
     if (settings.config.login_email == "" || settings.config.login_password == "")
     {
-        lv_disp_load_scr(ui_Login_screen);
+        // On-device login screen disabled (RAM saving) -- ui_Login_screen is
+        // never created, so loading it here would be a NULL-pointer crash.
+        // Credentials without stored config now have to come from the web
+        // /login route instead.
+        // lv_disp_load_scr(ui_Login_screen);
     }
     else
     {
@@ -2664,31 +2668,34 @@ void setup()
     lv_obj_add_event_cb(ui_btn_fw_check, btn_fw_check_cb, LV_EVENT_ALL, NULL);
 
     // On-screen keyboard show/hide for text areas
-    lv_obj_add_event_cb(ui_ta_email, ta_event_cb, LV_EVENT_ALL, ui_kb);
-    lv_obj_add_event_cb(btn_login, btn_login_event_cb, LV_EVENT_CLICKED, NULL);
+    // Login screen disabled (RAM saving): ui_ta_email/ui_kb/btn_login/
+    // ui_ta_password are never created by ui_Login_screen_init(), so wiring
+    // events to them here would be a NULL-pointer crash on every boot.
+    // lv_obj_add_event_cb(ui_ta_email, ta_event_cb, LV_EVENT_ALL, ui_kb);
+    // lv_obj_add_event_cb(btn_login, btn_login_event_cb, LV_EVENT_CLICKED, NULL);
 
     // Focus handlers to bind the keyboard to the active text area
-    lv_obj_add_event_cb(
-        ui_ta_email,
-        [](lv_event_t *event)
-        {
-            lv_keyboard_set_textarea(ui_kb, ui_ta_email);
-            lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
-        },
-        LV_EVENT_FOCUSED,
-        NULL
-    );
+    // lv_obj_add_event_cb(
+    //     ui_ta_email,
+    //     [](lv_event_t *event)
+    //     {
+    //         lv_keyboard_set_textarea(ui_kb, ui_ta_email);
+    //         lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
+    //     },
+    //     LV_EVENT_FOCUSED,
+    //     NULL
+    // );
 
-    lv_obj_add_event_cb(
-        ui_ta_password,
-        [](lv_event_t *event)
-        {
-            lv_keyboard_set_textarea(ui_kb, ui_ta_password);
-            lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
-        },
-        LV_EVENT_FOCUSED,
-        NULL
-    );
+    // lv_obj_add_event_cb(
+    //     ui_ta_password,
+    //     [](lv_event_t *event)
+    //     {
+    //         lv_keyboard_set_textarea(ui_kb, ui_ta_password);
+    //         lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
+    //     },
+    //     LV_EVENT_FOCUSED,
+    //     NULL
+    // );
 // ------------------------------------------------------------------------
 
     // ------------------------ Application FSM -------------------------------
@@ -2809,6 +2816,14 @@ void loop()
             flag_debug_screen = false; // reset flag, will be set again by timer
             //logger.debug("1s timer tick: updating debug screen labels...");
             update_debug_screen();
+
+            // Same tick also keeps the firmware-info screen live while it's
+            // on screen: ui_fwinfo_refresh() previously only ran right before
+            // navigating there or right after tapping Check/Install, so a
+            // check running in the background (FW_CHECKING) never updated
+            // the labels if the user was already watching this screen.
+            if (lv_scr_act() == ui_FWInfo_screen)
+                ui_fwinfo_refresh();
         }
     }
 }

@@ -33,6 +33,7 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <time.h>
+#include <string.h>
 
 //---------------------------[globals]------------------------------------
 

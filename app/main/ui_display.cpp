@@ -562,7 +562,9 @@ void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
  */
 lv_obj_t *screen_rotation_next(lv_obj_t *active, int dir)
 {
-    lv_obj_t *order[] = { ui_Main_screen, ui_FWInfo_screen, ui_Debug_screen, ui_Login_screen };
+    // ui_Login_screen dropped from the rotation: login screen is disabled
+    // (ui_Login_screen_init() commented out in ui.c), the object is NULL.
+    lv_obj_t *order[] = { ui_Main_screen, ui_FWInfo_screen, ui_Debug_screen };
     const int n = (int)(sizeof(order) / sizeof(order[0]));
 
     for (int i = 0; i < n; ++i)

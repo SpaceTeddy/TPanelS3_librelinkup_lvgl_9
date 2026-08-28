@@ -294,7 +294,23 @@ void mqtt_publish()
         const String  topic   = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
         g_loop_breadcrumb = "mqtt.pub.master_graph";
         logger.debug("MQTT publish master graph: %u bytes", (unsigned)payload.length());
-        if (!mqtt_client.publish(topic.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true))
+        // Stream straight out of payload's own buffer via beginPublish()/
+        // write()/endPublish() instead of publish(), which first copies the
+        // whole payload byte-by-byte into PubSubClient's internal buffer
+        // (see PubSubClient::publish()) before sending it. For this ~15 KB
+        // PSRAM-backed payload that byte-copy was a second full PSRAM pass
+        // stacked right on top of building the string, timed exactly at
+        // fetch completion -- confirmed as the tearing trigger by testing
+        // with mqtt_master_mode disabled (no tearing) vs enabled (tearing).
+        // Streaming skips that copy entirely.
+        bool ok = mqtt_client.beginPublish(topic.c_str(), payload.length(), true);
+        if (ok)
+        {
+            size_t written = mqtt_client.write((const uint8_t *)payload.c_str(), payload.length());
+            ok = (written == payload.length());
+            mqtt_client.endPublish();
+        }
+        if (!ok)
         {
             logger.warning("MQTT publish master graph failed (state=%d)", mqtt_client.state());
         }
