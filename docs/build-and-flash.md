@@ -136,6 +136,47 @@ Ebenfalls geprüft und verworfen: `CONFIG_MBEDTLS_DYNAMIC_BUFFER` taucht in
 **keiner** der beiden sdkconfigs auf, ist also hinter einer Abhängigkeit
 versteckt und keine Option.
 
+### Der größte Hebel: LVGL-Pool ins PSRAM (2026-08-29)
+
+`LV_MEM_SIZE` ist 64 kB, und mit dem eingebauten Allokator lag dieser Pool als
+statisches Array im internen RAM — der mit Abstand größte Einzelposten dort
+(65 536 von 112 399 B statischem `.bss`/`.data`).
+
+In `include/lv_conf.h` genügen zwei Zeilen, um ihn ins PSRAM zu verlegen:
+
+```c
+#define LV_MEM_POOL_INCLUDE "esp_heap_caps.h"
+#define LV_MEM_POOL_ALLOC(size) heap_caps_malloc(size, MALLOC_CAP_SPIRAM)
+```
+
+`lv_mem_core_builtin.c` legt das statische Array nur an, wenn `LV_MEM_POOL_ALLOC`
+**nicht** definiert ist — damit entfällt es vollständig.
+
+**Nicht stattdessen `LV_STDLIB_CLIB` verwenden.** Das übergibt LVGLs
+Allokationen dem ESP-Heap, und mit `SPIRAM_MALLOC_ALWAYSINTERNAL=4096` landen
+die vielen kleinen davon bevorzugt im *internen* RAM, verstreut über den
+allgemeinen Heap. Der eingebaute TLSF-Allokator hält LVGLs Verschnitt dagegen
+in der eigenen Arena.
+
+Gemessen:
+
+| | vorher | nachher |
+|---|---|---|
+| `.dram0.bss` | 104 008 B | 38 472 B |
+| PlatformIO RAM | 39,1 % | 19,1 % |
+| Internes RAM frei | ~80 000 B | 150 616 B |
+| Größter freier Block | 22 516 B | 60 404 B |
+| Tiefstwert inkl. Boot | 9 408 B | 96 736 B |
+| PSRAM frei | 3 904 412 B | 3 837 788 B |
+
+LVGL selbst verhält sich unverändert (`max_used 44044/60100`, Fragmentierung
+3 %). **Offen:** ob das Zeichnen spürbar träger wird — LVGLs Zeichenauftrags-
+Buchführung hat jetzt PSRAM-Latenz. Zu beurteilen an Wischgesten und am
+Chart-Aufbau.
+
+**Achtung:** eine Änderung an `lv_conf.h` löst keinen Rebuild aus, sie kommt
+über `-DLV_CONF_PATH` herein. Immer `pio run -t clean`.
+
 ### Nächster Messschritt
 
 Die offenen ~51 KB findet man nicht durch Raten an sdkconfig-Schaltern. `esp_status`
@@ -226,6 +267,38 @@ Pool-Größe trennt die beiden Effekte. Bislang nicht gemessen.
 > `heap_caps_get_info()` und `multi_heap_info_t` gibt es unverändert seit
 > IDF 3.x, das sollte also halten — nachgewiesen ist es für Core 2.x aber nicht.
 > Beim nächsten Rückwechsel als Erstes prüfen (siehe die Zweikern-Regel oben).
+
+### Wenn der Build nach einer sdkconfig-Änderung zerfällt
+
+Jede Änderung an `custom_sdkconfig` schickt pioarduino durch seinen
+„Reinstall Arduino framework"-Pfad: er löscht `framework-arduinoespressif32`,
+installiert es neu und übersetzt die IDF-Bibliotheken neu. Dieser Pfad ist
+fragil, und ein Abbruch hinterlässt einen Mischzustand. Beobachtete
+Ausprägungen, alle am 2026-08-29:
+
+| Symptom | Ursache |
+|---|---|
+| `Missing Arduino framework directory 'None'` | Paket ist gelöscht, `FRAMEWORK_DIR` wurde beim Skriptstart als `None` gemerkt |
+| `MissingPackageManifestError` | Paket neu installiert, aber ohne `package.json` |
+| `cannot find .pio/build/main/libXXX/*.o` | Objektverzeichnisse der Bibliotheken halb neu geschrieben |
+| `undefined reference to mbedtls_asn1_*` | vorkompiliertes `libmbedx509.a` gegen aus Quellen gebautes mbedTLS gelinkt |
+| CMake: „Include directory … is not a directory" | `managed_components/` mitten im Austausch |
+
+Oft genügt ein zweiter Lauf. Hilft das nicht, stellt dieses Rezept den Zustand
+vollständig wieder her:
+
+```bash
+URL=https://github.com/espressif/arduino-esp32/releases/download/3.3.11
+pio pkg install --global --tool "$URL/esp32-core-3.3.11-libs.tar.xz" -f
+pio pkg install --global --tool "$URL/esp32-core-3.3.11.tar.xz" -f
+rm -f sdkconfig.defaults sdkconfig.main
+pio run -t clean && pio run
+```
+
+Die Versionsnummern stehen in der `platform.json` der Plattform unter
+`packages.framework-arduinoespressif32.version`. Das Löschen von
+`sdkconfig.defaults` ist wichtig: dort steht die `# TASMOTA__<hash>`-Zeile, an
+der pioarduino erkennt, ob neu übersetzt werden muss.
 
 ## extra_scripts
 
