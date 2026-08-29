@@ -415,6 +415,24 @@ void esp_status()
                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                   (g_internal_min_runtime == SIZE_MAX) ? -1 : (int)g_internal_min_runtime,
                   heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    // "73 KB free but only 23 KB in one piece" has two possible causes, and the
+    // numbers above cannot tell them apart: either the internal heap is simply
+    // split into regions by the linker, or it is genuinely fragmented.
+    // free_blocks decides it -- a handful means regions, dozens mean
+    // fragmentation.
+    //
+    // allocated + free is the pool size, which is the number to compare between
+    // Arduino cores: core 3.x starts with a *smaller* pool (its bigger
+    // .iram0.text eats the same SRAM, 1:1) and additionally allocates more at
+    // runtime. Only the pool size separates those two effects.
+    multi_heap_info_t internal_info;
+    heap_caps_get_info(&internal_info, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    logger.notice("Internal pool: %u Bytes (%u alloc in %u blocks, %u free in %u blocks)",
+                  (unsigned)(internal_info.total_allocated_bytes + internal_info.total_free_bytes),
+                  (unsigned)internal_info.total_allocated_bytes,
+                  (unsigned)internal_info.allocated_blocks,
+                  (unsigned)internal_info.total_free_bytes,
+                  (unsigned)internal_info.free_blocks);
     logger.notice("PSRAM available: %d Bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     logger.notice("==============================");
 

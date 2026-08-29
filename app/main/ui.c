@@ -1037,9 +1037,12 @@ void ui_FWInfo_screen_init(void)
         lv_label_set_text(ui_Label_FWInfoStatus, "");
     }
 
-    ui_btn_fwinfo_install = create_fwinfo_button(ui_FWInfo_screen, "Install", -150);
+    // Three 140 px buttons spread evenly over the 480 px width: the four gaps
+    // (both margins plus the two spaces between) are 15 px each, so the centres
+    // land 155 px left/right of the screen centre.
+    ui_btn_fwinfo_install = create_fwinfo_button(ui_FWInfo_screen, "Install", -155);
     ui_btn_fwinfo_check   = create_fwinfo_button(ui_FWInfo_screen, "Check",      0);
-    ui_btn_fwinfo_cancel  = create_fwinfo_button(ui_FWInfo_screen, "Cancel",   150);
+    ui_btn_fwinfo_cancel  = create_fwinfo_button(ui_FWInfo_screen, "Cancel",   155);
 }
 
 /**
@@ -1091,22 +1094,29 @@ void ui_btn_debug_screen_init(lv_obj_t * parent)
         return;
     }
 
+    // Four 100 px buttons spread evenly over the 480 px width: the five gaps
+    // (both margins plus the three spaces between) are 16 px each, so the
+    // centres sit 174 / 58 px either side of the screen centre.
+
     // WireGuard button
-    ui_btn_wireguard = create_debug_toggle_button(parent, "WG", -165);
+    ui_btn_wireguard = create_debug_toggle_button(parent, "WG", -174);
     ui_btn_label_wireguard = (ui_btn_wireguard != NULL) ? lv_obj_get_child(ui_btn_wireguard, 0) : NULL;
 
     // MQTT button
-    ui_btn_mqtt = create_debug_toggle_button(parent, "MQTT", -55);
+    ui_btn_mqtt = create_debug_toggle_button(parent, "MQTT", -58);
     ui_btn_label_mqtt = (ui_btn_mqtt != NULL) ? lv_obj_get_child(ui_btn_mqtt, 0) : NULL;
 
     // OTA Update button
-    ui_btn_ota_update = create_debug_toggle_button(parent, "OTA", 55);
+    ui_btn_ota_update = create_debug_toggle_button(parent, "OTA", 58);
     ui_btn_label_ota_update = (ui_btn_ota_update != NULL) ? lv_obj_get_child(ui_btn_ota_update, 0) : NULL;
 
     // FW check / install button -- not a toggle, so it gets the same
     // non-checkable style as the firmware-info screen's buttons directly.
-    ui_btn_fw_check = create_fwinfo_button(parent, "FW Chk", 165);
-    lv_obj_align(ui_btn_fw_check, LV_ALIGN_CENTER, 165, 150);
+    // That helper builds a 140 px wide button, which would run into the OTA
+    // button here, so it is resized to the 100 px used by the toggles.
+    ui_btn_fw_check = create_fwinfo_button(parent, "FW Chk", 174);
+    lv_obj_set_size(ui_btn_fw_check, 100, 64);
+    lv_obj_align(ui_btn_fw_check, LV_ALIGN_CENTER, 174, 150);
     ui_btn_label_fw_check = (ui_btn_fw_check != NULL) ? lv_obj_get_child(ui_btn_fw_check, 0) : NULL;
 }
 
