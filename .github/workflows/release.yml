@@ -82,7 +82,10 @@ jobs:
             pio-${{ runner.os }}-
 
       - name: Install PlatformIO Core
-        run: pip install --upgrade platformio
+        # intelhex: tool-esptoolpy's bootloader-build step imports it but does
+        # not install it itself - without this, "pio run" fails with
+        # ModuleNotFoundError: No module named 'intelhex'.
+        run: pip install --upgrade platformio intelhex
 
       - name: Build firmware
         env:
