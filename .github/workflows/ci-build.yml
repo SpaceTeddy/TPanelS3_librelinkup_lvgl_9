@@ -34,9 +34,14 @@ jobs:
             ~/.platformio/.cache
             ~/.platformio/packages
             ~/.platformio/platforms
+          # No restore-keys on purpose. The key changes with every
+          # platformio.ini edit -- including the platform line, which this
+          # project switches between core 2.x and core 3.x. A loose fallback
+          # then restores a cache built for the *other* platform, and
+          # PlatformIO spends the run repairing it (visible as the same tool
+          # being installed three times from different sources). A cold cache
+          # costs a few minutes; a mismatched one costs the build.
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
-          restore-keys: |
-            pio-${{ runner.os }}-
 
       - name: Install PlatformIO Core
         # intelhex: tool-esptoolpy's bootloader-build step imports it but does
@@ -74,7 +79,20 @@ jobs:
           fi
 
       - name: Build selected environment
-        run: pio run -e "${{ github.event.inputs.environment }}"
+        # `pio run` has died here without printing an exit code or an
+        # error. Piping through tee hides the real status, so PIPESTATUS is
+        # read back explicitly; df/free bracket the run because a runner out of
+        # disk or memory is the most likely way a build vanishes silently.
+        run: |
+          df -h /; free -h
+          set +e
+          pio run -e "${{ github.event.inputs.environment }}" 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "=== pio exit code: $code"
+          df -h /; free -h
+          echo "=== last 40 lines"; tail -40 build.log
+          exit $code
 
       - name: Run unit tests (optional)
         if: ${{ github.event.inputs.run_tests == 'true' }}
