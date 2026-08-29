@@ -84,6 +84,7 @@ public:
     String mqtt_subscibe_toppic = "/cmd"; ///< Subscription topic for commands
     String mqtt_subscibe_rec_toppic = "/cmd_rec"; ///< Subscription topic for received commands
     String mqtt_client_network = "/network"; ///< Topic for network information
+    String mqtt_client_health = "/health"; ///< Topic for memory/health telemetry
     String mqtt_incomming_cmd = ""; ///< Incoming MQTT command buffer
 
     bool configured = false; ///< Indicates if the MQTT client is configured
