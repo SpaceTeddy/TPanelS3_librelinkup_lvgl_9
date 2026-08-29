@@ -1672,6 +1672,24 @@ void update_glucose_data()
             handle_llu_api_error();
             return;
         }
+
+        // Heap integrity probe. The GUI artefacts that appear after a graph
+        // fetch survive a full repaint -- so the framebuffer is not being
+        // drawn wrongly, something is overwriting it. LVGL's two draw buffers,
+        // the GFX framebuffer and the response JSON all live in PSRAM next to
+        // each other, and internal RAM drops to ~15 KB during this call: a
+        // short or failed allocation followed by an overrun would look exactly
+        // like this. Comprehensive poisoning (CONFIG_HEAP_POISONING_COMPREHENSIVE
+        // in platformio.ini) puts a canary around every block; this walks them
+        // right after the one call that only runs in master mode -- which is
+        // the only difference between the mode that shows artefacts and the
+        // one that does not.
+        //
+        // One check per cycle localises the damage by induction: the previous
+        // cycle's check passed, so whatever this one catches happened since.
+        // Silent on success, so it can stay in place as a permanent tripwire.
+        if (!heap_caps_check_integrity_all(true))
+            logger.err("Heap corruption detected right after get_graph_data()");
         // settings.config.mqtt_master_mode = false; // Currently unused
     }
     else

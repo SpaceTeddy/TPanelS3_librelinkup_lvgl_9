@@ -110,6 +110,64 @@ komplette Tagesdatei, hängt einen Eintrag an und schreibt **alles neu** — jed
 Minute, bei einer auf 300 Einträge gedeckelten Datei also rund 12 KB. Anhängen
 statt Neuschreiben wäre der eigentliche Hebel, ist aber nicht umgesetzt.
 
+## Bildstörungen während eines API-Fetches
+
+**Symptom:** Während eines Glukose-Fetches ist das Bild zerrissen und fängt sich
+danach wieder. Tritt **nur im Master-Mode** auf, also nur wenn das Gerät die API
+selbst abfragt — im Client-Mode, wo die Daten per MQTT kommen, nicht.
+
+**Nicht die Ursache** (geprüft, nicht wiederholen):
+
+- *Speicherkorruption.* Am 2026-08-29 mit
+  `CONFIG_HEAP_POISONING_COMPREHENSIVE=y` plus
+  `heap_caps_check_integrity_all()` direkt nach `get_graph_data()` geprüft:
+  alle Kanarienvögel intakt. Der Stolperdraht steht weiterhin in `main.cpp`
+  und schweigt im Normalfall — schlägt er je an, ist es doch ein Überlauf.
+- *LVGL-Pool.* `max_used` bleibt bei 44 140 von 60 100 Bytes, der Pool läuft
+  nicht leer.
+- *Permanenter Panel-Desync.* `CONFIG_LCD_RGB_RESTART_IN_VSYNC=y` ist bereits
+  aktiv; der Treiber setzt den GDMA-Kanal bei jedem VBlank zurück. Genau das
+  ist der Grund, warum sich das Bild nach dem Fetch wieder fängt.
+
+**Übrig bleibt Bandbreite.** Das Zerreiß-Fenster deckt sich exakt mit der
+Fetch-Dauer (`LLU API fetch time: 2494ms`, FSM-Zyklus 2 722 ms). Während dieser
+Zeit bekommt die RGB-DMA ihren Framebuffer nicht schnell genug aus dem PSRAM.
+Das erklärt beide Beobachtungen: der Client-Mode hat keinen 2,5-Sekunden-Download,
+und der FW-Manifest-Check (HTTPS, alle zehn Minuten, in **beiden** Modi) ist zu
+klein, um das Fenster aufzureißen.
+
+**Was dagegen hilft — Stand offen:**
+
+- `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` wieder **aus** (2026-08-29). Ein Fetch
+  ist der eine Moment, in dem WiFi- und lwIP-Puffer im Paket-Takt beschrieben
+  werden, auf demselben Bus. Kostet 8,6 KB internes RAM. Das Zittern gab es
+  laut Beobachtung aber schon vor dieser Option — also nicht die ganze
+  Geschichte.
+- `CONFIG_SPIRAM_SPEED_120M` — **ausprobiert und nicht erreichbar.** Zwei
+  Hürden, beide am 2026-08-29 durchgespielt:
+
+  1. `SPIRAM_SPEED` ist ein Kconfig-*choice*, in dem die Arduino-Basis
+     `SPIRAM_SPEED_80M=y` setzt. Ein blosses `SPIRAM_SPEED_120M=y` kippt die
+     Wahl nicht und fällt **still** durch — `sdkconfig.main` zeigte weiterhin
+     `CONFIG_SPIRAM_SPEED=80`. Mit `CONFIG_SPIRAM_SPEED_80M=n` davor greift es.
+  2. Dann bricht der Build ab: `mspi_timing_tuning_configs.h:160`, statische
+     Zusicherung `"FLASH and PSRAM Mode configuration are not supported"`.
+     Flash und PSRAM teilen sich auf dem S3 den MSPI-Block, der PSRAM-Takt muss
+     ein Vielfaches des Flash-Takts sein. Flash läuft hier auf 80 MHz,
+     120 / 80 geht nicht auf.
+
+  Erreichbar wäre es nur über den Flash-Takt. 120 MHz teilt 120 glatt, ist aber
+  selbst experimentell und hängt am Flash-Chip. 40 MHz teilt ebenfalls, würde
+  aber LittleFS verlangsamen und damit das Cache-Aus-Fenster verlängern — also
+  das *andere* Display-Problem verschlimmern.
+
+  Die Kconfig-Hilfe sagt übrigens „Quad PSRAM 120 MHz **is stable**"; die
+  Temperaturwarnung dort gilt Octal-PSRAM. Dieses Board ist Quad.
+
+**Nicht verwechseln** mit [Display flimmert bei
+Flash-Zugriffen](#display-flimmert-bei-flash-zugriffen): das ist der
+Cache-Ausfall beim Schreiben, hier ist der Bus schlicht ausgelastet.
+
 ## WireGuard-Bibliothek: Reihenfolge und Sperren
 
 Zwei Korrekturen im eigenen Fork, beide auf beiden Cores relevant:

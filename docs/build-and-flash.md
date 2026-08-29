@@ -109,7 +109,18 @@ dass dort die Differenz steckt. Die Option **greift** nachweislich
 die Lücke nicht.
 
 Die Lehre: bevor man eine sdkconfig-Option als wirkungslos abhakt, in
-`sdkconfig.main` nachsehen, ob sie überhaupt angekommen ist. Und in einem
+`sdkconfig.main` nachsehen, ob sie überhaupt angekommen ist. **Aber auf das
+Datum achten** — `sdkconfig.main` wird nur von pioarduino erzeugt. Nach einem
+Core-2-Build bleibt die Datei vom letzten Core-3-Build stehen und beschreibt
+dann *nicht* das, was gerade gebaut wurde. Was Core 2.x tatsächlich verwendet,
+steht in `~/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/sdkconfig`.
+
+**Und: `sdkconfig.main` ist klebrig.** Eine Option aus `custom_sdkconfig` zu
+*entfernen* macht sie nicht rückgängig — ESP-IDF behandelt eine vorhandene
+`sdkconfig` als maßgeblich, `custom_sdkconfig` seedet sie nur, wenn sie noch
+nicht existiert. Zum Zurücknehmen einer Option gehört deshalb immer
+`rm sdkconfig.main` oder `pio run -t clean`. Wer das übersieht, baut mit einer
+Konfiguration weiter, die in der `platformio.ini` gar nicht mehr steht. Und in einem
 mehrzeiligen INI-Wert beendet eine **Leerzeile** den Wert — steht eine Option
 dahinter, wird sie stillschweigend ignoriert. Deshalb ist der Block im
 `custom_sdkconfig` lückenlos mit `;`-Zeilen durchgezogen.
