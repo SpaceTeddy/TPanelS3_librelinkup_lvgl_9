@@ -97,13 +97,9 @@ static const HaSensor k_ha_sensors[] = {
     { "mqtt_state",          "MQTT State",       HA_DATA, "{{ value_json.mqtt_mode }}",          "",      "",               "" },
     { "mqtt_master_state",   "MQTT Master State",HA_DATA, "{{ value_json.mqtt_master_mode }}",   "",      "",               "" },
 
-    // Memory telemetry, published once per cycle on the health topic. Picked
-    // for what an actual investigation needed: `alloc`/`blocks` together show
-    // a slow leak (both climb) as opposed to a deep but stable allocation
-    // peak, `largest` is what decides whether a TLS session still fits (it
-    // needs 16 KB in one piece, not just 16 KB free), and `min` is the hard
-    // low-water mark -- it only ever falls, so a step in it marks the moment
-    // a new worst case happened.
+    // Memory telemetry on the health topic. alloc+blocks rising together is a
+    // leak; largest decides whether a TLS session still fits (16 KB in one
+    // piece); min is the hard low-water mark.
     { "heap_int_free",       "Heap Internal Free",     HA_HEALTH, "{{ value_json.heap_int_free }}",    "B", "data_size", "measurement" },
     { "heap_int_largest",    "Heap Internal Largest",  HA_HEALTH, "{{ value_json.heap_int_largest }}", "B", "data_size", "measurement" },
     { "heap_int_min",        "Heap Internal Low Water",HA_HEALTH, "{{ value_json.heap_int_min }}",     "B", "data_size", "measurement" },
@@ -365,16 +361,8 @@ void mqtt_publish()
     }
 
     // ── Health: memory figures for long-term trending ────────────────────────
-    // The same numbers `esp_status` prints, but recorded per cycle so a slow
-    // drift becomes visible -- a single reading cannot distinguish a deep but
-    // stable allocation peak from something that creeps up over days.
-    //
-    // MALLOC_CAP_INTERNAL alone would also count the 32-bit-only IRAM heap,
-    // which is permanently full and makes the aggregate meaningless; the
-    // byte-addressable internal memory is what WiFi, mbedTLS and the drivers
-    // draw from. `largest` matters more than `free`: a TLS session needs
-    // 16 KB in *one piece*, so a fragmented heap can show plenty free and
-    // still fail the handshake.
+    // MALLOC_CAP_8BIT is required everywhere: MALLOC_CAP_INTERNAL alone also
+    // counts the permanently full IRAM heap.
     multi_heap_info_t internal_info;
     heap_caps_get_info(&internal_info, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
@@ -382,24 +370,20 @@ void mqtt_publish()
     json_mqtt["heap_int_free"]    = (uint32_t)internal_info.total_free_bytes;
     json_mqtt["heap_int_largest"] = (uint32_t)heap_caps_get_largest_free_block(
                                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    // Lifetime low-water mark: only ever falls, so a step marks the moment a
-    // new worst case occurred. Not a gauge -- read it as an event marker.
+    // Lifetime low-water mark: only ever falls -- an event marker, not a gauge.
     json_mqtt["heap_int_min"]     = (uint32_t)heap_caps_get_minimum_free_size(
                                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     json_mqtt["heap_int_alloc"]   = (uint32_t)internal_info.total_allocated_bytes;
     json_mqtt["heap_int_blocks"]  = (uint32_t)internal_info.allocated_blocks;
     json_mqtt["psram_free"]       = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    // LVGL draws from its own fixed pool, not the ESP heap -- the two say
-    // nothing about each other. Values come from the loop task's last sample.
+    // LVGL has its own fixed pool, unrelated to the ESP heap.
     json_mqtt["lvgl_max_used"]    = (uint32_t)g_lv_mem_used_max;
     json_mqtt["lvgl_total"]       = (uint32_t)g_lv_mem_total;
     json_mqtt["lvgl_frag"]        = (uint8_t)g_lv_mem_frag_pct;
-    // mqtt_publish() runs on the loop task, so this is that task's headroom.
-    // A watermark shrinking over days is a slow stack overflow in the making.
+    // Loop task headroom -- shrinking over days means a slow stack overflow.
     json_mqtt["loop_stack_free"]  = (uint32_t)uxTaskGetStackHighWaterMark(NULL);
 
-    // Serialised into a String, not mqtt.mqtt_buffer: that buffer is 255 bytes
-    // and serializeJson() would truncate silently, publishing invalid JSON.
+    // String, not mqtt.mqtt_buffer -- 255 bytes there would truncate silently.
     String health_payload;
     serializeJson(json_mqtt, health_payload);
     json_mqtt.clear();
