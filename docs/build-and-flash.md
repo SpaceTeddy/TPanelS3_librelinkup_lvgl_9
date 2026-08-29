@@ -118,9 +118,16 @@ steht in `~/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/
 **Und: `sdkconfig.main` ist klebrig.** Eine Option aus `custom_sdkconfig` zu
 *entfernen* macht sie nicht rückgängig — ESP-IDF behandelt eine vorhandene
 `sdkconfig` als maßgeblich, `custom_sdkconfig` seedet sie nur, wenn sie noch
-nicht existiert. Zum Zurücknehmen einer Option gehört deshalb immer
-`rm sdkconfig.main` oder `pio run -t clean`. Wer das übersieht, baut mit einer
-Konfiguration weiter, die in der `platformio.ini` gar nicht mehr steht. Und in einem
+nicht existiert. Wer das übersieht, baut mit einer Konfiguration weiter, die in
+der `platformio.ini` gar nicht mehr steht.
+
+**Die Regel lautet deshalb: den ersten Build nach einer sdkconfig-Änderung mit
+`pio run -t clean`.** `rm sdkconfig.main` allein genügt nicht — beim Reconfigure
+schreibt PlatformIO die Objektverzeichnisse der Bibliotheken neu und lässt dabei
+Lücken; der Build stirbt dann im Linker mit
+`cannot find .pio/build/main/libXXX/.../foo.c.o`. Das ist am 2026-08-29 zweimal
+passiert. Nur der erste Build ist betroffen, danach läuft inkrementell wieder
+alles. `clean` erledigt beides in einem Schritt. Und in einem
 mehrzeiligen INI-Wert beendet eine **Leerzeile** den Wert — steht eine Option
 dahinter, wird sie stillschweigend ignoriert. Deshalb ist der Block im
 `custom_sdkconfig` lückenlos mit `;`-Zeilen durchgezogen.

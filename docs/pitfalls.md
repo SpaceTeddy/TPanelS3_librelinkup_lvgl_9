@@ -164,6 +164,80 @@ klein, um das Fenster aufzureißen.
   Die Kconfig-Hilfe sagt übrigens „Quad PSRAM 120 MHz **is stable**"; die
   Temperaturwarnung dort gilt Octal-PSRAM. Dieses Board ist Quad.
 
+### Dauerhaft schiefes Bild: der Bounce-Buffer-Zähler
+
+Ein Sonderfall, der sich anders anfühlt: das Bild bleibt **dauerhaft** verschoben
+und ein Repaint hilft nicht. Das ist kein Rätsel, sondern bauartbedingt.
+
+Unter Core 3.x läuft das Bild über drei Stufen statt zwei:
+
+```
+LVGL-Puffer -> Framebuffer (PSRAM) -> Bounce-Buffer (intern, 20 Zeilen) -> DMA -> Panel
+               ^ das erneuert ein Repaint    ^ hier sitzt der Fehler
+```
+
+In `esp_lcd_panel_rgb.c` kopiert eine ISR die nächsten 20 Zeilen aus dem
+Framebuffer und zählt dabei `bounce_pos_px` hoch — einen reinen Softwarezähler.
+**Nichts leitet ihn je aus der echten Position des Panels ab.** Kommt die ISR
+einmal zu spät, verschiebt sich der Zähler dauerhaft, und ab da wird bei jedem
+Bild der falsche Ausschnitt herausgeschnitten. Der Framebuffer ist tadellos —
+deshalb ändert ein Repaint nichts.
+
+Das Sicherheitsnetz in `lcd_rgb_panel_try_restart_transmission()` greift nur
+grob: `if (bounce_pos_px > bb_size_px * 2) bounce_pos_px = 0;`. Ein Versatz um
+ein oder zwei Bounce-Puffer geht glatt durch, obwohl
+`CONFIG_LCD_RGB_RESTART_IN_VSYNC=y` bei jedem VBlank läuft.
+
+Das erklärt auch, warum Core 2.x dieses Symptom nicht kennt: dort gibt es gar
+keine Bounce-Buffer (der Block in `Arduino_ESP32RGBPanel.cpp` steht hinter
+`#if ESP_ARDUINO_VERSION_MAJOR >= 3`, IDF 4.4 kennt das Feld nicht).
+
+**Beide naheliegenden Gegenmaßnahmen am 2026-08-29 versucht und wieder
+zurückgenommen:**
+
+1. **`bounce_buffer_size_px = 0`** — die Stufe ganz herausnehmen, damit es
+   keinen `bounce_pos_px` mehr gibt, der verrutschen kann. **Ergebnis: alles
+   flackerte dauerhaft**, deutlich schlimmer als vorher. Sofort revertiert.
+   Nicht wiederholen.
+
+   Das widerlegt zugleich die frühere Einschätzung, die Bounce-Buffer seien
+   „nachweislich aktiv, ohne Wirkung": ohne sie fehlt der DMA jede Reserve
+   gegen PSRAM-Buskonkurrenz, und das Bild steht durchgehend. Sie helfen also,
+   nur eben nicht gegen den Flash-Cache-Ausfall.
+
+2. `CONFIG_LCD_RGB_ISR_IRAM_SAFE=y` — die Nachfüll-ISR ins IRAM, damit sie auch
+   bei abgeschaltetem Cache läuft. Gemessene Kosten waren gering (`.iram0.text`
+   +372 B, davon 412 B weniger interner Heap), aber ohne erkennbaren Nutzen
+   wieder entfernt.
+
+**Was geholfen hat: `CONFIG_LCD_RGB_RESTART_IN_VSYNC=n`** (2026-08-29, erste
+Beobachtung deutlich positiv). Der Kconfig-Standard ist `n`, die
+Arduino-Basiskonfiguration schaltet es ein. Mit `=y` setzt der Treiber die DMA
+**bedingungslos in jedem VBlank** zurück — und `esp_lcd_panel_rgb.c` sagt über
+genau diesen Neustart:
+
+> *„this fix can lead to single-frame desyncs itself, as in: if this interrupt
+> is late enough, the display will shift … It's also not super-likely as this
+> interrupt has the entirety of the VBlank time to reset DMA."*
+
+Espressif nimmt an, dass diese ISR selten zu spät kommt. Hier ist sie es
+regelmäßig, und dann verschiebt ausgerechnet die Reparaturmaßnahme das Bild.
+Mit `=n` startet der Treiber nur noch neu, wenn er einen verpassten EOF
+tatsächlich bemerkt.
+
+Das erklärt auch, warum die beiden anderen Versuche nichts brachten: sie
+setzten am Zähler an, nicht am Neustart.
+
+**Bounce-Buffer: 15 Zeilen statt 20** (2026-08-29). Konsequenz aus dem
+30-Zeilen-Ergebnis — ist ein längeres Refill schlechter, weil es das Zeitfenster
+für eine Flash-Erase mitten im `memcpy()` verbreitert, sollte ein kürzeres
+besser sein. Senkt nebenbei den Speicherbedarf des Treibers von ~38 KB auf
+~28 KB internes RAM.
+
+Getestete Werte: **0 unbrauchbar** (dauerhaftes Flackern, die Puffer sind
+tragend), 30 schlechter als 20, **15 gewählt**. Der Wert muss den Frame glatt
+teilen: 230 400 / (480 × 15) = 32.
+
 **Nicht verwechseln** mit [Display flimmert bei
 Flash-Zugriffen](#display-flimmert-bei-flash-zugriffen): das ist der
 Cache-Ausfall beim Schreiben, hier ist der Bus schlicht ausgelastet.
