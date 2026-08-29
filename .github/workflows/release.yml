@@ -87,6 +87,32 @@ jobs:
         # ModuleNotFoundError: No module named 'intelhex'.
         run: pip install --upgrade platformio intelhex
 
+      # pioarduino declares framework-arduinoespressif32 as an *optional*
+      # package, so PlatformIO never installs it on its own. With
+      # custom_sdkconfig set, the builder always takes its "Reinstall Arduino
+      # framework" path here -- it looks for a hash line in sdkconfig.defaults,
+      # which is gitignored and therefore never present in CI -- and that path
+      # calls exists(FRAMEWORK_DIR) on a None path: TypeError, build aborts.
+      # Installing the package up front is what keeps CI green. The URL is read
+      # from the resolved platform so it follows platform bumps instead of
+      # pinning an Arduino core version here. Emits nothing for the classic
+      # espressif32 platform, where the package is not optional.
+      - name: Pre-install optional Arduino framework package
+        run: |
+          pio pkg install -e "${{ steps.meta.outputs.env_name }}"
+          URL=$(python3 -c "
+          import json, pathlib
+          p = pathlib.Path.home() / '.platformio/platforms/espressif32/platform.json'
+          d = json.load(p.open()).get('packages', {}).get('framework-arduinoespressif32', {})
+          v = str(d.get('version', ''))
+          print(v if d.get('optional') and v.startswith('http') else '')
+          ")
+          if [ -n "$URL" ]; then
+            pio pkg install --global --tool "$URL"
+          else
+            echo "framework-arduinoespressif32 is not an optional URL package - nothing to do"
+          fi
+
       - name: Build firmware
         env:
           FIRMWARE_VERSION: ${{ steps.meta.outputs.version }}
