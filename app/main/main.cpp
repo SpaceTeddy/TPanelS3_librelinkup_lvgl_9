@@ -415,16 +415,9 @@ void esp_status()
                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                   (g_internal_min_runtime == SIZE_MAX) ? -1 : (int)g_internal_min_runtime,
                   heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-    // "73 KB free but only 23 KB in one piece" has two possible causes, and the
-    // numbers above cannot tell them apart: either the internal heap is simply
-    // split into regions by the linker, or it is genuinely fragmented.
-    // free_blocks decides it -- a handful means regions, dozens mean
-    // fragmentation.
-    //
-    // allocated + free is the pool size, which is the number to compare between
-    // Arduino cores: core 3.x starts with a *smaller* pool (its bigger
-    // .iram0.text eats the same SRAM, 1:1) and additionally allocates more at
-    // runtime. Only the pool size separates those two effects.
+    // free_blocks tells region boundaries (a handful) from real fragmentation
+    // (dozens); allocated + free is the pool size, the only way to compare
+    // Arduino cores. See docs/build-and-flash.md.
     multi_heap_info_t internal_info;
     heap_caps_get_info(&internal_info, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     logger.notice("Internal pool: %u Bytes (%u alloc in %u blocks, %u free in %u blocks)",
@@ -1673,21 +1666,9 @@ void update_glucose_data()
             return;
         }
 
-        // Heap integrity probe. The GUI artefacts that appear after a graph
-        // fetch survive a full repaint -- so the framebuffer is not being
-        // drawn wrongly, something is overwriting it. LVGL's two draw buffers,
-        // the GFX framebuffer and the response JSON all live in PSRAM next to
-        // each other, and internal RAM drops to ~15 KB during this call: a
-        // short or failed allocation followed by an overrun would look exactly
-        // like this. Comprehensive poisoning (CONFIG_HEAP_POISONING_COMPREHENSIVE
-        // in platformio.ini) puts a canary around every block; this walks them
-        // right after the one call that only runs in master mode -- which is
-        // the only difference between the mode that shows artefacts and the
-        // one that does not.
-        //
-        // One check per cycle localises the damage by induction: the previous
-        // cycle's check passed, so whatever this one catches happened since.
-        // Silent on success, so it can stay in place as a permanent tripwire.
+        // Tripwire for heap corruption during the fetch. Silent on success;
+        // one check per cycle localises the damage by induction. Ruled the
+        // suspicion out on 2026-08-29, kept as a guard.
         if (!heap_caps_check_integrity_all(true))
             logger.err("Heap corruption detected right after get_graph_data()");
         // settings.config.mqtt_master_mode = false; // Currently unused
