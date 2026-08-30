@@ -2403,6 +2403,129 @@ static void handleFwUploadBody(AsyncWebServerRequest *request, const String& fil
     }
 }
 
+// ---------------------------------------------------------------------------
+// LittleFS file upload
+//
+// Replaces individual files without touching the rest of the filesystem. The
+// PlatformIO `uploadfs` target rewrites the whole partition, which would take
+// the accumulated daily glucose files with it -- so refreshing something like
+// the Zigbee device database needs a path that only writes what it is given.
+// ---------------------------------------------------------------------------
+
+static File     g_fs_upload;
+static bool     g_fs_upload_ok;
+static String   g_fs_upload_target;   // final name
+static String   g_fs_upload_temp;     // ".part" name written to first
+static String   g_fs_upload_error;
+
+/// Rejects anything that could escape the filesystem root or name nothing.
+static bool fsUploadPathOk(const String &path) {
+    if (path.length() < 2 || path[0] != '/') return false;
+    if (path.indexOf("..") >= 0) return false;
+    if (path.indexOf('\\') >= 0) return false;
+    return true;
+}
+
+static void handleFsUploadBody(AsyncWebServerRequest *request, const String &filename,
+                               size_t index, uint8_t *data, size_t len, bool final)
+{
+    if (index == 0) {
+        // Checked on the first chunk, not in the completion handler: the body
+        // arrives first and would already be written by then.
+        if (!ensureConfigAuth(request)) return;
+
+        g_fs_upload_ok = false;
+        g_fs_upload_error = "";
+
+        // An explicit ?path= wins, so a file can be stored under a name other
+        // than the one it happens to have on the uploading machine.
+        String target;
+        if (request->hasParam("path")) {
+            target = request->getParam("path")->value();
+        } else {
+            target = "/";
+            target += filename;
+        }
+        if (!target.startsWith("/")) target = "/" + target;
+
+        if (!fsUploadPathOk(target)) {
+            g_fs_upload_error = "invalid path";
+            logger.err("[FS] rejected upload path: %s", target.c_str());
+            return;
+        }
+
+        const size_t total = request->contentLength();
+        const size_t freeBytes = LittleFS.totalBytes() - LittleFS.usedBytes();
+        // The existing copy is only removed once the new one is complete, so
+        // the temporary needs room alongside it.
+        if (total > 0 && total > freeBytes) {
+            g_fs_upload_error = "not enough space";
+            logger.err("[FS] %s needs %u B, %u B free",
+                       target.c_str(), (unsigned)total, (unsigned)freeBytes);
+            return;
+        }
+
+        g_fs_upload_target = target;
+        g_fs_upload_temp   = target + ".part";
+
+        LittleFS.remove(g_fs_upload_temp);
+        g_fs_upload = LittleFS.open(g_fs_upload_temp, "w");
+        if (!g_fs_upload) {
+            g_fs_upload_error = "cannot open file";
+            logger.err("[FS] cannot open %s for writing", g_fs_upload_temp.c_str());
+            return;
+        }
+        logger.notice("[FS] upload start: %s (%u bytes)",
+                      target.c_str(), (unsigned)total);
+    }
+
+    if (!g_fs_upload) return;
+
+    if (len > 0 && g_fs_upload.write(data, len) != len) {
+        // A short write means the filesystem is full or failing; stop rather
+        // than let a truncated file reach its final name.
+        g_fs_upload_error = "write failed";
+        logger.err("[FS] write failed at offset %u", (unsigned)index);
+        g_fs_upload.close();
+        LittleFS.remove(g_fs_upload_temp);
+        return;
+    }
+
+    if (final) {
+        size_t written = g_fs_upload.size();
+        g_fs_upload.close();
+
+        // Only now is the previous version replaced, so an interrupted upload
+        // leaves the old file intact instead of a half-written one.
+        LittleFS.remove(g_fs_upload_target);
+        if (LittleFS.rename(g_fs_upload_temp, g_fs_upload_target)) {
+            g_fs_upload_ok = true;
+            logger.notice("[FS] upload done: %s, %u bytes",
+                          g_fs_upload_target.c_str(), (unsigned)written);
+        } else {
+            g_fs_upload_error = "rename failed";
+            logger.err("[FS] rename %s -> %s failed",
+                       g_fs_upload_temp.c_str(), g_fs_upload_target.c_str());
+            LittleFS.remove(g_fs_upload_temp);
+        }
+    }
+}
+
+static void handleFsUploadDone(AsyncWebServerRequest *request) {
+    String body;
+    if (g_fs_upload_ok) {
+        body = "{\"status\":\"ok\",\"path\":\"" + g_fs_upload_target +
+               "\",\"used\":" + String(LittleFS.usedBytes()) +
+               ",\"total\":" + String(LittleFS.totalBytes()) + "}";
+    } else {
+        body = "{\"status\":\"failed\",\"error\":\"" +
+               (g_fs_upload_error.length() ? g_fs_upload_error : String("upload failed")) +
+               "\"}";
+    }
+    request->send(g_fs_upload_ok ? 200 : 500,
+                  "application/json; charset=utf-8", body);
+}
+
 static void handleFwUploadDone(AsyncWebServerRequest *request) {
     AsyncWebServerResponse *resp = request->beginResponse(
         g_fw_upload_ok ? 200 : 500, "application/json; charset=utf-8",
@@ -2686,6 +2809,7 @@ server.addHandler(&g_ws_telnet);
     server.on("/api/fw/check",        HTTP_POST, handleApiFwCheck);
     server.on("/api/fw/install",      HTTP_POST, handleApiFwInstall);
     server.on("/api/fw/upload",       HTTP_POST, handleFwUploadDone, handleFwUploadBody);
+    server.on("/api/fs/upload",       HTTP_POST, handleFsUploadDone, handleFsUploadBody);
     server.on("/api/h2/devices",      HTTP_GET,  handleH2Devices);
     server.on("/api/h2/status",       HTTP_GET,  handleH2Status);
     server.on("/api/h2/scan",         HTTP_GET,  handleH2ScanResult);
