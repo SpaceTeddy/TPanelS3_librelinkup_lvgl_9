@@ -1,6 +1,10 @@
 #include "zigbee_h2.h"
 
 #include <ArduinoJson.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/queue.h>
+#include <math.h>
 #include <uuid/log.h>
 
 #include "app_fsm.h"
@@ -36,6 +40,145 @@ void h2_reset_chip()
     Serial.println(F("[H2] EN toggled - chip reset"));
 }
 
+// ── Device registry ─────────────────────────────────────────────────────────
+// Written by the loop task (UART poll), read by AsyncWebServer callbacks on
+// the AsyncTCP task -- hence the lock. Entries are upserted by address and
+// never wiped: a "list" reply can arrive streamed (idx/total), and clearing
+// the table first would blank the UI mid-transfer. Stale entries age out via
+// last_seen_ms, which the UI shows.
+static H2Device        g_h2_devices[H2_MAX_DEVICES];
+static SemaphoreHandle_t g_h2_dev_lock = nullptr;
+
+// Commands from other tasks. h2_send() writes the UART directly and would
+// interleave with the loop task's own writes, so foreign callers queue instead
+// and the loop task drains this in zigbee_h2_poll_uart().
+struct H2Cmd { char buf[160]; };
+static QueueHandle_t   g_h2_cmd_queue = nullptr;
+
+static void h2_copy_field(char *dst, size_t cap, const char *src)
+{
+    if (src == nullptr) return;
+    strncpy(dst, src, cap - 1);
+    dst[cap - 1] = '\0';
+}
+
+/// Insert or update one device. Caller must hold g_h2_dev_lock.
+static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mfr,
+                                 const char *model, int ep, int online,
+                                 int occ, float temp, int bat)
+{
+    int slot = -1;
+    for (int i = 0; i < H2_MAX_DEVICES; i++) {
+        if (g_h2_devices[i].used && g_h2_devices[i].addr == addr) { slot = i; break; }
+    }
+    if (slot < 0) {
+        for (int i = 0; i < H2_MAX_DEVICES; i++) {
+            if (!g_h2_devices[i].used) { slot = i; break; }
+        }
+    }
+    // Table full: drop the entry we have not heard from in the longest time.
+    if (slot < 0) {
+        uint32_t oldest = UINT32_MAX;
+        for (int i = 0; i < H2_MAX_DEVICES; i++) {
+            if (g_h2_devices[i].last_seen_ms < oldest) { oldest = g_h2_devices[i].last_seen_ms; slot = i; }
+        }
+        memset(&g_h2_devices[slot], 0, sizeof(H2Device));
+    }
+
+    H2Device &d = g_h2_devices[slot];
+    if (!d.used) {
+        memset(&d, 0, sizeof(H2Device));
+        d.occ  = -1;
+        d.bat  = -1;
+        d.temp = NAN;
+        d.used = true;
+    }
+    d.addr = addr;
+    h2_copy_field(d.ieee,  sizeof(d.ieee),  ieee);
+    h2_copy_field(d.mfr,   sizeof(d.mfr),   mfr);
+    h2_copy_field(d.model, sizeof(d.model), model);
+    if (ep     >= 0) d.ep     = (uint8_t)ep;
+    if (online >= 0) d.online = (online != 0);
+    if (occ    >= 0) d.occ    = (int8_t)occ;
+    if (bat    >= 0) d.bat    = (int16_t)bat;
+    if (!isnan(temp)) d.temp  = temp;
+    d.last_seen_ms = millis();
+}
+
+static void h2_dev_upsert(uint16_t addr, const char *ieee, const char *mfr,
+                          const char *model, int ep, int online,
+                          int occ, float temp, int bat)
+{
+    if (g_h2_dev_lock == nullptr) return;
+    if (xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(50)) != pdTRUE) return;
+    h2_dev_upsert_locked(addr, ieee, mfr, model, ep, online, occ, temp, bat);
+    xSemaphoreGive(g_h2_dev_lock);
+}
+
+void h2_devices_json(String &out)
+{
+    out = "[";
+    if (g_h2_dev_lock == nullptr) { out += "]"; return; }
+    if (xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(200)) != pdTRUE) { out += "]"; return; }
+
+    const uint32_t now = millis();
+    bool first = true;
+    char entry[320];
+    for (int i = 0; i < H2_MAX_DEVICES; i++) {
+        const H2Device &d = g_h2_devices[i];
+        if (!d.used) continue;
+        char temp_buf[16];
+        if (isnan(d.temp)) strcpy(temp_buf, "null");
+        else               snprintf(temp_buf, sizeof(temp_buf), "%.1f", d.temp);
+        snprintf(entry, sizeof(entry),
+                 "%s{\"addr\":%u,\"hex\":\"0x%04X\",\"ieee\":\"%s\",\"mfr\":\"%s\","
+                 "\"model\":\"%s\",\"ep\":%u,\"online\":%s,\"occ\":%d,"
+                 "\"temp\":%s,\"bat\":%d,\"age_s\":%u}",
+                 first ? "" : ",", (unsigned)d.addr, (unsigned)d.addr,
+                 d.ieee, d.mfr, d.model, (unsigned)d.ep,
+                 d.online ? "true" : "false", (int)d.occ,
+                 temp_buf, (int)d.bat, (unsigned)((now - d.last_seen_ms) / 1000UL));
+        out += entry;
+        first = false;
+    }
+    xSemaphoreGive(g_h2_dev_lock);
+    out += "]";
+}
+
+size_t h2_devices_count()
+{
+    size_t n = 0;
+    if (g_h2_dev_lock == nullptr) return 0;
+    if (xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(50)) != pdTRUE) return 0;
+    for (int i = 0; i < H2_MAX_DEVICES; i++) if (g_h2_devices[i].used) n++;
+    xSemaphoreGive(g_h2_dev_lock);
+    return n;
+}
+
+bool h2_dev_forget(uint16_t addr)
+{
+    if (g_h2_dev_lock == nullptr) return false;
+    if (xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+    bool hit = false;
+    for (int i = 0; i < H2_MAX_DEVICES; i++) {
+        if (g_h2_devices[i].used && g_h2_devices[i].addr == addr) {
+            memset(&g_h2_devices[i], 0, sizeof(H2Device));
+            hit = true;
+            break;
+        }
+    }
+    xSemaphoreGive(g_h2_dev_lock);
+    return hit;
+}
+
+bool h2_enqueue(const char *cmd)
+{
+    if (g_h2_cmd_queue == nullptr || cmd == nullptr) return false;
+    H2Cmd item;
+    h2_copy_field(item.buf, sizeof(item.buf), cmd);
+    return xQueueSend(g_h2_cmd_queue, &item, 0) == pdTRUE;
+}
+
 void setup_UART_IPC()
 {
     h2_reset_chip();
@@ -46,8 +189,12 @@ void setup_UART_IPC()
     Serial.printf("[%09lu ms][%s][%s] ", (unsigned long)millis(), __FILE__, __func__);
     Serial.println(F("Init SerialPort for IPC"));
 
+    if (g_h2_dev_lock == nullptr)  g_h2_dev_lock  = xSemaphoreCreateMutex();
+    if (g_h2_cmd_queue == nullptr) g_h2_cmd_queue = xQueueCreate(8, sizeof(H2Cmd));
+
     h2_send("{\"cmd\":\"version\"}");
     h2_send("{\"cmd\":\"chipinfo\"}");
+    h2_send("{\"cmd\":\"list\"}");
 }
 
 void h2_send(const char *cmd)
@@ -143,6 +290,13 @@ static void h2_handle_message(const String &line)
                     d["temp"].isNull() ? 0.0f : (float)d["temp"].as<float>(),
                     d["bat"].isNull() ? -1 : (int)d["bat"].as<int>());
             }
+            h2_dev_upsert(d["addr"].as<uint16_t>(),
+                          d["ieee"]  | "", d["mfr"] | "", d["model"] | "",
+                          d["ep"].isNull()     ? -1 : (int)d["ep"].as<uint8_t>(),
+                          d["online"].isNull() ? -1 : (int)(d["online"].as<bool>() ? 1 : 0),
+                          d["occ"].isNull()    ? -1 : (int)(d["occ"].as<bool>() ? 1 : 0),
+                          d["temp"].isNull()   ? NAN : d["temp"].as<float>(),
+                          d["bat"].isNull()    ? -1 : d["bat"].as<int>());
         }
     }
     else if (strcmp(type, "ack") == 0)
@@ -212,6 +366,11 @@ static void h2_handle_message(const String &line)
         const bool occ = doc["occ"] | false;
         logger.debug("[H2] motion occ=%d lux=%d temp=%.1f bat=%d",
                       (int)occ, doc["lux"] | -1, doc["temp"] | 0.0, doc["bat"] | -1);
+        if (!doc["addr"].isNull())
+            h2_dev_upsert(doc["addr"].as<uint16_t>(), doc["ieee"] | "", "", "",
+                          -1, 1, occ ? 1 : 0,
+                          doc["temp"].isNull() ? NAN : doc["temp"].as<float>(),
+                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>());
         if (occ)
             app_fsm_notify_user_activity(g_fsm);
     }
@@ -219,6 +378,11 @@ static void h2_handle_message(const String &line)
     {
         logger.debug("[H2] sensor lux=%d temp=%.1f bat=%d",
                       doc["lux"] | -1, doc["temp"] | 0.0, doc["bat"] | -1);
+        if (!doc["addr"].isNull())
+            h2_dev_upsert(doc["addr"].as<uint16_t>(), doc["ieee"] | "", "", "",
+                          -1, 1, -1,
+                          doc["temp"].isNull() ? NAN : doc["temp"].as<float>(),
+                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>());
         app_fsm_notify_user_activity(g_fsm);
     }
     else
@@ -230,6 +394,15 @@ static void h2_handle_message(const String &line)
 void zigbee_h2_poll_uart()
 {
     static String uart_ipc_buf;
+
+    // Drain queued commands from other tasks first -- this is the only place
+    // that writes the UART besides the OTA transfer.
+    if (g_h2_cmd_queue != nullptr && !h2_ota_in_progress()) {
+        H2Cmd item;
+        while (xQueueReceive(g_h2_cmd_queue, &item, 0) == pdTRUE)
+            h2_send(item.buf);
+    }
+
     while (!h2_ota_in_progress() && SerialPort.available() > 0)
     {
         char c = (char)SerialPort.read();

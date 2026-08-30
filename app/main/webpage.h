@@ -434,6 +434,42 @@ const char index_html[] PROGMEM = R"rawliteral(
     <button type="button" id="btnRestore" onclick="restoreConfigBackup()">Restore from File</button>
 </div>
 
+<div class="container">
+    <h2>Zigbee Devices</h2>
+    <p style="color:var(--muted);font-size:0.9em;">Devices paired to the ESP32-H2. The list is
+       kept by the S3 and filled from the H2's list, join and sensor messages.</p>
+
+    <div class="row" style="margin-bottom:12px;">
+        <input type="number" id="zbSeconds" min="0" max="254" value="120"
+               style="width:90px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);">
+        <span style="color:var(--muted);font-size:0.9em;">seconds</span>
+        <button type="button" onclick="zbPermit()">Open Pairing</button>
+        <button type="button" onclick="zbPermitClose()">Close Pairing</button>
+        <button type="button" onclick="zbRefresh()">Reload List</button>
+        <span id="zbStatus" style="color:var(--muted);font-size:0.9em;"></span>
+    </div>
+
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:0.9em;">
+        <thead><tr id="zbHead">
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Address</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Model</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Vendor</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">EP</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">State</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Motion</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Temp</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Battery</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Seen</th>
+          <th style="border-bottom:1px solid var(--border);"></th>
+        </tr></thead>
+        <tbody id="zbRows"></tbody>
+      </table>
+    </div>
+    <p id="zbEmpty" style="color:var(--muted);font-size:0.9em;margin-top:10px;">
+       No devices yet. "Reload List" queries the H2.</p>
+</div>
+
 </div>
 
 <script>
@@ -456,6 +492,106 @@ const char index_html[] PROGMEM = R"rawliteral(
     document.addEventListener('DOMContentLoaded', () => {
         refreshFirmwareUpdateStatus();
         setInterval(refreshFirmwareUpdateStatus, 15000);
+    });
+
+    // --- Zigbee devices -------------------------------------------------------
+    function zbSay(msg, kind){
+        const el = document.getElementById('zbStatus');
+        if(!el) return;
+        el.textContent = msg || '';
+        el.style.color = kind === 'ok'  ? 'var(--ok)'
+                       : kind === 'bad' ? 'var(--bad)' : 'var(--muted)';
+    }
+
+    function zbAge(s){
+        if(s < 60)   return s + ' s';
+        if(s < 3600) return Math.floor(s/60) + ' min';
+        return Math.floor(s/3600) + ' h';
+    }
+
+    function zbCell(html){
+        return '<td style="padding:6px;border-bottom:1px solid var(--border);">' + html + '</td>';
+    }
+
+    async function zbLoad(){
+        const body = document.getElementById('zbRows');
+        if(!body) return;
+        try{
+            const res = await fetch('/api/h2/devices');
+            const list = await res.json();
+            document.getElementById('zbEmpty').style.display = list.length ? 'none' : 'block';
+            body.innerHTML = '';
+            const dim = '<span style="color:var(--muted);">-</span>';
+            for(const d of list){
+                const tr = document.createElement('tr');
+                tr.innerHTML =
+                    zbCell(d.hex) +
+                    zbCell(d.model || dim) +
+                    zbCell(d.mfr   || dim) +
+                    zbCell(d.ep) +
+                    zbCell(d.online ? '<span style="color:var(--ok);">online</span>'
+                                    : '<span style="color:var(--bad);">offline</span>') +
+                    zbCell(d.occ < 0 ? dim : (d.occ ? 'yes' : 'no')) +
+                    zbCell(d.temp === null ? dim : d.temp.toFixed(1) + ' &deg;C') +
+                    zbCell(d.bat  <  0    ? dim : d.bat + ' %') +
+                    zbCell('<span style="color:var(--muted);">' + zbAge(d.age_s) + '</span>') +
+                    zbCell('<button type="button" data-zbaddr="' + d.addr +
+                           '" data-zbname="' + (d.model || d.hex) +
+                           '" style="padding:4px 10px;font-size:0.85em;">Remove</button>');
+                body.appendChild(tr);
+            }
+        }catch(e){ zbSay('device list unreachable','bad'); }
+    }
+
+    async function zbPost(url, body){
+        const res = await fetch(url, {method:'POST',
+            headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body || ''});
+        return {ok: res.ok, status: res.status};
+    }
+
+    async function zbPermit(){
+        const s = parseInt(document.getElementById('zbSeconds').value, 10) || 120;
+        const r = await zbPost('/api/h2/permit', 'seconds=' + s);
+        if(r.status === 401){ zbSay('login required','bad'); return; }
+        zbSay(r.ok ? ('pairing open for ' + s + ' s - pair the device now') : 'rejected',
+              r.ok ? 'ok' : 'bad');
+        if(r.ok) setTimeout(() => zbPost('/api/h2/refresh').then(() => setTimeout(zbLoad, 1500)),
+                            s * 1000 + 500);
+    }
+
+    async function zbPermitClose(){
+        const r = await zbPost('/api/h2/permit', 'seconds=0');
+        if(r.status === 401){ zbSay('login required','bad'); return; }
+        zbSay(r.ok ? 'pairing closed' : 'rejected', r.ok ? 'ok' : 'bad');
+    }
+
+    async function zbRefresh(){
+        await zbPost('/api/h2/refresh');
+        zbSay('query sent');
+        setTimeout(zbLoad, 1200);
+    }
+
+    // Delegated: rows are rebuilt on every refresh.
+    document.addEventListener('DOMContentLoaded', () => {
+        const body = document.getElementById('zbRows');
+        if(!body) return;
+        body.addEventListener('click', async (ev) => {
+            const btn = ev.target.closest('button[data-zbaddr]');
+            if(!btn) return;
+            const name = btn.dataset.zbname, addr = btn.dataset.zbaddr;
+            if(!confirm('Remove "' + name + '"?\n\nThe device is asked to leave and is dropped '
+                      + 'from the H2 table.\n\nThis only sticks while the device is online. An '
+                      + 'offline or sleeping device never receives the leave request, keeps the '
+                      + 'network key and reappears in the list as soon as it reports again - then '
+                      + 'remove it once more while it shows "online".')) return;
+            btn.disabled = true;
+            const r = await zbPost('/api/h2/remove', 'addr=' + addr);
+            if(r.status === 401){ zbSay('login required','bad'); btn.disabled = false; return; }
+            zbSay(r.ok ? ('"' + name + '" removed') : 'remove rejected', r.ok ? 'ok' : 'bad');
+            zbLoad();
+        });
+        zbLoad();
+        setInterval(zbLoad, 5000);
     });
 
     // --- SSID manual override: if wifiSsidManual is not empty, submit that as "networks" ---

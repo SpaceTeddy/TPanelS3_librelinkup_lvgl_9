@@ -41,6 +41,7 @@
 #include "mqtt.h"
 #include "mqtt_handler.h"
 #include "h2_ota.h"
+#include "zigbee_h2.h"
 
 extern MQTT         mqtt;
 extern PubSubClient mqtt_client;
@@ -2460,6 +2461,82 @@ static uint8_t* g_h2_upload_buf = nullptr;
 static size_t   g_h2_upload_pos = 0;
 static bool     g_h2_upload_ok  = false;
 
+// -------------------- H2 Zigbee handlers --------------------
+// Write actions go through h2_enqueue(): these run on the AsyncTCP task, and
+// h2_send() writes the UART directly from the loop task.
+
+static void handleH2Devices(AsyncWebServerRequest *request) {
+    String body;
+    h2_devices_json(body);
+    request->send(200, "application/json; charset=utf-8", body);
+}
+
+/// Asks the H2 to re-send its device list; the reply refills the registry.
+static void handleH2Refresh(AsyncWebServerRequest *request) {
+    if (!h2_enqueue("{\"cmd\":\"list\"}")) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+}
+
+/// Removes one device: asks it to leave (works only while it is awake), drops
+/// it from the H2's table either way, and clears the local registry entry so
+/// the UI updates immediately instead of waiting for the next list reply.
+static void handleH2Remove(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+
+    if (!request->hasParam("addr", true)) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr missing\"}");
+        return;
+    }
+    long addr = request->getParam("addr", true)->value().toInt();
+    if (addr <= 0 || addr > 0xFFFF) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
+        return;
+    }
+
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "{\"cmd\":\"remove\",\"addr\":%ld}", addr);
+    bool queued = h2_enqueue(cmd);
+    snprintf(cmd, sizeof(cmd), "{\"cmd\":\"forget\",\"addr\":%ld}", addr);
+    queued = h2_enqueue(cmd) && queued;
+
+    h2_dev_forget((uint16_t)addr);
+
+    if (!queued) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"partial\",\"message\":\"queue full, local entry cleared\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+}
+
+/// Opens the Zigbee network for joining. Authenticated: without it anyone on
+/// the LAN could attach a device to the network.
+static void handleH2Permit(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+
+    long seconds = 120;
+    if (request->hasParam("seconds", true))
+        seconds = request->getParam("seconds", true)->value().toInt();
+    if (seconds < 0)   seconds = 0;      // 0 closes the network again
+    if (seconds > 254) seconds = 254;    // Zigbee permit-join is one byte
+
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permit\",\"seconds\":%ld}", seconds);
+    if (!h2_enqueue(cmd)) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8",
+                  String("{\"status\":\"accepted\",\"seconds\":") + seconds + "}");
+}
+
 static void handleH2OtaStatus(AsyncWebServerRequest *request)
 {
     char buf[96];
@@ -2559,6 +2636,10 @@ server.addHandler(&g_ws_telnet);
     server.on("/api/fw/check",        HTTP_POST, handleApiFwCheck);
     server.on("/api/fw/install",      HTTP_POST, handleApiFwInstall);
     server.on("/h2ota",               HTTP_GET,  handleH2OtaPage);
+    server.on("/api/h2/devices",      HTTP_GET,  handleH2Devices);
+    server.on("/api/h2/refresh",      HTTP_POST, handleH2Refresh);
+    server.on("/api/h2/permit",       HTTP_POST, handleH2Permit);
+    server.on("/api/h2/remove",       HTTP_POST, handleH2Remove);
     server.on("/api/h2/ota/status",   HTTP_GET,  handleH2OtaStatus);
     server.on("/api/h2/ota/upload",   HTTP_POST, handleH2OtaUploadDone, handleH2OtaUploadBody);
 
