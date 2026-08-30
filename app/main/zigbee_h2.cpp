@@ -55,9 +55,12 @@ static SemaphoreHandle_t g_h2_dev_lock = nullptr;
 struct H2Cmd { char buf[160]; };
 static QueueHandle_t   g_h2_cmd_queue = nullptr;
 
+/// Copies only when there is something to copy: partial updates (a motion or
+/// sensor message carries no model or vendor) must not erase what a list reply
+/// already established.
 static void h2_copy_field(char *dst, size_t cap, const char *src)
 {
-    if (src == nullptr) return;
+    if (src == nullptr || src[0] == '\0') return;
     strncpy(dst, src, cap - 1);
     dst[cap - 1] = '\0';
 }
@@ -65,7 +68,7 @@ static void h2_copy_field(char *dst, size_t cap, const char *src)
 /// Insert or update one device. Caller must hold g_h2_dev_lock.
 static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mfr,
                                  const char *model, int ep, int online,
-                                 int occ, float temp, int bat)
+                                 int occ, float temp, int bat, int on)
 {
     int slot = -1;
     for (int i = 0; i < H2_MAX_DEVICES; i++) {
@@ -89,6 +92,7 @@ static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mf
     if (!d.used) {
         memset(&d, 0, sizeof(H2Device));
         d.occ  = -1;
+        d.on   = -1;
         d.bat  = -1;
         d.temp = NAN;
         d.used = true;
@@ -100,6 +104,7 @@ static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mf
     if (ep     >= 0) d.ep     = (uint8_t)ep;
     if (online >= 0) d.online = (online != 0);
     if (occ    >= 0) d.occ    = (int8_t)occ;
+    if (on     >= 0) d.on     = (int8_t)on;
     if (bat    >= 0) d.bat    = (int16_t)bat;
     if (!isnan(temp)) d.temp  = temp;
     d.last_seen_ms = millis();
@@ -107,11 +112,11 @@ static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mf
 
 static void h2_dev_upsert(uint16_t addr, const char *ieee, const char *mfr,
                           const char *model, int ep, int online,
-                          int occ, float temp, int bat)
+                          int occ, float temp, int bat, int on)
 {
     if (g_h2_dev_lock == nullptr) return;
     if (xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(50)) != pdTRUE) return;
-    h2_dev_upsert_locked(addr, ieee, mfr, model, ep, online, occ, temp, bat);
+    h2_dev_upsert_locked(addr, ieee, mfr, model, ep, online, occ, temp, bat, on);
     xSemaphoreGive(g_h2_dev_lock);
 }
 
@@ -133,11 +138,12 @@ void h2_devices_json(String &out)
         snprintf(entry, sizeof(entry),
                  "%s{\"addr\":%u,\"hex\":\"0x%04X\",\"ieee\":\"%s\",\"mfr\":\"%s\","
                  "\"model\":\"%s\",\"ep\":%u,\"online\":%s,\"occ\":%d,"
-                 "\"temp\":%s,\"bat\":%d,\"age_s\":%u}",
+                 "\"temp\":%s,\"bat\":%d,\"on\":%d,\"age_s\":%u}",
                  first ? "" : ",", (unsigned)d.addr, (unsigned)d.addr,
                  d.ieee, d.mfr, d.model, (unsigned)d.ep,
                  d.online ? "true" : "false", (int)d.occ,
-                 temp_buf, (int)d.bat, (unsigned)((now - d.last_seen_ms) / 1000UL));
+                 temp_buf, (int)d.bat, (int)d.on,
+                 (unsigned)((now - d.last_seen_ms) / 1000UL));
         out += entry;
         first = false;
     }
@@ -296,7 +302,8 @@ static void h2_handle_message(const String &line)
                           d["online"].isNull() ? -1 : (int)(d["online"].as<bool>() ? 1 : 0),
                           d["occ"].isNull()    ? -1 : (int)(d["occ"].as<bool>() ? 1 : 0),
                           d["temp"].isNull()   ? NAN : d["temp"].as<float>(),
-                          d["bat"].isNull()    ? -1 : d["bat"].as<int>());
+                          d["bat"].isNull()    ? -1 : d["bat"].as<int>(),
+                          d["on"].isNull()     ? -1 : (int)(d["on"].as<bool>() ? 1 : 0));
         }
     }
     else if (strcmp(type, "ack") == 0)
@@ -370,7 +377,7 @@ static void h2_handle_message(const String &line)
             h2_dev_upsert(doc["addr"].as<uint16_t>(), doc["ieee"] | "", "", "",
                           -1, 1, occ ? 1 : 0,
                           doc["temp"].isNull() ? NAN : doc["temp"].as<float>(),
-                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>());
+                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>(), -1);
         if (occ)
             app_fsm_notify_user_activity(g_fsm);
     }
@@ -382,7 +389,7 @@ static void h2_handle_message(const String &line)
             h2_dev_upsert(doc["addr"].as<uint16_t>(), doc["ieee"] | "", "", "",
                           -1, 1, -1,
                           doc["temp"].isNull() ? NAN : doc["temp"].as<float>(),
-                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>());
+                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>(), -1);
         app_fsm_notify_user_activity(g_fsm);
     }
     else
