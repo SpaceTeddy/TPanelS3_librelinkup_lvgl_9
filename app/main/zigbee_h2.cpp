@@ -1,4 +1,5 @@
 #include "zigbee_h2.h"
+#include "zha_db.h"
 
 #include <ArduinoJson.h>
 #include <freertos/FreeRTOS.h>
@@ -461,6 +462,15 @@ static void h2_handle_message(const String &line)
                           doc["bat"].isNull()  ? -1  : doc["bat"].as<int>(), -1);
         if (occ)
             app_fsm_notify_user_activity(g_fsm);
+    }
+    else if (strcmp(type, "profile_req") == 0)
+    {
+        // Unsolicited: the H2 asks us, not the other way round. It has just
+        // learned a joining device's identity and needs that device's profile
+        // from the ZHA database before it can bind and configure reporting.
+        zha_db_answer(doc["rid"] | 0UL,
+                      doc["manufacturerName"] | "",
+                      doc["modelId"] | "");
     }
     else if (strcmp(type, "sensor") == 0)
     {

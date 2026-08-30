@@ -44,6 +44,7 @@ HELPER helper; ///< Helper class instance for time and utility functions
 
 #include "h2_ota.h"
 #include "zigbee_h2.h"
+#include "zha_db.h"
 
 ///////////////////// CONFIGURATION ////////////////////
 
@@ -2634,6 +2635,10 @@ void setup()
 
     // --- Storage & Configuration --------------------------------------------
     setup_littlefs();           ///< Mount LittleFS (fail is non-fatal by design)
+    // Must follow the mount: the ZHA device database lives in LittleFS. The H2
+    // may already have queued a profile_req from setup_UART_IPC() above, but
+    // those are only drained in loop(), by which point this has run.
+    zha_db_begin();
     setup_load_system_config(); ///< Load configuration from persistent storage
 
     // --- Display / Touch / LVGL ---------------------------------------------
