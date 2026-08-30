@@ -2414,6 +2414,7 @@ static void handleFwUploadBody(AsyncWebServerRequest *request, const String& fil
 
 static File     g_fs_upload;
 static bool     g_fs_upload_ok;
+static bool     g_fs_upload_answered;   // a response was already sent
 static String   g_fs_upload_target;   // final name
 static String   g_fs_upload_temp;     // ".part" name written to first
 static String   g_fs_upload_error;
@@ -2430,12 +2431,19 @@ static void handleFsUploadBody(AsyncWebServerRequest *request, const String &fil
                                size_t index, uint8_t *data, size_t len, bool final)
 {
     if (index == 0) {
-        // Checked on the first chunk, not in the completion handler: the body
-        // arrives first and would already be written by then.
-        if (!ensureConfigAuth(request)) return;
-
         g_fs_upload_ok = false;
+        g_fs_upload_answered = false;
         g_fs_upload_error = "";
+
+        // Checked on the first chunk, not in the completion handler: the body
+        // arrives first and would already be written by then. On failure
+        // requestAuthentication() has already sent a 401, so the completion
+        // handler must not send a second response over the top of it -- doing
+        // so reports a misleading 500 and hides the real reason.
+        if (!ensureConfigAuth(request)) {
+            g_fs_upload_answered = true;
+            return;
+        }
 
         // An explicit ?path= wins, so a file can be stored under a name other
         // than the one it happens to have on the uploading machine.
@@ -2512,15 +2520,18 @@ static void handleFsUploadBody(AsyncWebServerRequest *request, const String &fil
 }
 
 static void handleFsUploadDone(AsyncWebServerRequest *request) {
+    if (g_fs_upload_answered) return;   // 401 already went out
+
     String body;
     if (g_fs_upload_ok) {
         body = "{\"status\":\"ok\",\"path\":\"" + g_fs_upload_target +
                "\",\"used\":" + String(LittleFS.usedBytes()) +
                ",\"total\":" + String(LittleFS.totalBytes()) + "}";
     } else {
-        body = "{\"status\":\"failed\",\"error\":\"" +
-               (g_fs_upload_error.length() ? g_fs_upload_error : String("upload failed")) +
-               "\"}";
+        const String reason = g_fs_upload_error.length()
+            ? g_fs_upload_error
+            : String("no file in request -- send it as multipart form data");
+        body = "{\"status\":\"failed\",\"error\":\"" + reason + "\"}";
     }
     request->send(g_fs_upload_ok ? 200 : 500,
                   "application/json; charset=utf-8", body);
