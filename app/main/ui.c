@@ -1037,9 +1037,55 @@ void ui_FWInfo_screen_init(void)
         lv_label_set_text(ui_Label_FWInfoStatus, "");
     }
 
-    ui_btn_fwinfo_install = create_fwinfo_button(ui_FWInfo_screen, "Install", -150);
+    // Three 140 px buttons spread evenly over the 480 px width: the four gaps
+    // (both margins plus the two spaces between) are 15 px each, so the centres
+    // land 155 px left/right of the screen centre.
+    ui_btn_fwinfo_install = create_fwinfo_button(ui_FWInfo_screen, "Install", -155);
     ui_btn_fwinfo_check   = create_fwinfo_button(ui_FWInfo_screen, "Check",      0);
-    ui_btn_fwinfo_cancel  = create_fwinfo_button(ui_FWInfo_screen, "Cancel",   150);
+    ui_btn_fwinfo_cancel  = create_fwinfo_button(ui_FWInfo_screen, "Cancel",   155);
+}
+
+/**
+ * @brief Creates a checkable button styled like the firmware screens' buttons.
+ *
+ * Same outline look as create_fwinfo_button() (dark track fill, orange
+ * border/text) for the family to read as one design. Checked ("on") state is
+ * shown via the border, not the fill: a bright fill would need the label
+ * recoloured too, since child labels do not inherit the button's pseudo
+ * -state, and none of the toggle callbacks (btn_wireguard_cb etc.) currently
+ * do that -- a thicker green border avoids needing that sync.
+ */
+static lv_obj_t* create_debug_toggle_button(lv_obj_t *parent, const char *text, lv_coord_t x_offset)
+{
+    lv_obj_t *btn = lv_btn_create(parent);
+    if (btn == NULL) {
+        return NULL;
+    }
+    lv_obj_set_size(btn, 100, 64);
+    lv_obj_align(btn, LV_ALIGN_CENTER, x_offset, 150);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
+
+    lv_obj_set_style_bg_color(btn, lv_color_hex(UI_COLOR_RING_TRACK), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(btn, lv_color_hex(UI_COLOR_ACCENT), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(btn, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(btn, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_set_style_bg_color(btn, lv_color_hex(UI_COLOR_RING_PRESSED), LV_PART_MAIN | LV_STATE_PRESSED);
+
+    // Checked ("on"): thicker, green border on the same dark fill -- keeps
+    // the orange label text readable in every state.
+    lv_obj_set_style_border_color(btn, lv_color_hex(UI_COLOR_GREEN), LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_border_width(btn, 4, LV_PART_MAIN | LV_STATE_CHECKED);
+
+    lv_obj_t *label = lv_label_create(btn);
+    if (label != NULL) {
+        lv_obj_center(label);
+        lv_obj_set_style_text_font(label, &JetBrainsMonoLight20, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_ACCENT), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_label_set_text(label, text);
+    }
+    return btn;
 }
 
 void ui_btn_debug_screen_init(lv_obj_t * parent)
@@ -1048,48 +1094,30 @@ void ui_btn_debug_screen_init(lv_obj_t * parent)
         return;
     }
 
-    // WireGuard button
-    ui_btn_wireguard = lv_btn_create(parent);
-    lv_obj_align(ui_btn_wireguard, LV_ALIGN_CENTER, -165, 150);
-    lv_obj_add_flag(ui_btn_wireguard, LV_OBJ_FLAG_CHECKABLE);
+    // Four 100 px buttons spread evenly over the 480 px width: the five gaps
+    // (both margins plus the three spaces between) are 16 px each, so the
+    // centres sit 174 / 58 px either side of the screen centre.
 
-    ui_btn_label_wireguard = lv_label_create(ui_btn_wireguard);
-    if (ui_btn_label_wireguard != NULL) {
-        lv_obj_center(ui_btn_label_wireguard);
-        lv_label_set_text(ui_btn_label_wireguard, "WG");
-    }
+    // WireGuard button
+    ui_btn_wireguard = create_debug_toggle_button(parent, "WG", -174);
+    ui_btn_label_wireguard = (ui_btn_wireguard != NULL) ? lv_obj_get_child(ui_btn_wireguard, 0) : NULL;
 
     // MQTT button
-    ui_btn_mqtt = lv_btn_create(parent);
-    lv_obj_align(ui_btn_mqtt, LV_ALIGN_CENTER, -55, 150);
-    lv_obj_add_flag(ui_btn_mqtt, LV_OBJ_FLAG_CHECKABLE);
-
-    ui_btn_label_mqtt = lv_label_create(ui_btn_mqtt);
-    if (ui_btn_label_mqtt != NULL) {
-        lv_obj_center(ui_btn_label_mqtt);
-        lv_label_set_text(ui_btn_label_mqtt, "MQTT");
-    }
+    ui_btn_mqtt = create_debug_toggle_button(parent, "MQTT", -58);
+    ui_btn_label_mqtt = (ui_btn_mqtt != NULL) ? lv_obj_get_child(ui_btn_mqtt, 0) : NULL;
 
     // OTA Update button
-    ui_btn_ota_update = lv_btn_create(parent);
-    lv_obj_align(ui_btn_ota_update, LV_ALIGN_CENTER, 55, 150);
-    lv_obj_add_flag(ui_btn_ota_update, LV_OBJ_FLAG_CHECKABLE);
+    ui_btn_ota_update = create_debug_toggle_button(parent, "OTA", 58);
+    ui_btn_label_ota_update = (ui_btn_ota_update != NULL) ? lv_obj_get_child(ui_btn_ota_update, 0) : NULL;
 
-    ui_btn_label_ota_update = lv_label_create(ui_btn_ota_update);
-    if (ui_btn_label_ota_update != NULL) {
-        lv_obj_center(ui_btn_label_ota_update);
-        lv_label_set_text(ui_btn_label_ota_update, "OTA");
-    }
-
-    // FW check / install button
-    ui_btn_fw_check = lv_btn_create(parent);
-    lv_obj_align(ui_btn_fw_check, LV_ALIGN_CENTER, 165, 150);
-
-    ui_btn_label_fw_check = lv_label_create(ui_btn_fw_check);
-    if (ui_btn_label_fw_check != NULL) {
-        lv_obj_center(ui_btn_label_fw_check);
-        lv_label_set_text(ui_btn_label_fw_check, "FW Chk");
-    }
+    // FW check / install button -- not a toggle, so it gets the same
+    // non-checkable style as the firmware-info screen's buttons directly.
+    // That helper builds a 140 px wide button, which would run into the OTA
+    // button here, so it is resized to the 100 px used by the toggles.
+    ui_btn_fw_check = create_fwinfo_button(parent, "FW Chk", 174);
+    lv_obj_set_size(ui_btn_fw_check, 100, 64);
+    lv_obj_align(ui_btn_fw_check, LV_ALIGN_CENTER, 174, 150);
+    ui_btn_label_fw_check = (ui_btn_fw_check != NULL) ? lv_obj_get_child(ui_btn_fw_check, 0) : NULL;
 }
 
 ///////////////////// MAIN INITIALIZATION ////////////////////
@@ -1121,7 +1149,7 @@ void ui_init(void)
     ui_Welcome_screen_init();
     ui_Main_screen_init();
     ui_Debug_screen_init();
-    ui_Login_screen_init();
+    //ui_Login_screen_init();
     ui_FWUpdate_screen_init();
     ui_FWInfo_screen_init();
     

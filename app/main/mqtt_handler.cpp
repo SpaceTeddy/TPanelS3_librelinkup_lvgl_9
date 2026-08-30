@@ -19,6 +19,9 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <esp_heap_caps.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <WiFi.h>
 #include <librelinkup.h>
 #include <uuid/log.h>
@@ -32,6 +35,10 @@
 #include "http_update.h"
 
 extern MQTT              mqtt;
+extern volatile uint32_t g_lv_mem_total;    ///< see main.cpp, sampled once a second
+extern volatile uint32_t g_lv_mem_used_max; ///< LVGL's own high-water mark
+extern volatile uint8_t  g_lv_mem_used_pct;
+extern volatile uint8_t  g_lv_mem_frag_pct;
 extern PubSubClient      mqtt_client;
 extern WiFiClient        mqttClient;
 extern volatile const char* g_loop_breadcrumb;
@@ -54,10 +61,13 @@ static int64_t      g_last_raw_meas_epoch  = -1;
 
 // ── HA discovery: entity table types ────────────────────────────────────────
 
+/// Which of the three published topics a discovery entry points at.
+enum HaTopic : uint8_t { HA_DATA, HA_NET, HA_HEALTH };
+
 struct HaSensor {
     const char *obj_id;
     const char *name;
-    bool        net_topic;    // true → network topic, false → data topic
+    HaTopic     topic;
     const char *value_tmpl;
     const char *unit;
     const char *dev_class;
@@ -75,17 +85,31 @@ struct HaSwitch {
 // ── HA discovery: entity tables ─────────────────────────────────────────────
 
 static const HaSensor k_ha_sensors[] = {
-    { "glucose",             "Glucose",          false, "{{ value_json.glucoseMeasurement }}", "mg/dL", "",               "measurement" },
-    { "glucose_target_high", "Glucose Target High", false, "{{ value_json.glucoseTargetHigh }}", "mg/dL", "", "measurement" },
-    { "glucose_target_low",  "Glucose Target Low",  false, "{{ value_json.glucoseTargetLow }}",  "mg/dL", "", "measurement" },
-    { "trend",               "Trendarrow",       false, "{{ value_json.trendStr | default(value_json.trendArrow) }}", "", "", "" },
-    { "trend_num",           "Trendarrow Value", false, "{{ value_json.trendArrow }}",                                 "", "", "measurement" },
-    { "rssi",                "WiFi RSSI",        true,  "{{ value_json.RSSI }}",               "dBm",   "signal_strength", "measurement" },
-    { "lcd_brightness",      "LCD Brightness",   false, "{{ value_json.brightness }}",         "",      "",               "measurement" },
-    { "ota_state",           "OTA Server State", false, "{{ value_json.ota_server }}",         "",      "",               "" },
-    { "wg_state",            "WireGuard State",  false, "{{ value_json.wireguard_mode }}",     "",      "",               "" },
-    { "mqtt_state",          "MQTT State",       false, "{{ value_json.mqtt_mode }}",          "",      "",               "" },
-    { "mqtt_master_state",   "MQTT Master State",false, "{{ value_json.mqtt_master_mode }}",   "",      "",               "" },
+    { "glucose",             "Glucose",          HA_DATA, "{{ value_json.glucoseMeasurement }}", "mg/dL", "",               "measurement" },
+    { "glucose_target_high", "Glucose Target High", HA_DATA, "{{ value_json.glucoseTargetHigh }}", "mg/dL", "", "measurement" },
+    { "glucose_target_low",  "Glucose Target Low",  HA_DATA, "{{ value_json.glucoseTargetLow }}",  "mg/dL", "", "measurement" },
+    { "trend",               "Trendarrow",       HA_DATA, "{{ value_json.trendStr | default(value_json.trendArrow) }}", "", "", "" },
+    { "trend_num",           "Trendarrow Value", HA_DATA, "{{ value_json.trendArrow }}",                                 "", "", "measurement" },
+    { "rssi",                "WiFi RSSI",        HA_NET,  "{{ value_json.RSSI }}",               "dBm",   "signal_strength", "measurement" },
+    { "lcd_brightness",      "LCD Brightness",   HA_DATA, "{{ value_json.brightness }}",         "",      "",               "measurement" },
+    { "ota_state",           "OTA Server State", HA_DATA, "{{ value_json.ota_server }}",         "",      "",               "" },
+    { "wg_state",            "WireGuard State",  HA_DATA, "{{ value_json.wireguard_mode }}",     "",      "",               "" },
+    { "mqtt_state",          "MQTT State",       HA_DATA, "{{ value_json.mqtt_mode }}",          "",      "",               "" },
+    { "mqtt_master_state",   "MQTT Master State",HA_DATA, "{{ value_json.mqtt_master_mode }}",   "",      "",               "" },
+
+    // Memory telemetry on the health topic. alloc+blocks rising together is a
+    // leak; largest decides whether a TLS session still fits (16 KB in one
+    // piece); min is the hard low-water mark.
+    { "heap_int_free",       "Heap Internal Free",     HA_HEALTH, "{{ value_json.heap_int_free }}",    "B", "data_size", "measurement" },
+    { "heap_int_largest",    "Heap Internal Largest",  HA_HEALTH, "{{ value_json.heap_int_largest }}", "B", "data_size", "measurement" },
+    { "heap_int_min",        "Heap Internal Low Water",HA_HEALTH, "{{ value_json.heap_int_min }}",     "B", "data_size", "measurement" },
+    { "heap_int_alloc",      "Heap Internal Allocated",HA_HEALTH, "{{ value_json.heap_int_alloc }}",   "B", "data_size", "measurement" },
+    { "heap_int_blocks",     "Heap Internal Blocks",   HA_HEALTH, "{{ value_json.heap_int_blocks }}",  "",  "",          "measurement" },
+    { "psram_free",          "PSRAM Free",             HA_HEALTH, "{{ value_json.psram_free }}",       "B", "data_size", "measurement" },
+    { "lvgl_max_used",       "LVGL Peak Used",         HA_HEALTH, "{{ value_json.lvgl_max_used }}",    "B", "data_size", "measurement" },
+    { "lvgl_frag",           "LVGL Fragmentation",     HA_HEALTH, "{{ value_json.lvgl_frag }}",        "%", "",          "measurement" },
+    { "loop_stack_free",     "Loop Task Stack Free",   HA_HEALTH, "{{ value_json.loop_stack_free }}",  "B", "data_size", "measurement" },
+    { "uptime",              "Uptime",                 HA_HEALTH, "{{ value_json.uptime_s }}",         "s", "duration",  "total_increasing" },
 };
 
 static const HaSwitch k_ha_switches[] = {
@@ -152,11 +176,13 @@ void mqtt_publish_ha_discovery()
 
     const char *dev_id = mqtt.mqtt_client_name.c_str();
 
-    char data_topic[96], net_topic[96], cmd_topic[96], dev_name[64];
+    char data_topic[96], net_topic[96], health_topic[96], cmd_topic[96], dev_name[64];
     snprintf(data_topic, sizeof(data_topic), "%s/%s%s",
              mqtt.mqtt_base.c_str(), dev_id, mqtt.mqtt_client_data.c_str());
     snprintf(net_topic,  sizeof(net_topic),  "%s/%s%s",
              mqtt.mqtt_base.c_str(), dev_id, mqtt.mqtt_client_network.c_str());
+    snprintf(health_topic, sizeof(health_topic), "%s/%s%s",
+             mqtt.mqtt_base.c_str(), dev_id, mqtt.mqtt_client_health.c_str());
     snprintf(cmd_topic,  sizeof(cmd_topic),  "%s/%s%s",
              mqtt.mqtt_base.c_str(), dev_id, mqtt.mqtt_subscibe_toppic.c_str());
     snprintf(dev_name,   sizeof(dev_name),   "LibreLinkUp %s", dev_id);
@@ -168,7 +194,9 @@ void mqtt_publish_ha_discovery()
         JsonDocument doc;
         doc["name"]           = s->name;
         doc["unique_id"]      = String(dev_id) + "_" + s->obj_id;
-        doc["state_topic"]    = s->net_topic ? net_topic : data_topic;
+        doc["state_topic"]    = (s->topic == HA_NET)    ? net_topic
+                              : (s->topic == HA_HEALTH) ? health_topic
+                                                        : data_topic;
         doc["value_template"] = s->value_tmpl;
         if (s->unit[0])       doc["unit_of_measurement"] = s->unit;
         if (s->dev_class[0])  doc["device_class"]        = s->dev_class;
@@ -294,7 +322,23 @@ void mqtt_publish()
         const String  topic   = mqtt.mqtt_base + "/" + mqtt.mqtt_master_id + mqtt.mqtt_client_data;
         g_loop_breadcrumb = "mqtt.pub.master_graph";
         logger.debug("MQTT publish master graph: %u bytes", (unsigned)payload.length());
-        if (!mqtt_client.publish(topic.c_str(), (const uint8_t *)payload.c_str(), payload.length(), true))
+        // Stream straight out of payload's own buffer via beginPublish()/
+        // write()/endPublish() instead of publish(), which first copies the
+        // whole payload byte-by-byte into PubSubClient's internal buffer
+        // (see PubSubClient::publish()) before sending it. For this ~15 KB
+        // PSRAM-backed payload that byte-copy was a second full PSRAM pass
+        // stacked right on top of building the string, timed exactly at
+        // fetch completion -- confirmed as the tearing trigger by testing
+        // with mqtt_master_mode disabled (no tearing) vs enabled (tearing).
+        // Streaming skips that copy entirely.
+        bool ok = mqtt_client.beginPublish(topic.c_str(), payload.length(), true);
+        if (ok)
+        {
+            size_t written = mqtt_client.write((const uint8_t *)payload.c_str(), payload.length());
+            ok = (written == payload.length());
+            mqtt_client.endPublish();
+        }
+        if (!ok)
         {
             logger.warning("MQTT publish master graph failed (state=%d)", mqtt_client.state());
         }
@@ -315,6 +359,43 @@ void mqtt_publish()
     {
         logger.warning("MQTT publish network failed (state=%d)", mqtt_client.state());
     }
+
+    // ── Health: memory figures for long-term trending ────────────────────────
+    // MALLOC_CAP_8BIT is required everywhere: MALLOC_CAP_INTERNAL alone also
+    // counts the permanently full IRAM heap.
+    multi_heap_info_t internal_info;
+    heap_caps_get_info(&internal_info, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
+    json_mqtt["uptime_s"]         = (uint32_t)(millis() / 1000UL);
+    json_mqtt["heap_int_free"]    = (uint32_t)internal_info.total_free_bytes;
+    json_mqtt["heap_int_largest"] = (uint32_t)heap_caps_get_largest_free_block(
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    // Lifetime low-water mark: only ever falls -- an event marker, not a gauge.
+    json_mqtt["heap_int_min"]     = (uint32_t)heap_caps_get_minimum_free_size(
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    json_mqtt["heap_int_alloc"]   = (uint32_t)internal_info.total_allocated_bytes;
+    json_mqtt["heap_int_blocks"]  = (uint32_t)internal_info.allocated_blocks;
+    json_mqtt["psram_free"]       = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    // LVGL has its own fixed pool, unrelated to the ESP heap.
+    json_mqtt["lvgl_max_used"]    = (uint32_t)g_lv_mem_used_max;
+    json_mqtt["lvgl_total"]       = (uint32_t)g_lv_mem_total;
+    json_mqtt["lvgl_frag"]        = (uint8_t)g_lv_mem_frag_pct;
+    // Loop task headroom -- shrinking over days means a slow stack overflow.
+    json_mqtt["loop_stack_free"]  = (uint32_t)uxTaskGetStackHighWaterMark(NULL);
+
+    // String, not mqtt.mqtt_buffer -- 255 bytes there would truncate silently.
+    String health_payload;
+    serializeJson(json_mqtt, health_payload);
+    json_mqtt.clear();
+    g_loop_breadcrumb = "mqtt.pub.health";
+    logger.debug("MQTT publish health: %u bytes", (unsigned)health_payload.length());
+    if (!mqtt_client.publish(
+        (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_client_health).c_str(),
+        health_payload.c_str(), false))
+    {
+        logger.warning("MQTT publish health failed (state=%d)", mqtt_client.state());
+    }
+
     g_loop_breadcrumb = "idle";
 }
 
@@ -473,7 +554,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
 
 bool setup_mqtt()
 {
-    mqtt_client.setServer(mqtt.mqtt_server, mqtt.mqtt_port);
+    mqtt_client.setServer(mqtt.mqtt_server.c_str(), mqtt.mqtt_port);
     mqtt_client.setCallback(mqtt_callback);
     mqtt_client.setBufferSize(16384);
     mqtt_client.setSocketTimeout(3);
@@ -492,9 +573,9 @@ bool setup_mqtt()
     if (mqtt_client.connected()) return true;
 
     logger.notice("MQTT: connecting... clientId=%s target=%s:%u",
-                  clientId.c_str(), mqtt.mqtt_server, (unsigned)mqtt.mqtt_port);
+                  clientId.c_str(), mqtt.mqtt_server.c_str(), (unsigned)mqtt.mqtt_port);
 
-    const bool ok = mqtt_client.connect(clientId.c_str(), mqtt.mqtt_user, mqtt.mqtt_password);
+    const bool ok = mqtt_client.connect(clientId.c_str(), mqtt.mqtt_user.c_str(), mqtt.mqtt_password.c_str());
     logger.debug("MQTT connect ok=%d state=%d", (int)ok, mqtt_client.state());
 
     if (!ok || !mqtt_client.connected())

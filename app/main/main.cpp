@@ -232,6 +232,12 @@ HBA1C hba1c; ///< HbA1c calculation engine
 
 LIBRELINKUP librelinkup; ///< LibreLinkUp API client instance
 
+/// Lowest byte-addressable internal heap seen during normal operation.
+/// Tracked separately from heap_caps_get_minimum_free_size(), whose all-time
+/// value is dominated by a boot-time dip (XIP-from-PSRAM sets up its mapping
+/// with large temporary internal buffers) and therefore never moves again.
+size_t g_internal_min_runtime = SIZE_MAX;
+
 int16_t glucose_delta = 0;              ///< Change from last reading (mg/dL)
 uint16_t glucoseMeasurement_backup = 0; ///< Previous glucose measurement
 
@@ -395,7 +401,31 @@ void esp_status()
     logger.notice("===== Heap Memory Status =====");
     logger.notice("Total free heap: %d Bytes", esp_get_free_heap_size());
     logger.notice("Largest free block: %d Bytes", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-    logger.notice("Internal RAM (DMA capable): %d Bytes", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    // MALLOC_CAP_INTERNAL alone also counts the IRAM heap, which is 32-bit-only
+    // and permanently full (see the build's IRAM line: 100% used). Its minimum
+    // dominates the aggregate and makes the number meaningless. Byte-addressable
+    // internal memory is what mbedTLS, WiFi and the drivers actually draw from.
+    // The decisive number for mbedTLS is not the sum but the largest
+    // CONTIGUOUS internal block: a TLS session needs one 16 KB buffer per
+    // direction in one piece. A fragmented heap can show 60 KB free and still
+    // fail with "memory allocation failed".
+    logger.notice("Internal largest block: %d Bytes (TLS needs ~16k contiguous)",
+                  heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    logger.notice("Internal RAM (8-bit): %d Bytes (min since boot: %d, incl. boot: %d)",
+                  heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                  (g_internal_min_runtime == SIZE_MAX) ? -1 : (int)g_internal_min_runtime,
+                  heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    // free_blocks tells region boundaries (a handful) from real fragmentation
+    // (dozens); allocated + free is the pool size, the only way to compare
+    // Arduino cores. See docs/build-and-flash.md.
+    multi_heap_info_t internal_info;
+    heap_caps_get_info(&internal_info, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    logger.notice("Internal pool: %u Bytes (%u alloc in %u blocks, %u free in %u blocks)",
+                  (unsigned)(internal_info.total_allocated_bytes + internal_info.total_free_bytes),
+                  (unsigned)internal_info.total_allocated_bytes,
+                  (unsigned)internal_info.allocated_blocks,
+                  (unsigned)internal_info.total_free_bytes,
+                  (unsigned)internal_info.free_blocks);
     logger.notice("PSRAM available: %d Bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     logger.notice("==============================");
 
@@ -817,6 +847,14 @@ static void btn_login_event_cb(lv_event_t *event)
 ///////////////////// CHART INTERACTION CALLBACKS ////////////////////
 
 
+/// Data point the cursor currently sits on, and whether its objects are
+/// already raised. LV_EVENT_PRESSING fires every few milliseconds while a
+/// finger is down, but at ~2.8 px per point most of those events land on the
+/// point already shown. Repeating the work then costs a full-height invalidate
+/// of the chart -- which redraws the 141-point series -- for no visible change.
+static int  s_cursor_index   = -1;
+static bool s_cursor_visible = false;
+
 /// True while the main glucose header shows a touched value instead of the
 /// live reading. Guards the restore below so a drag does not rewrite the
 /// header labels on every LV_EVENT_PRESSING tick.
@@ -835,6 +873,9 @@ static void chart_cursor_hide(void)
     lv_obj_add_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
+
+    s_cursor_index   = -1;
+    s_cursor_visible = false;
 
     if (!s_header_shows_cursor)
         return;
@@ -984,6 +1025,13 @@ static void touch_event_cb(lv_event_t *e)
     }
     const int16_t value = (int16_t)charted;
 
+    // Nothing moved to a new data point: the cursor already shows exactly this,
+    // so skip the repositioning entirely. This is what keeps a drag from
+    // invalidating the chart on every touch tick.
+    if (s_cursor_visible && index == s_cursor_index)
+        return;
+    s_cursor_index = index;
+
     // Exact pixel of that point, straight from LVGL: no second copy of the
     // value->y mapping here that could drift from lv_chart_set_range().
     lv_point_t p;
@@ -1016,7 +1064,6 @@ static void touch_event_cb(lv_event_t *e)
     if (line_x > content_w - 2) line_x = content_w - 2;
     lv_obj_set_pos(ui_Chart_Cursor_Line, line_x, 0);
     lv_obj_clear_flag(ui_Chart_Cursor_Line, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_Chart_Cursor_Line);
 
     // --- Dot on the curve at the touched point ---
     lv_obj_set_style_border_color(ui_Chart_Cursor_Dot,
@@ -1024,7 +1071,6 @@ static void touch_event_cb(lv_event_t *e)
                                                : lv_palette_main(LV_PALETTE_GREEN), 0);
     lv_obj_set_pos(ui_Chart_Cursor_Dot, point_x - 7, point_y - 7);
     lv_obj_clear_flag(ui_Chart_Cursor_Dot, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_Chart_Cursor_Dot);
 
     // --- Touched value into the main glucose header ---
     // The delta line keeps its meaning while scrubbing: it reports the touched
@@ -1062,7 +1108,16 @@ static void touch_event_cb(lv_event_t *e)
     if (time_x > content_w - time_w) time_x = content_w - time_w;
     lv_obj_set_pos(ui_Chart_Cursor_Time_Label, time_x, CHART_HEIGHT - 41);
     lv_obj_clear_flag(ui_Chart_Cursor_Time_Label, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(ui_Chart_Cursor_Time_Label);
+
+    // Raising the objects reorders the parent's child list and invalidates
+    // them; once per touch is enough, doing it per move was pure overhead.
+    if (!s_cursor_visible)
+    {
+        lv_obj_move_foreground(ui_Chart_Cursor_Line);
+        lv_obj_move_foreground(ui_Chart_Cursor_Dot);
+        lv_obj_move_foreground(ui_Chart_Cursor_Time_Label);
+        s_cursor_visible = true;
+    }
 }
 
 /**
@@ -1572,6 +1627,24 @@ void update_five_minute_counter()
  */
 void update_glucose_data()
 {
+    // Sampled before the fetch, not after a successful one: the interesting
+    // moment is right before the TLS connection is attempted, and a failing
+    // fetch never reached the old location -- which left the low-water mark
+    // frozen at a value above the current one.
+    {
+        const size_t internal_free =
+            heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (internal_free < g_internal_min_runtime)
+            g_internal_min_runtime = internal_free;
+
+        // The contiguous block is what decides whether mbedTLS can allocate;
+        // the sum can look healthy while the largest piece is too small.
+        const size_t largest =
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (largest < 20000)
+            logger.notice("Internal heap fragmented: largest block %u -- TLS needs ~16k contiguous",
+                          (unsigned)largest);
+    }
 
     // Check WiFi connection first
     if (WiFi.status() != WL_CONNECTED)
@@ -1592,6 +1665,12 @@ void update_glucose_data()
             handle_llu_api_error();
             return;
         }
+
+        // Tripwire for heap corruption during the fetch. Silent on success;
+        // one check per cycle localises the damage by induction. Ruled the
+        // suspicion out on 2026-08-29, kept as a guard.
+        if (!heap_caps_check_integrity_all(true))
+            logger.err("Heap corruption detected right after get_graph_data()");
         // settings.config.mqtt_master_mode = false; // Currently unused
     }
     else
@@ -1690,6 +1769,11 @@ void update_glucose_data()
 
         // g_lv_mem_total, not LV_MEM_SIZE: that macro only exists while the
         // builtin allocator is selected and would break the build under CLIB.
+        // A TLS connection needs roughly 32 KB of internal RAM
+        // (CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN=16384, one buffer per direction).
+        // Warn while there is still room to react, instead of only finding out
+        // via "(-32512) SSL - Memory allocation failed" once a fetch fails.
+        // Logged at warning level so it shows up on telnet without debug on.
         logger.debug("LVGL mem: used=%u%% max_used=%u/%u bytes free=%u frag=%u%%",
                       (unsigned)g_lv_mem_used_pct, (unsigned)g_lv_mem_used_max,
                       (unsigned)g_lv_mem_total, (unsigned)g_lv_mem_free,
@@ -1988,6 +2072,12 @@ void setup_load_system_config()
 {
     settings.loadConfiguration(settings.config_filename, settings.config);
     librelinkup.timezone_offset() = settings.config.timezone;
+
+    // settings.config.mqtt* (config.json / web UI) was never applied to the
+    // live mqtt object that setup_mqtt() actually connects with - see
+    // MQTT::applyConfig() in mqtt.h.
+    mqtt.applyConfig(settings.config.mqttServer, settings.config.mqtt_port,
+                      settings.config.mqttUsername, settings.config.mqttPassword);
 }
 
 /**
@@ -2444,7 +2534,11 @@ void setup_librelinkup()
 {
     if (settings.config.login_email == "" || settings.config.login_password == "")
     {
-        lv_disp_load_scr(ui_Login_screen);
+        // On-device login screen disabled (RAM saving) -- ui_Login_screen is
+        // never created, so loading it here would be a NULL-pointer crash.
+        // Credentials without stored config now have to come from the web
+        // /login route instead.
+        // lv_disp_load_scr(ui_Login_screen);
     }
     else
     {
@@ -2591,31 +2685,34 @@ void setup()
     lv_obj_add_event_cb(ui_btn_fw_check, btn_fw_check_cb, LV_EVENT_ALL, NULL);
 
     // On-screen keyboard show/hide for text areas
-    lv_obj_add_event_cb(ui_ta_email, ta_event_cb, LV_EVENT_ALL, ui_kb);
-    lv_obj_add_event_cb(btn_login, btn_login_event_cb, LV_EVENT_CLICKED, NULL);
+    // Login screen disabled (RAM saving): ui_ta_email/ui_kb/btn_login/
+    // ui_ta_password are never created by ui_Login_screen_init(), so wiring
+    // events to them here would be a NULL-pointer crash on every boot.
+    // lv_obj_add_event_cb(ui_ta_email, ta_event_cb, LV_EVENT_ALL, ui_kb);
+    // lv_obj_add_event_cb(btn_login, btn_login_event_cb, LV_EVENT_CLICKED, NULL);
 
     // Focus handlers to bind the keyboard to the active text area
-    lv_obj_add_event_cb(
-        ui_ta_email,
-        [](lv_event_t *event)
-        {
-            lv_keyboard_set_textarea(ui_kb, ui_ta_email);
-            lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
-        },
-        LV_EVENT_FOCUSED,
-        NULL
-    );
+    // lv_obj_add_event_cb(
+    //     ui_ta_email,
+    //     [](lv_event_t *event)
+    //     {
+    //         lv_keyboard_set_textarea(ui_kb, ui_ta_email);
+    //         lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
+    //     },
+    //     LV_EVENT_FOCUSED,
+    //     NULL
+    // );
 
-    lv_obj_add_event_cb(
-        ui_ta_password,
-        [](lv_event_t *event)
-        {
-            lv_keyboard_set_textarea(ui_kb, ui_ta_password);
-            lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
-        },
-        LV_EVENT_FOCUSED,
-        NULL
-    );
+    // lv_obj_add_event_cb(
+    //     ui_ta_password,
+    //     [](lv_event_t *event)
+    //     {
+    //         lv_keyboard_set_textarea(ui_kb, ui_ta_password);
+    //         lv_obj_clear_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
+    //     },
+    //     LV_EVENT_FOCUSED,
+    //     NULL
+    // );
 // ------------------------------------------------------------------------
 
     // ------------------------ Application FSM -------------------------------
@@ -2736,6 +2833,14 @@ void loop()
             flag_debug_screen = false; // reset flag, will be set again by timer
             //logger.debug("1s timer tick: updating debug screen labels...");
             update_debug_screen();
+
+            // Same tick also keeps the firmware-info screen live while it's
+            // on screen: ui_fwinfo_refresh() previously only ran right before
+            // navigating there or right after tapping Check/Install, so a
+            // check running in the background (FW_CHECKING) never updated
+            // the labels if the user was already watching this screen.
+            if (lv_scr_act() == ui_FWInfo_screen)
+                ui_fwinfo_refresh();
         }
     }
 }

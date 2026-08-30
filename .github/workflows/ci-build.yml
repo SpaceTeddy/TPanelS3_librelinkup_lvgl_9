@@ -34,18 +34,65 @@ jobs:
             ~/.platformio/.cache
             ~/.platformio/packages
             ~/.platformio/platforms
+          # No restore-keys on purpose. The key changes with every
+          # platformio.ini edit -- including the platform line, which this
+          # project switches between core 2.x and core 3.x. A loose fallback
+          # then restores a cache built for the *other* platform, and
+          # PlatformIO spends the run repairing it (visible as the same tool
+          # being installed three times from different sources). A cold cache
+          # costs a few minutes; a mismatched one costs the build.
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
-          restore-keys: |
-            pio-${{ runner.os }}-
 
       - name: Install PlatformIO Core
-        run: pip install --upgrade platformio
+        # intelhex: tool-esptoolpy's bootloader-build step imports it but does
+        # not install it itself - without this, "pio run" fails with
+        # ModuleNotFoundError: No module named 'intelhex'.
+        run: pip install --upgrade platformio intelhex
 
       - name: Show PlatformIO version
         run: pio --version
 
+      # pioarduino declares framework-arduinoespressif32 as an *optional*
+      # package, so PlatformIO never installs it on its own. With
+      # custom_sdkconfig set, the builder always takes its "Reinstall Arduino
+      # framework" path here -- it looks for a hash line in sdkconfig.defaults,
+      # which is gitignored and therefore never present in CI -- and that path
+      # calls exists(FRAMEWORK_DIR) on a None path: TypeError, build aborts.
+      # Installing the package up front is what keeps CI green. The URL is read
+      # from the resolved platform so it follows platform bumps instead of
+      # pinning an Arduino core version here. Emits nothing for the classic
+      # espressif32 platform, where the package is not optional.
+      - name: Pre-install optional Arduino framework package
+        run: |
+          pio pkg install -e "${{ github.event.inputs.environment }}"
+          URL=$(python3 -c "
+          import json, pathlib
+          p = pathlib.Path.home() / '.platformio/platforms/espressif32/platform.json'
+          d = json.load(p.open()).get('packages', {}).get('framework-arduinoespressif32', {})
+          v = str(d.get('version', ''))
+          print(v if d.get('optional') and v.startswith('http') else '')
+          ")
+          if [ -n "$URL" ]; then
+            pio pkg install --global --tool "$URL"
+          else
+            echo "framework-arduinoespressif32 is not an optional URL package - nothing to do"
+          fi
+
       - name: Build selected environment
-        run: pio run -e "${{ github.event.inputs.environment }}"
+        # `pio run` has died here without printing an exit code or an
+        # error. Piping through tee hides the real status, so PIPESTATUS is
+        # read back explicitly; df/free bracket the run because a runner out of
+        # disk or memory is the most likely way a build vanishes silently.
+        run: |
+          df -h /; free -h
+          set +e
+          pio run -e "${{ github.event.inputs.environment }}" 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "=== pio exit code: $code"
+          df -h /; free -h
+          echo "=== last 40 lines"; tail -40 build.log
+          exit $code
 
       - name: Run unit tests (optional)
         if: ${{ github.event.inputs.run_tests == 'true' }}
