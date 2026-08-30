@@ -53,6 +53,30 @@ static uint64_t rd64(const uint8_t *p)
     return (uint64_t)rd32(p) | ((uint64_t)rd32(p + 4) << 32);
 }
 
+/// Logs what LittleFS actually holds. Called when the database is missing,
+/// because "not loaded" alone does not say whether the upload never happened,
+/// landed under different names, or the filesystem failed to mount.
+static void listFilesystem()
+{
+    logger.notice(F("[ZHA] LittleFS: %u of %u bytes used"),
+                  (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
+
+    File root = LittleFS.open("/");
+    if (!root || !root.isDirectory()) {
+        logger.err(F("[ZHA] LittleFS root not readable -- is it mounted?"));
+        return;
+    }
+
+    bool empty = true;
+    for (File f = root.openNextFile(); f; f = root.openNextFile()) {
+        logger.notice(F("[ZHA]   %-24s %8u B"), f.name(), (unsigned)f.size());
+        empty = false;
+    }
+    if (empty)
+        logger.notice(F("[ZHA]   (empty) -- run: pio run -t uploadfs"));
+    root.close();
+}
+
 bool zha_db_begin()
 {
     g_available = false;
@@ -62,6 +86,7 @@ bool zha_db_begin()
     if (!idx) {
         logger.notice(F("[ZHA] no device database at %s -- the H2 will use its "
                         "built-in heuristics"), kIndexPath);
+        listFilesystem();
         return false;
     }
 

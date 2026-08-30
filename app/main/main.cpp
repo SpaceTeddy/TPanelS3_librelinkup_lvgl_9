@@ -2635,10 +2635,6 @@ void setup()
 
     // --- Storage & Configuration --------------------------------------------
     setup_littlefs();           ///< Mount LittleFS (fail is non-fatal by design)
-    // Must follow the mount: the ZHA device database lives in LittleFS. The H2
-    // may already have queued a profile_req from setup_UART_IPC() above, but
-    // those are only drained in loop(), by which point this has run.
-    zha_db_begin();
     setup_load_system_config(); ///< Load configuration from persistent storage
 
     // --- Display / Touch / LVGL ---------------------------------------------
@@ -2649,6 +2645,12 @@ void setup()
 
     // --- Console / Telnet ----------------------------------------------------
     setup_uuid_console(); ///< Start UUID shell & Telnet service
+
+    // After the mount (the database lives in LittleFS) and after the console,
+    // or its status is logged before any handler is registered and vanishes --
+    // which is exactly how a missing database went unnoticed. Still inside
+    // setup(), so it is ready before loop() drains the first profile_req.
+    zha_db_begin();
 
     // --- VPN / mDNS / MQTT / App backends -----------------------------------
     setup_wg(settings.config.wg_mode); ///< Enable/disable WireGuard based on config
