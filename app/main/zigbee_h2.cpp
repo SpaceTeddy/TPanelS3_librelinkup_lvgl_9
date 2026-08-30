@@ -246,6 +246,11 @@ void setup_UART_IPC()
     h2_reset_chip();
     delay(500);
 
+    // Must precede begin(). The Arduino default is 256 B, which at 460800 baud
+    // is ~5 ms of traffic -- less than one LVGL frame. Anything that stalls the
+    // loop that long drops bytes mid-line, which showed up as truncated status
+    // messages long before the device database made it fatal.
+    SerialPort.setRxBufferSize(4096);
     SerialPort.begin(460800, SERIAL_8N1, ESP32H2_RX, ESP32H2_TX);
     Serial.println();
     Serial.printf("[%09lu ms][%s][%s] ", (unsigned long)millis(), __FILE__, __func__);
