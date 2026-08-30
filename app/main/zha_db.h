@@ -38,7 +38,11 @@ uint32_t zha_db_count();
 ///
 /// Must be called from the task that owns the UART -- the same rule h2_send()
 /// follows.
-void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model);
+/// `addr` is echoed back so the H2 can still match the answer to its device if
+/// the request id has already been retired -- which happens whenever the S3
+/// boots slower than the H2's retry budget.
+void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model,
+                   uint16_t addr);
 
 /// Resolves a device and returns its profile record as text, without touching
 /// the UART. Safe from any task -- use this for diagnostics rather than

@@ -137,6 +137,13 @@ bool zha_db_begin()
     g_available = true;
     logger.notice(F("[ZHA] device database ready: %u devices, %u B"),
                   (unsigned)g_count, (unsigned)g_dbLength);
+
+    // Tell the H2 to ask again. It boots in seconds while this side needs the
+    // best part of a minute for LVGL, Wi-Fi and MQTT before LoopTask drains the
+    // UART, so its first round of requests is always spent before anyone is
+    // listening -- it retires those request ids and falls back to heuristics.
+    // Queued rather than sent: the loop task owns the UART.
+    h2_enqueue("{\"cmd\":\"zha\",\"refresh\":true}");
     return true;
 }
 
@@ -254,7 +261,8 @@ bool zha_db_probe(const char *manufacturer, const char *model, String &out)
     return found;
 }
 
-void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model)
+void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model,
+                   uint16_t addr)
 {
     if (manufacturer == nullptr) manufacturer = "";
     if (model == nullptr) model = "";
@@ -265,8 +273,9 @@ void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model)
         if (idx && db) {
             uint32_t offset = 0, length = 0;
             if (resolve(idx, db, manufacturer, model, offset, length)) {
-                SerialPort.printf("{\"cmd\":\"profile\",\"rid\":%lu,\"found\":true,\"p\":",
-                                  (unsigned long)rid);
+                SerialPort.printf("{\"cmd\":\"profile\",\"rid\":%lu,\"addr\":%u,"
+                                  "\"found\":true,\"p\":",
+                                  (unsigned long)rid, (unsigned)addr);
                 bool ok = streamRecord(db, offset, length);
                 SerialPort.print("}\n");
                 idx.close();
@@ -288,8 +297,8 @@ void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model)
         if (db) db.close();
     }
 
-    SerialPort.printf("{\"cmd\":\"profile\",\"rid\":%lu,\"found\":false}\n",
-                      (unsigned long)rid);
+    SerialPort.printf("{\"cmd\":\"profile\",\"rid\":%lu,\"addr\":%u,\"found\":false}\n",
+                      (unsigned long)rid, (unsigned)addr);
     logger.notice(F("[ZHA] %s/%s not in database -- H2 falls back to heuristics"),
                   manufacturer, model);
 }

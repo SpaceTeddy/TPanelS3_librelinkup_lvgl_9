@@ -475,7 +475,8 @@ static void h2_handle_message(const String &line)
         // from the ZHA database before it can bind and configure reporting.
         zha_db_answer(doc["rid"] | 0UL,
                       doc["manufacturerName"] | "",
-                      doc["modelId"] | "");
+                      doc["modelId"] | "",
+                      doc["addr"] | 0);
     }
     else if (strcmp(type, "sensor") == 0)
     {
