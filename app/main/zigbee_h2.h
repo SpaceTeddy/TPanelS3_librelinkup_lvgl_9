@@ -41,6 +41,11 @@ struct H2Device {
     float    temp;           ///< NAN when unknown
     int16_t  bat;            ///< -1 unknown, else percent
     uint32_t last_seen_ms;
+    /// How the coordinator resolved this device against the ZHA database:
+    /// "matched" (record applied), "known" (in the database but it carries
+    /// nothing actionable), "unknown", "waiting", "idle". Empty until the H2
+    /// has reported it.
+    char     zha[8];
     bool     used;
 };
 

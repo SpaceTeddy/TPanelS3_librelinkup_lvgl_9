@@ -473,6 +473,7 @@ const char index_html[] PROGMEM = R"rawliteral(
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Model</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Vendor</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">EP</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Profile</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">State</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Motion</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Temp</th>
@@ -596,6 +597,15 @@ const char index_html[] PROGMEM = R"rawliteral(
         return Math.floor(s/3600) + ' h';
     }
 
+    function zbProfile(z){
+        const dim = '<span style="color:var(--muted);">-</span>';
+        if(!z) return dim;
+        if(z === 'matched') return '<span style="color:var(--ok);" title="setup came from the ZHA database">matched</span>';
+        if(z === 'known')   return '<span title="in the database, but it carries nothing actionable - running on heuristics">known</span>';
+        if(z === 'unknown') return '<span style="color:var(--muted);" title="not in the ZHA database - running on heuristics">unknown</span>';
+        return '<span style="color:var(--muted);">' + z + '</span>';
+    }
+
     function zbCell(html){
         return '<td style="padding:6px;border-bottom:1px solid var(--border);">' + html + '</td>';
     }
@@ -616,6 +626,11 @@ const char index_html[] PROGMEM = R"rawliteral(
                     zbCell(d.model || dim) +
                     zbCell(d.mfr   || dim) +
                     zbCell(d.ep) +
+                    // Says whether the device is driven by the ZHA database or
+                    // by the coordinator's guesswork -- "known" means the
+                    // database has the model but nothing this firmware can act
+                    // on, so it is still running on heuristics.
+                    zbCell(zbProfile(d.zha)) +
                     zbCell(d.online ? '<span style="color:var(--ok);">online</span>'
                                     : '<span style="color:var(--bad);">offline</span>') +
                     zbCell(d.occ < 0 ? dim : (d.occ ? 'yes' : 'no')) +

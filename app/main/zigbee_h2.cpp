@@ -128,6 +128,23 @@ static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mf
     d.last_seen_ms = millis();
 }
 
+/// Records how the coordinator resolved a device against the ZHA database.
+/// Separate from h2_dev_upsert() because it only comes from "list" messages,
+/// and that argument list is long enough already.
+static void h2_dev_set_zha(uint16_t addr, const char *zha)
+{
+    if (zha == nullptr || zha[0] == '\0') return;
+    if (g_h2_dev_lock == nullptr) return;
+    if (xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(50)) != pdTRUE) return;
+    for (int i = 0; i < H2_MAX_DEVICES; i++) {
+        if (g_h2_devices[i].used && g_h2_devices[i].addr == addr) {
+            h2_copy_field(g_h2_devices[i].zha, sizeof(g_h2_devices[i].zha), zha);
+            break;
+        }
+    }
+    xSemaphoreGive(g_h2_dev_lock);
+}
+
 static void h2_dev_upsert(uint16_t addr, const char *ieee, const char *mfr,
                           const char *model, int ep, int online,
                           int occ, float temp, int bat, int on)
@@ -146,7 +163,7 @@ void h2_devices_json(String &out)
 
     const uint32_t now = millis();
     bool first = true;
-    char entry[320];
+    char entry[384];
     for (int i = 0; i < H2_MAX_DEVICES; i++) {
         const H2Device &d = g_h2_devices[i];
         if (!d.used) continue;
@@ -156,11 +173,12 @@ void h2_devices_json(String &out)
         snprintf(entry, sizeof(entry),
                  "%s{\"addr\":%u,\"hex\":\"0x%04X\",\"ieee\":\"%s\",\"mfr\":\"%s\","
                  "\"model\":\"%s\",\"ep\":%u,\"online\":%s,\"occ\":%d,"
-                 "\"temp\":%s,\"bat\":%d,\"on\":%d,\"age_s\":%u}",
+                 "\"temp\":%s,\"bat\":%d,\"on\":%d,\"zha\":\"%s\","
+                 "\"age_s\":%u}",
                  first ? "" : ",", (unsigned)d.addr, (unsigned)d.addr,
                  d.ieee, d.mfr, d.model, (unsigned)d.ep,
                  d.online ? "true" : "false", (int)d.occ,
-                 temp_buf, (int)d.bat, (int)d.on,
+                 temp_buf, (int)d.bat, (int)d.on, d.zha,
                  (unsigned)((now - d.last_seen_ms) / 1000UL));
         out += entry;
         first = false;
@@ -366,6 +384,7 @@ static void h2_handle_message(const String &line)
                           d["temp"].isNull()   ? NAN : d["temp"].as<float>(),
                           d["bat"].isNull()    ? -1 : d["bat"].as<int>(),
                           d["on"].isNull()     ? -1 : (int)(d["on"].as<bool>() ? 1 : 0));
+            h2_dev_set_zha(d["addr"].as<uint16_t>(), d["zha"] | "");
         }
     }
     else if (strcmp(type, "ack") == 0)
