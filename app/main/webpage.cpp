@@ -42,6 +42,8 @@
 #include "mqtt_handler.h"
 #include "h2_ota.h"
 #include "zigbee_h2.h"
+#include <Update.h>
+#include "ota_handler.h"
 
 extern MQTT         mqtt;
 extern PubSubClient mqtt_client;
@@ -2344,122 +2346,75 @@ static void ws_telnet_on_event(AsyncWebSocket *server, AsyncWebSocketClient *cli
 
 // -------------------- H2 OTA file-upload page & handler --------------------
 
-static const char H2_OTA_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html><html lang="de"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>H2 Firmware Update</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:sans-serif;background:#1a1a2e;color:#e0e0e0;display:flex;
-       justify-content:center;align-items:center;min-height:100vh;padding:20px}
-  .card{background:#16213e;border-radius:12px;padding:32px;width:100%;max-width:480px;
-        box-shadow:0 4px 24px #0005}
-  h2{font-size:1.3rem;margin-bottom:6px;color:#90caf9}
-  p{font-size:.85rem;color:#888;margin-bottom:24px}
-  label{display:block;font-size:.8rem;color:#aaa;margin-bottom:6px}
-  input[type=file]{width:100%;padding:10px;background:#0f3460;border:1px solid #1a5276;
-                   border-radius:6px;color:#e0e0e0;cursor:pointer;margin-bottom:20px}
-  button{width:100%;padding:12px;background:#2196f3;color:#fff;font-size:1rem;font-weight:bold;
-         border:none;border-radius:6px;cursor:pointer;transition:background .2s}
-  button:hover{background:#1565c0}
-  button:disabled{background:#555;cursor:not-allowed}
-  .bar-wrap{margin-top:16px}
-  .bar-label{font-size:.75rem;color:#aaa;margin-bottom:4px;display:flex;justify-content:space-between}
-  .bar-bg{background:#0f3460;border-radius:4px;height:10px;overflow:hidden}
-  .bar{width:0%;height:100%;transition:width .4s}
-  .bar-upload{background:#42a5f5}
-  .bar-flash{background:#66bb6a}
-  #status{margin-top:16px;font-size:.85rem;text-align:center;min-height:1.2em;color:#aaa}
-  .ok{color:#66bb6a!important}.err{color:#ef5350!important}
-</style></head><body>
-<div class="card">
-  <h2>H2 Firmware Update</h2>
-  <p>Select compiled <code>.bin</code> for the ESP32-H2 coordinator and click Flash.</p>
-  <label>Firmware file</label>
-  <input type="file" id="fw" accept=".bin">
-  <button id="btn" onclick="go()">Flash to H2</button>
-
-  <div class="bar-wrap" id="wrap-upload" style="display:none">
-    <div class="bar-label"><span>Upload zum S3</span><span id="pct-upload">0%</span></div>
-    <div class="bar-bg"><div class="bar bar-upload" id="bar-upload"></div></div>
-  </div>
-
-  <div class="bar-wrap" id="wrap-flash" style="display:none">
-    <div class="bar-label"><span>Flash auf H2</span><span id="pct-flash">0%</span></div>
-    <div class="bar-bg"><div class="bar bar-flash" id="bar-flash"></div></div>
-  </div>
-
-  <div id="status"></div>
-</div>
-<script>
-var pollTimer=null;
-
-function setStatus(msg,cls){var s=document.getElementById('status');s.textContent=msg;s.className=cls||'';}
-
-function setUpload(p){
-  document.getElementById('wrap-upload').style.display='block';
-  document.getElementById('bar-upload').style.width=p+'%';
-  document.getElementById('pct-upload').textContent=p+'%';
-}
-function setFlash(written,total){
-  var p=total>0?Math.round(written/total*100):0;
-  document.getElementById('wrap-flash').style.display='block';
-  document.getElementById('bar-flash').style.width=p+'%';
-  document.getElementById('pct-flash').textContent=p+'% ('+Math.round(written/1024)+'/'+ Math.round(total/1024)+' KB)';
-}
-
-function pollFlash(){
-  fetch('/api/h2/ota/status')
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.active){
-        setFlash(d.written,d.total);
-        setStatus('Flashing...');
-      } else {
-        setFlash(d.written,d.total);
-        clearInterval(pollTimer);
-        if(d.written>0 && d.written>=d.total){
-          setStatus('H2 flashed successfully - rebooting!','ok');
-        } else {
-          setStatus('Flash abgeschlossen.','ok');
-        }
-      }
-    })
-    .catch(function(){});
-}
-
-function go(){
-  var f=document.getElementById('fw').files[0];
-  if(!f){setStatus('Please select a .bin file.','err');return;}
-  document.getElementById('btn').disabled=true;
-  setUpload(0);
-  setStatus('Uploading...');
-
-  var fd=new FormData();fd.append('firmware',f);
-  var xhr=new XMLHttpRequest();
-  xhr.open('POST','/api/h2/ota/upload');
-  xhr.upload.onprogress=function(e){
-    if(e.lengthComputable) setUpload(Math.round(e.loaded/e.total*100));
-  };
-  xhr.onload=function(){
-    setUpload(100);
-    if(xhr.status===202){
-      setStatus('Upload done - flashing H2...');
-      pollTimer=setInterval(pollFlash,1000);
-    } else {
-      setStatus('Fehler: '+xhr.responseText,'err');
-      document.getElementById('btn').disabled=false;
-    }
-  };
-  xhr.onerror=function(){setStatus('Netzwerkfehler.','err');document.getElementById('btn').disabled=false;};
-  xhr.send(fd);
-}
-</script></body></html>
-)rawliteral";
 
 static uint8_t* g_h2_upload_buf = nullptr;
 static size_t   g_h2_upload_pos = 0;
 static bool     g_h2_upload_ok  = false;
+
+// -------------------- S3 firmware upload --------------------
+// Same idea as the H2 upload, but the image is written straight into the OTA
+// partition instead of being buffered: at ~2.5 MB it would otherwise sit in
+// PSRAM twice. Reuses the ElegantOTA callbacks so the display shows the same
+// progress screen and ota_in_progress gates the main loop as usual.
+
+static bool g_fw_upload_ok = false;
+
+static void fw_restart_task(void *) {
+    vTaskDelay(pdMS_TO_TICKS(1500));   // let the response reach the browser
+    ESP.restart();
+    vTaskDelete(nullptr);
+}
+
+static void handleFwUploadBody(AsyncWebServerRequest *request, const String& filename,
+                               size_t index, uint8_t *data, size_t len, bool final)
+{
+    if (index == 0) {
+        // Checked here, not in the completion handler: the body arrives first,
+        // and an unauthenticated upload would already be in flash by then.
+        if (!ensureConfigAuth(request)) return;
+
+        g_fw_upload_ok = false;
+        const size_t total = request->contentLength();
+        logger.notice("[FW] upload start: %s (%u bytes)", filename.c_str(), (unsigned)total);
+        if (!Update.begin(total ? total : UPDATE_SIZE_UNKNOWN)) {
+            logger.err("[FW] Update.begin failed: %s", Update.errorString());
+            return;
+        }
+        onOTAStart();
+    }
+
+    if (!Update.isRunning()) return;
+
+    if (Update.write(data, len) != len) {
+        logger.err("[FW] write failed: %s", Update.errorString());
+        Update.abort();
+        onOTAEnd(false);
+        return;
+    }
+    onOTAProgress(index + len, request->contentLength());
+
+    if (final) {
+        g_fw_upload_ok = Update.end(true);
+        if (!g_fw_upload_ok)
+            logger.err("[FW] Update.end failed: %s", Update.errorString());
+        logger.notice("[FW] upload done: %u bytes, ok=%d",
+                      (unsigned)(index + len), (int)g_fw_upload_ok);
+        onOTAEnd(g_fw_upload_ok);
+    }
+}
+
+static void handleFwUploadDone(AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *resp = request->beginResponse(
+        g_fw_upload_ok ? 200 : 500, "application/json; charset=utf-8",
+        g_fw_upload_ok ? "{\"status\":\"ok\",\"message\":\"rebooting\"}"
+                       : "{\"status\":\"failed\"}");
+    resp->addHeader("Connection", "close");
+    request->send(resp);
+
+    // ElegantOTA restarts from its own loop(); this path has to do it itself.
+    if (g_fw_upload_ok)
+        xTaskCreate(fw_restart_task, "fw_restart", 2048, nullptr, 1, nullptr);
+}
 
 // -------------------- H2 Zigbee handlers --------------------
 // Write actions go through h2_enqueue(): these run on the AsyncTCP task, and
@@ -2515,6 +2470,64 @@ static void handleH2Remove(AsyncWebServerRequest *request) {
     request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
 }
 
+/// Asks one device to report its attributes. The H2 ignores this for sleepy
+/// battery devices (pollDevice() bails on !canPoll), so it is safe to offer on
+/// every row -- it just does nothing there.
+static void handleH2Poll(AsyncWebServerRequest *request) {
+    if (!request->hasParam("addr", true)) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr missing\"}");
+        return;
+    }
+    long addr = request->getParam("addr", true)->value().toInt();
+    if (addr <= 0 || addr > 0xFFFF) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
+        return;
+    }
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "{\"cmd\":\"poll\",\"addr\":%ld}", addr);
+    if (!h2_enqueue(cmd)) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+}
+
+/// Switches a device on or off. The H2 uses the endpoint it stored for the
+/// device, so only the address is sent.
+static void handleH2Switch(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+
+    if (!request->hasParam("addr", true) || !request->hasParam("state", true)) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr or state missing\"}");
+        return;
+    }
+    long   addr  = request->getParam("addr", true)->value().toInt();
+    String state = request->getParam("state", true)->value();
+    if (addr <= 0 || addr > 0xFFFF) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
+        return;
+    }
+    if (state != "on" && state != "off" && state != "toggle") {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"state must be on, off or toggle\"}");
+        return;
+    }
+
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "{\"cmd\":\"%s\",\"addr\":%ld}", state.c_str(), addr);
+    if (!h2_enqueue(cmd)) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+}
+
 /// Opens the Zigbee network for joining. Authenticated: without it anyone on
 /// the LAN could attach a device to the network.
 static void handleH2Permit(AsyncWebServerRequest *request) {
@@ -2547,11 +2560,6 @@ static void handleH2OtaStatus(AsyncWebServerRequest *request)
              h2_ota_in_progress() ? "true" : "false",
              (unsigned)w, (unsigned)t);
     request->send(200, "application/json", buf);
-}
-
-static void handleH2OtaPage(AsyncWebServerRequest *request)
-{
-    request->send(200, "text/html", H2_OTA_HTML);
 }
 
 static void handleH2OtaUploadDone(AsyncWebServerRequest *request)
@@ -2635,11 +2643,13 @@ server.addHandler(&g_ws_telnet);
     server.on("/api/fw/status",       HTTP_GET,  handleApiFwStatus);
     server.on("/api/fw/check",        HTTP_POST, handleApiFwCheck);
     server.on("/api/fw/install",      HTTP_POST, handleApiFwInstall);
-    server.on("/h2ota",               HTTP_GET,  handleH2OtaPage);
+    server.on("/api/fw/upload",       HTTP_POST, handleFwUploadDone, handleFwUploadBody);
     server.on("/api/h2/devices",      HTTP_GET,  handleH2Devices);
     server.on("/api/h2/refresh",      HTTP_POST, handleH2Refresh);
     server.on("/api/h2/permit",       HTTP_POST, handleH2Permit);
     server.on("/api/h2/remove",       HTTP_POST, handleH2Remove);
+    server.on("/api/h2/switch",       HTTP_POST, handleH2Switch);
+    server.on("/api/h2/poll",         HTTP_POST, handleH2Poll);
     server.on("/api/h2/ota/status",   HTTP_GET,  handleH2OtaStatus);
     server.on("/api/h2/ota/upload",   HTTP_POST, handleH2OtaUploadDone, handleH2OtaUploadBody);
 

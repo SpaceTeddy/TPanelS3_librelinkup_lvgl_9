@@ -315,6 +315,25 @@ const char index_html[] PROGMEM = R"rawliteral(
     <div class="pill">Available: <span id="fwAvailable">--</span></div>
     <div class="pill">Status: <span id="fwStatus">--</span></div>
     <div class="pill">Error: <span id="fwError">--</span></div>
+
+    <h2 style="margin-top:1.5em;">Manual Firmware Upload</h2>
+    <p class="hint">Flash a compiled .bin straight to the S3. The device reboots into the
+       new image when the transfer completes.</p>
+    <div style="margin-bottom:12px;">
+        <input type="file" id="s3FwFile" accept=".bin" style="margin-bottom:10px;">
+        <div class="row">
+            <button type="button" id="s3FlashBtn" onclick="s3FlashStart()">Flash to S3</button>
+            <span id="s3StatusPill" class="pill" style="flex:1;text-align:center;">idle</span>
+        </div>
+    </div>
+    <div id="s3UploadWrap" style="display:none;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:3px;display:flex;justify-content:space-between;">
+            <span>Upload &amp; flash</span><span id="s3Pct">0%</span>
+        </div>
+        <div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden;">
+            <div id="s3Bar" style="width:0%;height:100%;background:#42a5f5;transition:width .3s;"></div>
+        </div>
+    </div>
 </div>
 
 <div class="container">
@@ -460,6 +479,7 @@ const char index_html[] PROGMEM = R"rawliteral(
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Motion</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Temp</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Battery</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Switch</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Seen</th>
           <th style="border-bottom:1px solid var(--border);"></th>
         </tr></thead>
@@ -493,6 +513,45 @@ const char index_html[] PROGMEM = R"rawliteral(
         refreshFirmwareUpdateStatus();
         setInterval(refreshFirmwareUpdateStatus, 15000);
     });
+
+    // --- S3 manual firmware upload --------------------------------------------
+    function s3SetStatus(t){ document.getElementById('s3StatusPill').textContent = t; }
+    function s3SetPct(p){
+        document.getElementById('s3UploadWrap').style.display = 'block';
+        document.getElementById('s3Bar').style.width = p + '%';
+        document.getElementById('s3Pct').textContent = p + '%';
+    }
+
+    function s3FlashStart(){
+        const f = document.getElementById('s3FwFile').files[0];
+        if(!f){ s3SetStatus('Please select a .bin file'); return; }
+        if(!confirm('Flash "' + f.name + '" to the S3?\n\nThe device reboots into the new '
+                  + 'image when the transfer completes. Do not power it off meanwhile.')) return;
+
+        document.getElementById('s3FlashBtn').disabled = true;
+        s3SetStatus('Uploading...');
+        const fd = new FormData();
+        fd.append('firmware', f);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/fw/upload');
+        xhr.upload.onprogress = e => { if(e.lengthComputable) s3SetPct(Math.round(e.loaded/e.total*100)); };
+        xhr.onload = () => {
+            s3SetPct(100);
+            if(xhr.status === 200){
+                s3SetStatus('Done - rebooting');
+            } else if(xhr.status === 401){
+                s3SetStatus('Login required');
+                document.getElementById('s3FlashBtn').disabled = false;
+            } else {
+                s3SetStatus('Failed: ' + xhr.status);
+                document.getElementById('s3FlashBtn').disabled = false;
+            }
+        };
+        // The device reboots as soon as it has answered, so a dropped connection
+        // right after a completed upload is the expected outcome, not an error.
+        xhr.onerror = () => { s3SetStatus('Connection closed - device rebooting?'); };
+        xhr.send(fd);
+    }
 
     // --- Zigbee devices -------------------------------------------------------
     function zbSay(msg, kind){
@@ -534,8 +593,20 @@ const char index_html[] PROGMEM = R"rawliteral(
                     zbCell(d.occ < 0 ? dim : (d.occ ? 'yes' : 'no')) +
                     zbCell(d.temp === null ? dim : d.temp.toFixed(1) + ' &deg;C') +
                     zbCell(d.bat  <  0    ? dim : d.bat + ' %') +
+                    // A device reporting occupancy is a sensor: the H2 mirrors its
+                    // motion state into "on" (coordinator_zigbee.cpp), so "on"
+                    // alone does not mean switchable.
+                    zbCell((d.on < 0 || d.occ >= 0) ? dim :
+                        '<button type="button" data-zbsw="' + d.addr + '" data-zbstate="on"'
+                      + ' style="padding:3px 10px;font-size:0.85em;margin-right:4px;'
+                      + (d.on ? 'border-color:var(--ok);color:var(--ok);font-weight:600;' : '') + '">On</button>'
+                      + '<button type="button" data-zbsw="' + d.addr + '" data-zbstate="off"'
+                      + ' style="padding:3px 10px;font-size:0.85em;'
+                      + (d.on ? '' : 'border-color:var(--bad);color:var(--bad);font-weight:600;') + '">Off</button>') +
                     zbCell('<span style="color:var(--muted);">' + zbAge(d.age_s) + '</span>') +
-                    zbCell('<button type="button" data-zbaddr="' + d.addr +
+                    zbCell('<button type="button" data-zbpoll="' + d.addr +
+                           '" style="padding:4px 10px;font-size:0.85em;margin-right:6px;">Poll</button>' +
+                           '<button type="button" data-zbaddr="' + d.addr +
                            '" data-zbname="' + (d.model || d.hex) +
                            '" style="padding:4px 10px;font-size:0.85em;">Remove</button>');
                 body.appendChild(tr);
@@ -576,6 +647,44 @@ const char index_html[] PROGMEM = R"rawliteral(
         const body = document.getElementById('zbRows');
         if(!body) return;
         body.addEventListener('click', async (ev) => {
+            const sw = ev.target.closest('button[data-zbsw]');
+            if(sw){
+                const addr = sw.dataset.zbsw, state = sw.dataset.zbstate;
+                sw.disabled = true;
+                const r = await zbPost('/api/h2/switch', 'addr=' + addr + '&state=' + state);
+                sw.disabled = false;
+                if(r.status === 401){ zbSay('login required','bad'); return; }
+                if(!r.ok){ zbSay('switch rejected','bad'); return; }
+                // The H2 does not track the commanded state -- only an attribute
+                // report does. Poll the device so the list shows reality.
+                zbSay('switched ' + state, 'ok');
+                // The S3 registry only learns from list/join replies, so ask for
+                // one. The H2 tracks the commanded state itself since 1.0.40, so
+                // this already shows the new value.
+                setTimeout(async () => {
+                    await zbPost('/api/h2/refresh');
+                    setTimeout(zbLoad, 800);
+                }, 400);
+                // Second pass: poll the device and read back what it really is,
+                // in case the command never reached it.
+                setTimeout(async () => {
+                    await zbPost('/api/h2/poll', 'addr=' + addr);
+                    setTimeout(async () => { await zbPost('/api/h2/refresh');
+                                             setTimeout(zbLoad, 800); }, 1200);
+                }, 2500);
+                return;
+            }
+            const poll = ev.target.closest('button[data-zbpoll]');
+            if(poll){
+                poll.disabled = true;
+                const r = await zbPost('/api/h2/poll', 'addr=' + poll.dataset.zbpoll);
+                poll.disabled = false;
+                zbSay(r.ok ? 'poll sent - battery devices sleep through it and stay unchanged'
+                           : 'poll rejected', r.ok ? 'ok' : 'bad');
+                setTimeout(async () => { await zbPost('/api/h2/refresh');
+                                         setTimeout(zbLoad, 800); }, 1500);
+                return;
+            }
             const btn = ev.target.closest('button[data-zbaddr]');
             if(!btn) return;
             const name = btn.dataset.zbname, addr = btn.dataset.zbaddr;
