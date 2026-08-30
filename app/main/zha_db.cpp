@@ -74,6 +74,7 @@ static void listFilesystem()
     }
     if (empty)
         logger.notice(F("[ZHA]   (empty) -- run: pio run -t uploadfs"));
+    logger.notice(F("[ZHA] use the 'ls' console command for the full tree"));
     root.close();
 }
 

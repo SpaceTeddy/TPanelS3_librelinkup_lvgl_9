@@ -271,6 +271,80 @@ void espResetCommand(uuid::console::Shell &shell, const std::vector<std::string>
  * Prints basic device status, including free heap.
  */
 /**
+ * @brief Recursive worker for `ls`. Depth-limited because LittleFS reports a
+ *        directory that contains itself as a valid tree, and a malformed image
+ *        would otherwise hang the shell rather than report the problem.
+ */
+static void lsWalk(uuid::console::Shell &shell, const char *path, uint8_t depth,
+                   uint32_t &files, uint32_t &bytes)
+{
+    if (depth > 4) {
+        shell.printfln(F("  %s ... (nesting too deep, stopping)"), path);
+        return;
+    }
+
+    File dir = LittleFS.open(path);
+    if (!dir) {
+        shell.printfln(F("cannot open %s"), path);
+        return;
+    }
+    if (!dir.isDirectory()) {
+        shell.printfln(F("%9u  %s"), (unsigned)dir.size(), path);
+        files++;
+        bytes += dir.size();
+        dir.close();
+        return;
+    }
+
+    for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+        // name() is relative on some cores and absolute on others; build the
+        // path ourselves so the recursion cannot walk into the wrong place.
+        String child = String(path);
+        if (!child.endsWith("/")) child += "/";
+        const char *base = strrchr(f.name(), '/');
+        child += base ? base + 1 : f.name();
+
+        if (f.isDirectory()) {
+            shell.printfln(F("     <dir>  %s/"), child.c_str());
+            f.close();
+            lsWalk(shell, child.c_str(), depth + 1, files, bytes);
+        } else {
+            shell.printfln(F("%9u  %s"), (unsigned)f.size(), child.c_str());
+            files++;
+            bytes += f.size();
+            f.close();
+        }
+    }
+    dir.close();
+}
+
+/**
+ * @brief Handler for command: `ls [path]`
+ *
+ * Lists LittleFS recursively with sizes, and the filesystem's own used and
+ * total figures. Answers the question a failed upload otherwise leaves open:
+ * whether a file is absent, truncated, or simply under a different name.
+ */
+void lsCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
+    const char *path = arguments.empty() ? "/" : arguments[0].c_str();
+
+    uint32_t total = LittleFS.totalBytes();
+    uint32_t used  = LittleFS.usedBytes();
+    if (total == 0) {
+        shell.printfln(F("LittleFS reports zero capacity -- not mounted"));
+        return;
+    }
+
+    uint32_t files = 0, bytes = 0;
+    lsWalk(shell, path, 0, files, bytes);
+
+    shell.printfln(F("---"));
+    shell.printfln(F("%u file(s), %u B listed"), (unsigned)files, (unsigned)bytes);
+    shell.printfln(F("filesystem: %u of %u B used (%u B free)"),
+                   (unsigned)used, (unsigned)total, (unsigned)(total - used));
+}
+
+/**
  * @brief Handler for command: `zha_db [manufacturer] [model]`
  *
  * With no arguments, reports whether the ZHA device database mounted. With a
@@ -1527,7 +1601,14 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("exit")}, exitCommand);
     commands->add_command(uuid::flash_string_vector{F("reboot")}, espResetCommand);
     commands->add_command(uuid::flash_string_vector{F("esp_status")}, espStatusCommand);
-    commands->add_command(uuid::flash_string_vector{F("zha_db")}, zhaDbCommand);
+    // Arguments beginning with '<' are required, anything else optional, so
+    // both of these accept being called bare.
+    commands->add_command(uuid::flash_string_vector{F("zha_db")},
+        uuid::flash_string_vector{F("[manufacturerName]"), F("[modelId]")},
+        zhaDbCommand);
+    commands->add_command(uuid::flash_string_vector{F("ls")},
+        uuid::flash_string_vector{F("[path]")},
+        lsCommand);
     commands->add_command(uuid::flash_string_vector{F("ping")}, PingCommand);
     commands->add_command(uuid::flash_string_vector{F("create_json_week_files")}, create_json_week_files_Command);
     commands->add_command(uuid::flash_string_vector{F("add_glucosevalue_to_json")}, addGlucoseValueToJsonCommand);
