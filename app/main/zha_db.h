@@ -39,3 +39,8 @@ uint32_t zha_db_count();
 /// Must be called from the task that owns the UART -- the same rule h2_send()
 /// follows.
 void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model);
+
+/// Resolves a device and returns its profile record as text, without touching
+/// the UART. Safe from any task -- use this for diagnostics rather than
+/// zha_db_answer(), which writes the link. Returns false if nothing matched.
+bool zha_db_probe(const char *manufacturer, const char *model, String &out);

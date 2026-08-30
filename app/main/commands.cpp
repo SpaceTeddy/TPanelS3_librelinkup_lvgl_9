@@ -12,6 +12,7 @@
  * @ingroup console_commands
  */
 
+#include "zha_db.h"
 #include "main.h"
 #include "commands.h"
 #include "settings.h"
@@ -269,6 +270,39 @@ void espResetCommand(uuid::console::Shell &shell, const std::vector<std::string>
  *
  * Prints basic device status, including free heap.
  */
+/**
+ * @brief Handler for command: `zha_db [manufacturer] [model]`
+ *
+ * With no arguments, reports whether the ZHA device database mounted. With a
+ * manufacturer and model, resolves that pair and prints the profile the H2
+ * would receive -- which answers "is the database the problem or is it the
+ * link?" without needing a device to join.
+ */
+void zhaDbCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
+    if (!zha_db_available()) {
+        shell.printfln(F("ZHA database: NOT loaded -- check that data/zha_idx.bin "
+                         "and data/zha_db.bin were uploaded (pio run -t uploadfs)"));
+        return;
+    }
+
+    shell.printfln(F("ZHA database: %u devices"), (unsigned)zha_db_count());
+
+    if (arguments.size() >= 2) {
+        // Probe, not answer: the console runs on its own task and must not
+        // write the coordinator UART.
+        String record;
+        if (zha_db_probe(arguments[0].c_str(), arguments[1].c_str(), record)) {
+            shell.printfln(F("match (%u B): %s"), (unsigned)record.length(),
+                           record.c_str());
+        } else {
+            shell.printfln(F("no entry for %s / %s"),
+                           arguments[0].c_str(), arguments[1].c_str());
+        }
+    } else {
+        shell.printfln(F("usage: zha_db <manufacturerName> <modelId>  to test a lookup"));
+    }
+}
+
 void espStatusCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
     esp_status();
     //shell.printfln(F("ESP status: WiFi connected, free heap: %d"), ESP.getFreeHeap());
@@ -1493,6 +1527,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("exit")}, exitCommand);
     commands->add_command(uuid::flash_string_vector{F("reboot")}, espResetCommand);
     commands->add_command(uuid::flash_string_vector{F("esp_status")}, espStatusCommand);
+    commands->add_command(uuid::flash_string_vector{F("zha_db")}, zhaDbCommand);
     commands->add_command(uuid::flash_string_vector{F("ping")}, PingCommand);
     commands->add_command(uuid::flash_string_vector{F("create_json_week_files")}, create_json_week_files_Command);
     commands->add_command(uuid::flash_string_vector{F("add_glucosevalue_to_json")}, addGlucoseValueToJsonCommand);

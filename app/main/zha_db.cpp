@@ -60,8 +60,8 @@ bool zha_db_begin()
 
     File idx = LittleFS.open(kIndexPath, "r");
     if (!idx) {
-        logger.info(F("[ZHA] no device database at %s -- the H2 will use its "
-                      "built-in heuristics"), kIndexPath);
+        logger.notice(F("[ZHA] no device database at %s -- the H2 will use its "
+                        "built-in heuristics"), kIndexPath);
         return false;
     }
 
@@ -110,8 +110,8 @@ bool zha_db_begin()
     db.close();
 
     g_available = true;
-    logger.info(F("[ZHA] device database ready: %u devices, %u B"),
-                (unsigned)g_count, (unsigned)g_dbLength);
+    logger.notice(F("[ZHA] device database ready: %u devices, %u B"),
+                  (unsigned)g_count, (unsigned)g_dbLength);
     return true;
 }
 
@@ -175,6 +175,60 @@ static bool streamRecord(File &db, uint32_t offset, uint32_t length)
     return true;
 }
 
+/// Resolves a device to a record, trying the exact pair first and then the
+/// wildcard forms a quirk may have registered when it matches on only one half
+/// of the key. Leaves both files open on success so the caller can read on.
+static bool resolve(File &idx, File &db, const char *manufacturer,
+                    const char *model, uint32_t &offset, uint32_t &length)
+{
+    const char *keys[3][2] = {
+        { manufacturer, model },
+        { "",           model },
+        { manufacturer, ""    },
+    };
+
+    for (auto &k : keys) {
+        if (!findEntry(idx, fnv1a64(k[0], k[1]), offset, length)) continue;
+        if (offset + length > g_dbLength) continue;
+        if (!recordMatches(db, offset, length, k[0], k[1])) continue;
+        return true;
+    }
+    return false;
+}
+
+bool zha_db_probe(const char *manufacturer, const char *model, String &out)
+{
+    out = "";
+    if (!g_available) return false;
+    if (manufacturer == nullptr) manufacturer = "";
+    if (model == nullptr) model = "";
+
+    File idx = LittleFS.open(kIndexPath, "r");
+    File db  = LittleFS.open(kDbPath, "r");
+    if (!idx || !db) {
+        if (idx) idx.close();
+        if (db) db.close();
+        return false;
+    }
+
+    uint32_t offset = 0, length = 0;
+    bool found = resolve(idx, db, manufacturer, model, offset, length);
+    if (found && db.seek(offset)) {
+        out.reserve(length + 1);
+        for (uint32_t i = 0; i < length; i++) {
+            int c = db.read();
+            if (c < 0) { found = false; break; }
+            out += (char)c;
+        }
+    } else {
+        found = false;
+    }
+
+    idx.close();
+    db.close();
+    return found;
+}
+
 void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model)
 {
     if (manufacturer == nullptr) manufacturer = "";
@@ -184,20 +238,8 @@ void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model)
         File idx = LittleFS.open(kIndexPath, "r");
         File db  = LittleFS.open(kDbPath, "r");
         if (idx && db) {
-            // Exact pair first, then the wildcard forms a quirk may have
-            // registered when it matches on only one half of the key.
-            const char *keys[3][2] = {
-                { manufacturer, model },
-                { "",           model },
-                { manufacturer, ""    },
-            };
-
-            for (auto &k : keys) {
-                uint32_t offset = 0, length = 0;
-                if (!findEntry(idx, fnv1a64(k[0], k[1]), offset, length)) continue;
-                if (offset + length > g_dbLength) continue;
-                if (!recordMatches(db, offset, length, k[0], k[1])) continue;
-
+            uint32_t offset = 0, length = 0;
+            if (resolve(idx, db, manufacturer, model, offset, length)) {
                 SerialPort.printf("{\"cmd\":\"profile\",\"rid\":%lu,\"found\":true,\"p\":",
                                   (unsigned long)rid);
                 bool ok = streamRecord(db, offset, length);
@@ -206,8 +248,8 @@ void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model)
                 db.close();
 
                 if (ok) {
-                    logger.info(F("[ZHA] %s/%s -> profile (%u B)"),
-                                manufacturer, model, (unsigned)length);
+                    logger.notice(F("[ZHA] %s/%s -> profile (%u B)"),
+                                  manufacturer, model, (unsigned)length);
                 } else {
                     // The line already went out truncated; the H2 will fail to
                     // parse it and fall back after its retries.
@@ -223,6 +265,6 @@ void zha_db_answer(uint32_t rid, const char *manufacturer, const char *model)
 
     SerialPort.printf("{\"cmd\":\"profile\",\"rid\":%lu,\"found\":false}\n",
                       (unsigned long)rid);
-    logger.info(F("[ZHA] %s/%s not in database -- H2 falls back to heuristics"),
-                manufacturer, model);
+    logger.notice(F("[ZHA] %s/%s not in database -- H2 falls back to heuristics"),
+                  manufacturer, model);
 }
