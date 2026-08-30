@@ -2426,8 +2426,50 @@ static void handleH2Devices(AsyncWebServerRequest *request) {
     request->send(200, "application/json; charset=utf-8", body);
 }
 
+static void handleH2Status(AsyncWebServerRequest *request) {
+    String body; h2_status_json(body);
+    request->send(200, "application/json; charset=utf-8", body);
+}
+
+static void handleH2ScanResult(AsyncWebServerRequest *request) {
+    String body; h2_scan_json(body);
+    request->send(200, "application/json; charset=utf-8", body);
+}
+
+/// Starts a network scan. Authenticated: it occupies the radio for several
+/// seconds, during which the coordinator does not serve its devices.
+static void handleH2ScanStart(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+    long dur = 3;
+    if (request->hasParam("dur", true)) dur = request->getParam("dur", true)->value().toInt();
+    if (dur < 1) dur = 1;
+    if (dur > 5) dur = 5;
+    char cmd[48];
+    snprintf(cmd, sizeof(cmd), "{\"cmd\":\"scan\",\"dur\":%ld}", dur);
+    if (!h2_enqueue(cmd)) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8",
+                  String("{\"status\":\"accepted\",\"dur\":") + dur + "}");
+}
+
+/// Reboots the coordinator. Authenticated -- it takes the Zigbee network down
+/// for a few seconds.
+static void handleH2Reboot(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+    if (!h2_enqueue("{\"cmd\":\"reboot\"}")) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+}
+
 /// Asks the H2 to re-send its device list; the reply refills the registry.
 static void handleH2Refresh(AsyncWebServerRequest *request) {
+    h2_enqueue("{\"cmd\":\"status\"}");
     if (!h2_enqueue("{\"cmd\":\"list\"}")) {
         request->send(503, "application/json; charset=utf-8",
                       "{\"status\":\"rejected\",\"message\":\"queue full\"}");
@@ -2645,6 +2687,10 @@ server.addHandler(&g_ws_telnet);
     server.on("/api/fw/install",      HTTP_POST, handleApiFwInstall);
     server.on("/api/fw/upload",       HTTP_POST, handleFwUploadDone, handleFwUploadBody);
     server.on("/api/h2/devices",      HTTP_GET,  handleH2Devices);
+    server.on("/api/h2/status",       HTTP_GET,  handleH2Status);
+    server.on("/api/h2/scan",         HTTP_GET,  handleH2ScanResult);
+    server.on("/api/h2/scan",         HTTP_POST, handleH2ScanStart);
+    server.on("/api/h2/reboot",       HTTP_POST, handleH2Reboot);
     server.on("/api/h2/refresh",      HTTP_POST, handleH2Refresh);
     server.on("/api/h2/permit",       HTTP_POST, handleH2Permit);
     server.on("/api/h2/remove",       HTTP_POST, handleH2Remove);

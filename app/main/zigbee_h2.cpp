@@ -55,6 +55,23 @@ static SemaphoreHandle_t g_h2_dev_lock = nullptr;
 struct H2Cmd { char buf[160]; };
 static QueueHandle_t   g_h2_cmd_queue = nullptr;
 
+// Last coordinator snapshot and scan result, both guarded by g_h2_dev_lock.
+struct H2Status {
+    int      ch = -1;
+    unsigned pan = 0;
+    char     epid[26] = "";
+    char     role[16] = "";
+    bool     joined = false;
+    int      tx_dbm = 0;
+    int      devices = -1;
+    unsigned heap = 0;
+    unsigned uptime_s = 0;
+    uint32_t received_ms = 0;
+};
+static H2Status g_h2_status;
+static String   g_h2_scan_nets = "[]";
+static uint32_t g_h2_scan_ms   = 0;
+
 /// Copies only when there is something to copy: partial updates (a motion or
 /// sensor message carries no model or vendor) must not erase what a list reply
 /// already established.
@@ -161,6 +178,44 @@ size_t h2_devices_count()
     return n;
 }
 
+void h2_status_json(String &out)
+{
+    if (g_h2_dev_lock == nullptr ||
+        xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(200)) != pdTRUE) {
+        out = "{\"valid\":false}";
+        return;
+    }
+    char buf[420];
+    const bool valid = (g_h2_status.received_ms != 0);
+    snprintf(buf, sizeof(buf),
+             "{\"valid\":%s,\"ch\":%d,\"pan\":\"0x%04X\",\"epid\":\"%s\",\"role\":\"%s\","
+             "\"joined\":%s,\"tx_dbm\":%d,\"devices\":%d,\"heap\":%u,\"uptime_s\":%u,"
+             "\"age_s\":%u}",
+             valid ? "true" : "false", g_h2_status.ch, g_h2_status.pan,
+             g_h2_status.epid, g_h2_status.role,
+             g_h2_status.joined ? "true" : "false", g_h2_status.tx_dbm,
+             g_h2_status.devices, g_h2_status.heap, g_h2_status.uptime_s,
+             valid ? (unsigned)((millis() - g_h2_status.received_ms) / 1000UL) : 0u);
+    xSemaphoreGive(g_h2_dev_lock);
+    out = buf;
+}
+
+void h2_scan_json(String &out)
+{
+    if (g_h2_dev_lock == nullptr ||
+        xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(200)) != pdTRUE) {
+        out = "{\"age_s\":-1,\"nets\":[]}";
+        return;
+    }
+    out  = "{\"age_s\":";
+    out += (g_h2_scan_ms == 0) ? String(-1)
+                               : String((unsigned)((millis() - g_h2_scan_ms) / 1000UL));
+    out += ",\"nets\":";
+    out += g_h2_scan_nets;
+    out += "}";
+    xSemaphoreGive(g_h2_dev_lock);
+}
+
 bool h2_dev_forget(uint16_t addr)
 {
     if (g_h2_dev_lock == nullptr) return false;
@@ -201,6 +256,7 @@ void setup_UART_IPC()
     h2_send("{\"cmd\":\"version\"}");
     h2_send("{\"cmd\":\"chipinfo\"}");
     h2_send("{\"cmd\":\"list\"}");
+    h2_send("{\"cmd\":\"status\"}");
 }
 
 void h2_send(const char *cmd)
@@ -325,6 +381,21 @@ static void h2_handle_message(const String &line)
             doc["devices"]     | -1,
             (unsigned)(doc["heap"]     | 0),
             (unsigned)(doc["uptime_s"] | 0));
+
+        if (g_h2_dev_lock != nullptr &&
+            xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(50)) == pdTRUE) {
+            g_h2_status.ch       = doc["ch"]   | -1;
+            g_h2_status.pan      = (unsigned)(doc["pan"] | 0);
+            h2_copy_field(g_h2_status.epid, sizeof(g_h2_status.epid), doc["epid"] | "");
+            h2_copy_field(g_h2_status.role, sizeof(g_h2_status.role), doc["role"] | "");
+            g_h2_status.joined   = doc["joined"] | false;
+            g_h2_status.tx_dbm   = doc["tx_dbm"] | 0;
+            g_h2_status.devices  = doc["devices"] | -1;
+            g_h2_status.heap     = (unsigned)(doc["heap"]     | 0);
+            g_h2_status.uptime_s = (unsigned)(doc["uptime_s"] | 0);
+            g_h2_status.received_ms = millis();
+            xSemaphoreGive(g_h2_dev_lock);
+        }
     }
     else if (strcmp(type, "scan") == 0)
     {
@@ -332,6 +403,16 @@ static void h2_handle_message(const String &line)
         if (!doc["nets"].isNull()) count = doc["nets"].size();
         else if (!doc["networks"].isNull()) count = doc["networks"].size();
         logger.debug("[H2] scan: %d networks found", (int)count);
+
+        JsonVariant nets = doc["nets"].isNull() ? doc["networks"] : doc["nets"];
+        String serialised = "[]";
+        if (!nets.isNull()) serializeJson(nets, serialised);
+        if (g_h2_dev_lock != nullptr &&
+            xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(50)) == pdTRUE) {
+            g_h2_scan_nets = serialised;
+            g_h2_scan_ms   = millis();
+            xSemaphoreGive(g_h2_dev_lock);
+        }
     }
     else if (strcmp(type, "channel") == 0)
     {

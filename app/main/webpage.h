@@ -241,6 +241,24 @@ const char index_html[] PROGMEM = R"rawliteral(
 </div>
 
 <div class="container">
+    <h2>Brightness &amp; Display</h2>
+    <div class="brightness-container">
+        <div class="brightness-label">Brightness: <span id="brightnessValue">50</span></div>
+        <input type="range" id="brightnessSlider" min="0" max="255" value="50" oninput="updateBrightness(this.value)">
+    </div>
+    <div style="margin-top:14px;">
+        <div class="brightness-label">Dim timeout: <span id="dimTimeoutDisplay">--</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+            <input type="number" id="dimTimeoutInput" min="0" max="3600" step="30" value="300"
+                   style="width:90px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);">
+            <span style="color:var(--muted);font-size:0.9em;">seconds &nbsp;(0 = disabled)</span>
+            <button type="button" onclick="saveDimTimeout()">Apply</button>
+            <span id="dimTimeoutStatus" style="color:var(--muted);font-size:0.9em;"></span>
+        </div>
+    </div>
+</div>
+
+<div class="container">
     <h2>WiFi Networks</h2>
     <p>Up to 5 networks. The device tries all of them on connect.</p>
 
@@ -265,23 +283,79 @@ const char index_html[] PROGMEM = R"rawliteral(
 </div>
 
 <div class="container">
-    <h2>Brightness &amp; Display</h2>
-    <div class="brightness-container">
-        <div class="brightness-label">Brightness: <span id="brightnessValue">50</span></div>
-        <input type="range" id="brightnessSlider" min="0" max="255" value="50" oninput="updateBrightness(this.value)">
+    <h2>MQTT Configuration</h2>
+    <div class="switch-container">
+        <span class="switch-label">MQTT <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enable general MQTT functionality)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="mqttToggle" onchange="toggleFeature('mqtt_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
     </div>
-    <div style="margin-top:14px;">
-        <div class="brightness-label">Dim timeout: <span id="dimTimeoutDisplay">--</span></div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
-            <input type="number" id="dimTimeoutInput" min="0" max="3600" step="30" value="300"
-                   style="width:90px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);">
-            <span style="color:var(--muted);font-size:0.9em;">seconds &nbsp;(0 = disabled)</span>
-            <button type="button" onclick="saveDimTimeout()">Apply</button>
-            <span id="dimTimeoutStatus" style="color:var(--muted);font-size:0.9em;"></span>
-        </div>
+    <div class="switch-container">
+        <span class="switch-label">MQTT Master Mode <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enabled: ESP32 fetches LibreLinkUp data and publishes to MQTT; disabled: LLU data is provided by external source)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="mqttMasterToggle" onchange="toggleFeature('mqtt_master_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
     </div>
+    <div class="switch-container">
+        <span class="switch-label">Home Assistant Discovery <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(ESP32 device is announced to Home Assistant via MQTT Auto-Discovery)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="haDiscoveryToggle" onchange="toggleFeature('ha_discovery', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <form id="mqttForm">
+        <label for="mqttServer">Server Address:</label>
+        <input type="text" id="mqttServer" name="mqttServer">
+
+        <label for="mqttPort">Port:</label>
+        <input type="number" id="mqttPort" name="mqttPort" min="1" max="65535">
+
+        <label for="mqttUsername">Username:</label>
+        <input type="text" id="mqttUsername" name="mqttUsername">
+
+        <label for="mqttPassword">Password:</label>
+        <input type="password" id="mqttPassword" name="mqttPassword">
+
+        <button type="button" onclick="configureMQTT()">Save MQTT Config</button>
+    </form>
 </div>
 
+<div class="container">
+    <h2>WireGuard Configuration</h2>
+    <div class="switch-container">
+        <span class="switch-label">WireGuard</span>
+        <label class="switch">
+            <input type="checkbox" id="wireguardToggle" onchange="toggleFeature('wg_mode', this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
+    <form id="wireguardForm">
+        <label for="wgPrivateKey">Private Key:</label>
+        <input type="text" id="wgPrivateKey" name="wgPrivateKey">
+
+        <label for="wgPublicKey">Public Key:</label>
+        <input type="text" id="wgPublicKey" name="wgPublicKey">
+
+        <label for="wgPresharedKey">Preshared Key:</label>
+        <input type="text" id="wgPresharedKey" name="wgPresharedKey">
+
+        <label for="wgIpAddress">IP Address:</label>
+        <input type="text" id="wgIpAddress" name="wgIpAddress">
+
+        <label for="wgEndpoint">Endpoint:</label>
+        <input type="text" id="wgEndpoint" name="wgEndpoint">
+
+        <label for="wgEndpointPort">Endpoint Port:</label>
+        <input type="number" id="wgEndpointPort" name="wgEndpointPort" min="1" max="65535">
+
+        <label for="wgAllowedIPs">Allowed IPs:</label>
+        <input type="text" id="wgAllowedIPs" name="wgAllowedIPs">
+
+        <button type="button" onclick="configureWireGuard()">Save WireGuard Config</button>
+    </form>
+</div>
 <div class="container">
     <h2>Firmware Update</h2>
     <div class="switch-container">
@@ -368,95 +442,18 @@ const char index_html[] PROGMEM = R"rawliteral(
 </div>
 
 <div class="container">
-    <h2>WireGuard Configuration</h2>
-    <div class="switch-container">
-        <span class="switch-label">WireGuard</span>
-        <label class="switch">
-            <input type="checkbox" id="wireguardToggle" onchange="toggleFeature('wg_mode', this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
-    <form id="wireguardForm">
-        <label for="wgPrivateKey">Private Key:</label>
-        <input type="text" id="wgPrivateKey" name="wgPrivateKey">
-
-        <label for="wgPublicKey">Public Key:</label>
-        <input type="text" id="wgPublicKey" name="wgPublicKey">
-
-        <label for="wgPresharedKey">Preshared Key:</label>
-        <input type="text" id="wgPresharedKey" name="wgPresharedKey">
-
-        <label for="wgIpAddress">IP Address:</label>
-        <input type="text" id="wgIpAddress" name="wgIpAddress">
-
-        <label for="wgEndpoint">Endpoint:</label>
-        <input type="text" id="wgEndpoint" name="wgEndpoint">
-
-        <label for="wgEndpointPort">Endpoint Port:</label>
-        <input type="number" id="wgEndpointPort" name="wgEndpointPort" min="1" max="65535">
-
-        <label for="wgAllowedIPs">Allowed IPs:</label>
-        <input type="text" id="wgAllowedIPs" name="wgAllowedIPs">
-
-        <button type="button" onclick="configureWireGuard()">Save WireGuard Config</button>
-    </form>
-</div>
-
-<div class="container">
-    <h2>MQTT Configuration</h2>
-    <div class="switch-container">
-        <span class="switch-label">MQTT <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enable general MQTT functionality)</span></span>
-        <label class="switch">
-            <input type="checkbox" id="mqttToggle" onchange="toggleFeature('mqtt_mode', this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
-    <div class="switch-container">
-        <span class="switch-label">MQTT Master Mode <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(enabled: ESP32 fetches LibreLinkUp data and publishes to MQTT; disabled: LLU data is provided by external source)</span></span>
-        <label class="switch">
-            <input type="checkbox" id="mqttMasterToggle" onchange="toggleFeature('mqtt_master_mode', this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
-    <div class="switch-container">
-        <span class="switch-label">Home Assistant Discovery <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(ESP32 device is announced to Home Assistant via MQTT Auto-Discovery)</span></span>
-        <label class="switch">
-            <input type="checkbox" id="haDiscoveryToggle" onchange="toggleFeature('ha_discovery', this.checked)">
-            <span class="slider"></span>
-        </label>
-    </div>
-    <form id="mqttForm">
-        <label for="mqttServer">Server Address:</label>
-        <input type="text" id="mqttServer" name="mqttServer">
-
-        <label for="mqttPort">Port:</label>
-        <input type="number" id="mqttPort" name="mqttPort" min="1" max="65535">
-
-        <label for="mqttUsername">Username:</label>
-        <input type="text" id="mqttUsername" name="mqttUsername">
-
-        <label for="mqttPassword">Password:</label>
-        <input type="password" id="mqttPassword" name="mqttPassword">
-
-        <button type="button" onclick="configureMQTT()">Save MQTT Config</button>
-    </form>
-</div>
-
-<div class="container">
-    <h2>Backup</h2>
-    <p style="color:var(--muted);font-size:0.9em;">Downloads all settings (WiFi, LibreLinkUp, MQTT, WireGuard) as a JSON file, including passwords/keys — store it somewhere safe.</p>
-    <button type="button" id="btnBackup" onclick="downloadConfigBackup()">Download Config Backup</button>
-
-    <h2 style="margin-top:1.5em;">Restore</h2>
-    <p style="color:var(--muted);font-size:0.9em;">Loads a previously downloaded backup file and overwrites all current settings. The device reboots automatically afterwards.</p>
-    <input type="file" id="restoreFile" accept="application/json,.json">
-    <button type="button" id="btnRestore" onclick="restoreConfigBackup()">Restore from File</button>
-</div>
-
-<div class="container">
     <h2>Zigbee Devices</h2>
     <p style="color:var(--muted);font-size:0.9em;">Devices paired to the ESP32-H2. The list is
        kept by the S3 and filled from the H2's list, join and sensor messages.</p>
+
+    <div style="margin-bottom:12px;">
+        <span class="pill">Channel: <span id="zbCh">--</span></span>
+        <span class="pill">PAN: <span id="zbPan">--</span></span>
+        <span class="pill">Role: <span id="zbRole">--</span></span>
+        <span class="pill">Devices: <span id="zbCount">--</span></span>
+        <span class="pill">H2 heap: <span id="zbHeap">--</span></span>
+        <span class="pill">H2 uptime: <span id="zbUp">--</span></span>
+    </div>
 
     <div class="row" style="margin-bottom:12px;">
         <input type="number" id="zbSeconds" min="0" max="254" value="120"
@@ -465,6 +462,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         <button type="button" onclick="zbPermit()">Open Pairing</button>
         <button type="button" onclick="zbPermitClose()">Close Pairing</button>
         <button type="button" onclick="zbRefresh()">Reload List</button>
+        <button type="button" onclick="zbScan()">Scan Networks</button>
         <span id="zbStatus" style="color:var(--muted);font-size:0.9em;"></span>
     </div>
 
@@ -488,6 +486,36 @@ const char index_html[] PROGMEM = R"rawliteral(
     </div>
     <p id="zbEmpty" style="color:var(--muted);font-size:0.9em;margin-top:10px;">
        No devices yet. "Reload List" queries the H2.</p>
+
+    <h2 style="margin-top:1.5em;">Visible Zigbee Networks</h2>
+    <p style="color:var(--muted);font-size:0.9em;">Which Zigbee networks the coordinator can
+       see and on which channel. This finds crowded channels caused by other Zigbee networks
+       - it does not show WiFi interference, which shares the same 2.4 GHz band.</p>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:0.9em;">
+        <thead><tr>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Channel</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">PAN</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Extended PAN</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Joinable</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Capacity</th>
+        </tr></thead>
+        <tbody id="zbNets"></tbody>
+      </table>
+    </div>
+    <p id="zbNetsEmpty" style="color:var(--muted);font-size:0.9em;margin-top:10px;">
+       No scan yet.</p>
+</div>
+
+<div class="container">
+    <h2>Backup</h2>
+    <p style="color:var(--muted);font-size:0.9em;">Downloads all settings (WiFi, LibreLinkUp, MQTT, WireGuard) as a JSON file, including passwords/keys — store it somewhere safe.</p>
+    <button type="button" id="btnBackup" onclick="downloadConfigBackup()">Download Config Backup</button>
+
+    <h2 style="margin-top:1.5em;">Restore</h2>
+    <p style="color:var(--muted);font-size:0.9em;">Loads a previously downloaded backup file and overwrites all current settings. The device reboots automatically afterwards.</p>
+    <input type="file" id="restoreFile" accept="application/json,.json">
+    <button type="button" id="btnRestore" onclick="restoreConfigBackup()">Restore from File</button>
 </div>
 
 </div>
@@ -614,6 +642,55 @@ const char index_html[] PROGMEM = R"rawliteral(
         }catch(e){ zbSay('device list unreachable','bad'); }
     }
 
+    function zbUptime(s){
+        if(s < 3600)  return Math.floor(s/60) + ' min';
+        if(s < 86400) return Math.floor(s/3600) + ' h';
+        return Math.floor(s/86400) + ' d';
+    }
+
+    async function zbLoadStatus(){
+        try{
+            const d = await (await fetch('/api/h2/status')).json();
+            const set = (id,v) => { const e=document.getElementById(id); if(e) e.textContent = v; };
+            if(!d.valid){ set('zbCh','--'); set('zbPan','--'); set('zbRole','--');
+                          set('zbCount','--'); set('zbHeap','--'); set('zbUp','--'); return; }
+            set('zbCh', d.ch < 0 ? '--' : d.ch);
+            set('zbPan', d.pan);
+            set('zbRole', d.role || '--');
+            set('zbCount', d.devices < 0 ? '--' : d.devices);
+            set('zbHeap', Math.round(d.heap/1024) + ' kB');
+            set('zbUp', zbUptime(d.uptime_s));
+        }catch(e){}
+    }
+
+    async function zbLoadNets(){
+        const body = document.getElementById('zbNets');
+        if(!body) return;
+        try{
+            const d = await (await fetch('/api/h2/scan')).json();
+            body.innerHTML = '';
+            document.getElementById('zbNetsEmpty').style.display = d.nets.length ? 'none' : 'block';
+            for(const n of d.nets){
+                const tr = document.createElement('tr');
+                tr.innerHTML =
+                    zbCell(n.ch) + zbCell('0x' + (n.pan||0).toString(16).toUpperCase().padStart(4,'0')) +
+                    zbCell('<span style="color:var(--muted);">' + (n.epid||'-') + '</span>') +
+                    zbCell(n.join ? '<span style="color:var(--ok);">yes</span>' : 'no') +
+                    zbCell('<span style="color:var(--muted);">router ' + (n.router?'y':'n') +
+                           ', end device ' + (n.ed?'y':'n') + '</span>');
+                body.appendChild(tr);
+            }
+        }catch(e){}
+    }
+
+    async function zbScan(){
+        const r = await zbPost('/api/h2/scan', 'dur=3');
+        if(r.status === 401){ zbSay('login required','bad'); return; }
+        zbSay(r.ok ? 'scanning - the radio is busy for a few seconds' : 'scan rejected',
+              r.ok ? 'ok' : 'bad');
+        if(r.ok) setTimeout(zbLoadNets, 6000);
+    }
+
     async function zbPost(url, body){
         const res = await fetch(url, {method:'POST',
             headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body || ''});
@@ -699,8 +776,19 @@ const char index_html[] PROGMEM = R"rawliteral(
             zbSay(r.ok ? ('"' + name + '" removed') : 'remove rejected', r.ok ? 'ok' : 'bad');
             zbLoad();
         });
-        zbLoad();
+        // Ask the H2 once when the page opens. The boot-time request in
+        // setup_UART_IPC() goes out while the H2 is still starting up, so
+        // without this the status bar and the list stay empty until someone
+        // presses "Reload List".
+        zbLoad(); zbLoadNets();
+        zbPost('/api/h2/refresh').then(() => setTimeout(() => {
+            zbLoadStatus(); zbLoad();
+        }, 1200));
+
         setInterval(zbLoad, 5000);
+        // Re-ask the H2 now and then so heap and uptime stay meaningful.
+        setInterval(() => zbPost('/api/h2/refresh').then(
+            () => setTimeout(zbLoadStatus, 1200)), 30000);
     });
 
     // --- SSID manual override: if wifiSsidManual is not empty, submit that as "networks" ---

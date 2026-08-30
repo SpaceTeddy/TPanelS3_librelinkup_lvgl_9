@@ -55,6 +55,12 @@ size_t h2_devices_count();
 /// as well. Returns false if the address was not in the table.
 bool h2_dev_forget(uint16_t addr);
 
+/// Serialises the last coordinator status snapshot. Takes the registry lock.
+void h2_status_json(String &out);
+
+/// Serialises the networks found by the last scan. Takes the registry lock.
+void h2_scan_json(String &out);
+
 /// Queues a command for the loop task to send. Safe to call from other tasks
 /// -- unlike h2_send(), which writes the UART directly and must only be used
 /// from the task that owns it.
