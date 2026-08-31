@@ -802,14 +802,14 @@ void app_fsm_poll(AppFsm &fsm)
             fsm.display_dim_active = true;
             fsm.brightness_before_dim = settings.config.brightness;
             fsm.last_dim_step_ms = 0;
-            //logger.debug("DIM start: from=%u", (unsigned)fsm.brightness_before_dim);
+            logger.debug("[DIM] start: from=%u", (unsigned)fsm.brightness_before_dim);
         }
     
         display_dim_step(fsm);
     
         if (settings.config.brightness == 0)
         {
-            //logger.debug("DIM done: bright=0");
+            logger.debug("[DIM] done: bright=0");
             // Return to RUN_IDLE while staying dimmed until activity wakes it.
             enter_state(fsm, AppState::RUN_IDLE, "DIM DONE");
         }
@@ -817,9 +817,30 @@ void app_fsm_poll(AppFsm &fsm)
     }
     case AppState::DISPLAY_UNDIM:
     {
+        static bool undim_start_logged = false;
+        if (!undim_start_logged)
+        {
+            logger.debug("[UNDIM] start: from=%u target=%u",
+                         (unsigned)settings.config.brightness,
+                         (unsigned)fsm.display_undim_target);
+            undim_start_logged = true;
+        }
+
         display_undim_step(fsm);
+
         if (settings.config.brightness >= fsm.display_undim_target)
+        {
+            // The value that matters: what the code believes it just wrote to
+            // the backlight PWM at the moment it calls the ramp finished. If
+            // the panel stays dark despite this reading a normal number, the
+            // break is downstream of here -- between this write and the
+            // physical output -- not in this state machine's own bookkeeping.
+            logger.debug("[UNDIM] done: settled=%u (target was %u)",
+                         (unsigned)settings.config.brightness,
+                         (unsigned)fsm.display_undim_target);
+            undim_start_logged = false;
             enter_state(fsm, AppState::RUN_IDLE, "UNDIM DONE");
+        }
         break;
     }
     case AppState::INTERNET_CHECK:
