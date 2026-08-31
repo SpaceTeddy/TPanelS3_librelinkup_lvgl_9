@@ -13,6 +13,7 @@
  */
 
 #include "zha_db.h"
+#include "app_fsm.h"
 #include "main.h"
 #include "commands.h"
 #include "settings.h"
@@ -374,6 +375,46 @@ void zhaDbCommand(uuid::console::Shell &shell, const std::vector<std::string> &a
         }
     } else {
         shell.printfln(F("usage: zha_db <manufacturerName> <modelId>  to test a lookup"));
+    }
+}
+
+/**
+ * @brief Handler for command: `fsm`
+ *
+ * Dumps the application state machine's display-dimming state verbatim: the
+ * current state, the display_dim_active flag, brightness_before_dim, the
+ * live backlight value, and how long ago the last activity was seen.
+ *
+ * Added after a report that the panel stops responding to touch/motion after
+ * running for many hours, but works normally right after a reboot -- the
+ * symptom of display_dim_active and the real backlight going out of sync at
+ * runtime. Reading this once while it is stuck beats guessing from a log that
+ * only shows a transition that never happened.
+ */
+void fsmCommand(uuid::console::Shell &shell, const std::vector<std::string> &) {
+    extern AppFsm g_fsm;
+    const uint32_t now = millis();
+
+    shell.printfln(F("state              : %s"), app_fsm_state_name(g_fsm.state));
+    shell.printfln(F("display_dim_active : %s"), g_fsm.display_dim_active ? "true" : "false");
+    shell.printfln(F("brightness (live)  : %u"), (unsigned)settings.config.brightness);
+    shell.printfln(F("brightness_before  : %u"), (unsigned)g_fsm.brightness_before_dim);
+    shell.printfln(F("undim_target       : %u"), (unsigned)g_fsm.display_undim_target);
+    shell.printfln(F("dim_timeout_s      : %u"), (unsigned)settings.config.display_dim_timeout_s);
+    shell.printfln(F("last_activity      : %lu ms ago"),
+                   (unsigned long)(now - g_fsm.last_user_activity_ms));
+    shell.printfln(F("last_state_change  : %lu ms ago"),
+                   (unsigned long)(now - g_fsm.last_state_change_ms));
+
+    // The one combination that explains "nothing wakes it": not marked dimmed,
+    // yet not at a normal brightness either -- notify_user_activity's guard
+    // (display_dim_active || brightness == 0) is false, so touch and motion
+    // both silently do nothing, exactly as an unmodified reboot does not
+    // reproduce.
+    if (!g_fsm.display_dim_active && settings.config.brightness > 0 &&
+        settings.config.brightness < 10) {
+        shell.printfln(F("-> desynced: not marked dimmed, but brightness is low."
+                         " notify_user_activity() will not act on this."));
     }
 }
 
@@ -1601,6 +1642,7 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("exit")}, exitCommand);
     commands->add_command(uuid::flash_string_vector{F("reboot")}, espResetCommand);
     commands->add_command(uuid::flash_string_vector{F("esp_status")}, espStatusCommand);
+    commands->add_command(uuid::flash_string_vector{F("fsm")}, fsmCommand);
     // Arguments beginning with '<' are required, anything else optional, so
     // both of these accept being called bare.
     commands->add_command(uuid::flash_string_vector{F("zha_db")},
