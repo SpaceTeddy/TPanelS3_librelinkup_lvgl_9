@@ -2831,8 +2831,19 @@ void loop()
         }
 
         // --- Application state machine (connectivity/fetch/publish) -----------------
-        app_fsm_poll(g_fsm);
-        process_fw_action_request();
+        // Paused for the same reason ota_in_progress pauses this whole block:
+        // an H2 firmware transfer is a ~70 s exchange on the H2 UART with its
+        // own 15 s per-chunk ack deadline (h2_ota.cpp), running on a separate,
+        // higher-priority task. Glucose fetch, MQTT publish and the internet
+        // check can each block for a real stretch of time (TLS handshakes in
+        // particular), and on a dual-core chip that is enough contention to
+        // occasionally push one chunk's round trip past its deadline -- this
+        // was previously documented as already true ("main loop is paused",
+        // h2_ota.cpp) without actually being wired up here.
+        if (!h2_ota_in_progress()) {
+            app_fsm_poll(g_fsm);
+            process_fw_action_request();
+        }
 
         // 1 s tick: update debug view labels if visible (and not during OTA)
         if (flag_debug_screen == true)
