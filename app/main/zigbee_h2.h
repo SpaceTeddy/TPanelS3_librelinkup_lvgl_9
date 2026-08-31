@@ -71,3 +71,8 @@ void h2_scan_json(String &out);
 /// -- unlike h2_send(), which writes the UART directly and must only be used
 /// from the task that owns it.
 bool h2_enqueue(const char *cmd);
+
+/// Widens H2 TX/RX logging from DEBUG to NOTICE for a few seconds, so a
+/// manually issued `h2` console command's reply is visible without needing
+/// `log_level all`. Call right before sending/enqueueing the command.
+void h2_arm_echo();

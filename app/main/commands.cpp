@@ -23,6 +23,7 @@
 #include "http_update.h"
 #include <WiFi.h>
 #include "h2_ota.h"
+#include "zigbee_h2.h"
 #include "ui.h"
 #include "ui_display.h"
 #include <LittleFS.h>
@@ -1369,10 +1370,16 @@ void fwUpdateCommand(uuid::console::Shell &shell, const std::vector<std::string>
  * This function wires command strings to handler callbacks.
  */
 // ── h2 <subcommand> ───────────────────────────────────────────
+// Routed through h2_enqueue() rather than a direct SerialPort write: this
+// runs on the console/telnet task, and zigbee_h2_poll_uart() concurrently
+// drains queued commands (and reads replies) on the loop task. A direct write
+// here raced with that -- two tasks touching the same UART unsynchronized --
+// which is the same class of bug fixed elsewhere this session for the H2's
+// own background logging colliding with an OTA transfer.
 static void h2_tx(const char* json) {
     if (h2_ota_in_progress()) return;
-    SerialPort.print(json);
-    SerialPort.print('\n');
+    h2_arm_echo();
+    h2_enqueue(json);
 }
 
 void h2Command(uuid::console::Shell &shell, const std::vector<std::string> &args) {

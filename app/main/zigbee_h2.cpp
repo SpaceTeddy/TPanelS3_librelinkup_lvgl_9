@@ -56,6 +56,24 @@ static SemaphoreHandle_t g_h2_dev_lock = nullptr;
 struct H2Cmd { char buf[160]; };
 static QueueHandle_t   g_h2_cmd_queue = nullptr;
 
+// Widened to NOTICE for a short window after a manually issued `h2` console
+// command, so its reply is visible at the default log level instead of
+// requiring `log_level all` -- which would otherwise also surface the routine
+// background poll traffic (version/chipinfo/status/list every ~15 s) that the
+// default level is deliberately quiet about.
+static uint32_t g_h2_echo_until_ms = 0;
+static const uint32_t kH2EchoWindowMs = 3000;
+
+void h2_arm_echo()
+{
+    g_h2_echo_until_ms = millis() + kH2EchoWindowMs;
+}
+
+static bool h2_echo_active()
+{
+    return (int32_t)(g_h2_echo_until_ms - millis()) > 0;
+}
+
 // Last coordinator snapshot and scan result, both guarded by g_h2_dev_lock.
 struct H2Status {
     int      ch = -1;
@@ -305,12 +323,14 @@ void h2_send(const char *cmd)
 {
     SerialPort.print(cmd);
     SerialPort.print('\n');
-    logger.debug("[H2] TX: %s", cmd);
+    if (h2_echo_active()) logger.notice("[H2] TX: %s", cmd);
+    else                  logger.debug("[H2] TX: %s", cmd);
 }
 
 static void h2_handle_message(const String &line)
 {
-    logger.debug("[H2] raw: %s", line.c_str());
+    if (h2_echo_active()) logger.notice("[H2] %s", line.c_str());
+    else                  logger.debug("[H2] raw: %s", line.c_str());
 
     JsonDocument doc;
     if (deserializeJson(doc, line) != DeserializationError::Ok)
