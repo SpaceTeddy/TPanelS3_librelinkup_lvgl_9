@@ -109,9 +109,10 @@ static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mf
     H2Device &d = g_h2_devices[slot];
     if (!d.used) {
         memset(&d, 0, sizeof(H2Device));
-        d.occ  = -1;
-        d.on   = -1;
-        d.bat  = -1;
+        d.occ   = -1;
+        d.on    = -1;
+        d.level = -1;
+        d.bat   = -1;
         d.temp = NAN;
         d.used = true;
     }
@@ -145,6 +146,23 @@ static void h2_dev_set_zha(uint16_t addr, const char *zha)
     xSemaphoreGive(g_h2_dev_lock);
 }
 
+/// Records a device's brightness. Same reasoning as h2_dev_set_zha(): only
+/// ever arrives from "list" messages, so it stays off h2_dev_upsert()'s
+/// already-long argument list rather than growing it further.
+static void h2_dev_set_level(uint16_t addr, int level)
+{
+    if (level < 0) return;
+    if (g_h2_dev_lock == nullptr) return;
+    if (xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(50)) != pdTRUE) return;
+    for (int i = 0; i < H2_MAX_DEVICES; i++) {
+        if (g_h2_devices[i].used && g_h2_devices[i].addr == addr) {
+            g_h2_devices[i].level = (int16_t)level;
+            break;
+        }
+    }
+    xSemaphoreGive(g_h2_dev_lock);
+}
+
 static void h2_dev_upsert(uint16_t addr, const char *ieee, const char *mfr,
                           const char *model, int ep, int online,
                           int occ, float temp, int bat, int on)
@@ -163,7 +181,7 @@ void h2_devices_json(String &out)
 
     const uint32_t now = millis();
     bool first = true;
-    char entry[384];
+    char entry[420];
     for (int i = 0; i < H2_MAX_DEVICES; i++) {
         const H2Device &d = g_h2_devices[i];
         if (!d.used) continue;
@@ -173,12 +191,12 @@ void h2_devices_json(String &out)
         snprintf(entry, sizeof(entry),
                  "%s{\"addr\":%u,\"hex\":\"0x%04X\",\"ieee\":\"%s\",\"mfr\":\"%s\","
                  "\"model\":\"%s\",\"ep\":%u,\"online\":%s,\"occ\":%d,"
-                 "\"temp\":%s,\"bat\":%d,\"on\":%d,\"zha\":\"%s\","
+                 "\"temp\":%s,\"bat\":%d,\"on\":%d,\"level\":%d,\"zha\":\"%s\","
                  "\"age_s\":%u}",
                  first ? "" : ",", (unsigned)d.addr, (unsigned)d.addr,
                  d.ieee, d.mfr, d.model, (unsigned)d.ep,
                  d.online ? "true" : "false", (int)d.occ,
-                 temp_buf, (int)d.bat, (int)d.on, d.zha,
+                 temp_buf, (int)d.bat, (int)d.on, (int)d.level, d.zha,
                  (unsigned)((now - d.last_seen_ms) / 1000UL));
         out += entry;
         first = false;
@@ -385,6 +403,7 @@ static void h2_handle_message(const String &line)
                           d["bat"].isNull()    ? -1 : d["bat"].as<int>(),
                           d["on"].isNull()     ? -1 : (int)(d["on"].as<bool>() ? 1 : 0));
             h2_dev_set_zha(d["addr"].as<uint16_t>(), d["zha"] | "");
+            h2_dev_set_level(d["addr"].as<uint16_t>(), d["level"] | -1);
         }
     }
     else if (strcmp(type, "ack") == 0)

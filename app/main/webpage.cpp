@@ -2673,6 +2673,40 @@ static void handleH2Poll(AsyncWebServerRequest *request) {
 
 /// Switches a device on or off. The H2 uses the endpoint it stored for the
 /// device, so only the address is sent.
+/// Sets a device's brightness (0-100 percent) via Level Control's Move To
+/// Level With On/Off. Mirrors handleH2Switch(): validated the same way,
+/// enqueued the same way, since the H2 command it produces is symmetric.
+static void handleH2Level(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+
+    if (!request->hasParam("addr", true) || !request->hasParam("value", true)) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr or value missing\"}");
+        return;
+    }
+    long addr  = request->getParam("addr", true)->value().toInt();
+    long value = request->getParam("value", true)->value().toInt();
+    if (addr <= 0 || addr > 0xFFFF) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
+        return;
+    }
+    if (value < 0 || value > 100) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"value must be 0-100\"}");
+        return;
+    }
+
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "{\"cmd\":\"level\",\"addr\":%ld,\"value\":%ld}", addr, value);
+    if (!h2_enqueue(cmd)) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+}
+
 static void handleH2Switch(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
 
@@ -2830,6 +2864,7 @@ server.addHandler(&g_ws_telnet);
     server.on("/api/h2/permit",       HTTP_POST, handleH2Permit);
     server.on("/api/h2/remove",       HTTP_POST, handleH2Remove);
     server.on("/api/h2/switch",       HTTP_POST, handleH2Switch);
+    server.on("/api/h2/level",        HTTP_POST, handleH2Level);
     server.on("/api/h2/poll",         HTTP_POST, handleH2Poll);
     server.on("/api/h2/ota/status",   HTTP_GET,  handleH2OtaStatus);
     server.on("/api/h2/ota/upload",   HTTP_POST, handleH2OtaUploadDone, handleH2OtaUploadBody);

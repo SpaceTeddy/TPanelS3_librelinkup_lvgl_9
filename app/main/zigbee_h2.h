@@ -38,6 +38,7 @@ struct H2Device {
     bool     online;
     int8_t   occ;            ///< -1 unknown, else 0/1
     int8_t   on;             ///< -1 not switchable / unknown, else 0/1
+    int16_t  level;          ///< -1 not dimmable / unknown, else 0-100 percent
     float    temp;           ///< NAN when unknown
     int16_t  bat;            ///< -1 unknown, else percent
     uint32_t last_seen_ms;

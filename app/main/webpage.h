@@ -479,6 +479,7 @@ const char index_html[] PROGMEM = R"rawliteral(
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Temp</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Battery</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Switch</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Brightness</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Seen</th>
           <th style="border-bottom:1px solid var(--border);"></th>
         </tr></thead>
@@ -606,6 +607,16 @@ const char index_html[] PROGMEM = R"rawliteral(
         return '<span style="color:var(--muted);">' + z + '</span>';
     }
 
+    function zbLevelCell(d){
+        if(d.level === undefined || d.level === null || d.level < 0)
+            return '<span style="color:var(--muted);">-</span>';
+        return '<input type="range" min="0" max="100" value="' + d.level
+             + '" data-zblevel="' + d.addr + '"'
+             + ' style="width:90px;vertical-align:middle;" />'
+             + ' <span data-zblevelval="' + d.addr + '" style="color:var(--muted);font-size:0.85em;">'
+             + d.level + '%</span>';
+    }
+
     function zbCell(html){
         return '<td style="padding:6px;border-bottom:1px solid var(--border);">' + html + '</td>';
     }
@@ -646,6 +657,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                       + '<button type="button" data-zbsw="' + d.addr + '" data-zbstate="off"'
                       + ' style="padding:3px 10px;font-size:0.85em;'
                       + (d.on ? '' : 'border-color:var(--bad);color:var(--bad);font-weight:600;') + '">Off</button>') +
+                    zbCell(zbLevelCell(d)) +
                     zbCell('<span style="color:var(--muted);">' + zbAge(d.age_s) + '</span>') +
                     zbCell('<button type="button" data-zbpoll="' + d.addr +
                            '" style="padding:4px 10px;font-size:0.85em;margin-right:6px;">Poll</button>' +
@@ -795,6 +807,30 @@ const char index_html[] PROGMEM = R"rawliteral(
         // setup_UART_IPC() goes out while the H2 is still starting up, so
         // without this the status bar and the list stay empty until someone
         // presses "Reload List".
+        // Live label while dragging -- no request, just keeps the % in sync
+        // with the handle so the number does not lag behind the thumb.
+        body.addEventListener('input', (ev) => {
+            const sl = ev.target.closest('input[data-zblevel]');
+            if(!sl) return;
+            const label = body.querySelector('span[data-zblevelval="' + sl.dataset.zblevel + '"]');
+            if(label) label.textContent = sl.value + '%';
+        });
+        // Fires once on release, not per drag tick -- same cascade as the
+        // on/off switch: send, then refresh the list so it reflects reality
+        // rather than the optimistic value shown while dragging.
+        body.addEventListener('change', async (ev) => {
+            const sl = ev.target.closest('input[data-zblevel]');
+            if(!sl) return;
+            const addr = sl.dataset.zblevel, value = sl.value;
+            sl.disabled = true;
+            const r = await zbPost('/api/h2/level', 'addr=' + addr + '&value=' + value);
+            sl.disabled = false;
+            if(r.status === 401){ zbSay('login required','bad'); return; }
+            zbSay(r.ok ? 'brightness set' : 'brightness rejected', r.ok ? 'ok' : 'bad');
+            setTimeout(async () => { await zbPost('/api/h2/refresh');
+                                     setTimeout(zbLoad, 800); }, 400);
+        });
+
         zbLoad(); zbLoadNets();
         zbPost('/api/h2/refresh').then(() => setTimeout(() => {
             zbLoadStatus(); zbLoad();
