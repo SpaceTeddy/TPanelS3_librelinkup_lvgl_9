@@ -42,6 +42,7 @@
 #include "mqtt_handler.h"
 #include "h2_ota.h"
 #include "zigbee_h2.h"
+#include "app_fsm.h"
 #include <Update.h>
 #include "ota_handler.h"
 
@@ -2003,6 +2004,17 @@ static void handleSetBrightness(AsyncWebServerRequest *request) {
 
     settings.config.brightness = brightness;
     tpanels3.set_backlight_brightness(brightness);
+
+    // Without this, a brightness set here while display_dim_active is still
+    // true from an earlier auto-dim (its own bookkeeping untouched by this
+    // direct write) leaves the FSM believing it is mid-dim at a value that no
+    // longer matches reality -- and, since undim_target only ever gets armed
+    // by this same call, real touch/motion notify_user_activity() afterward
+    // computes its undim target from stale state. The MQTT "brightness"
+    // command already does this; this path did not, and was the one setter
+    // that could run unauthenticated from anywhere on the network.
+    extern AppFsm g_fsm;
+    app_fsm_notify_user_activity(g_fsm);
 
     request->send(200, "application/json", "{\"brightness\": " + String(brightness) + "}");
 }

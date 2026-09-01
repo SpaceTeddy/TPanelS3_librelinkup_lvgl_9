@@ -572,6 +572,10 @@ void trgbBrightnessCommand(uuid::console::Shell &shell, const std::vector<std::s
     int brightness = parseArgument(arguments, 0, settings.config.brightness);
     settings.config.brightness = brightness;
     tpanels3.set_backlight_brightness(brightness);
+    // Keeps the FSM's dim bookkeeping from going stale relative to a manually
+    // set value -- same reasoning as the /setBrightness fix.
+    extern AppFsm g_fsm;
+    app_fsm_notify_user_activity(g_fsm);
     shell.printfln(F("Brightness set to %d"), brightness);
 }
 
