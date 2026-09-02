@@ -33,6 +33,7 @@
 #include "tpanels3.h"
 #include "main.h"
 #include "http_update.h"
+#include "zigbee_h2.h"
 
 extern MQTT              mqtt;
 extern volatile uint32_t g_lv_mem_total;    ///< see main.cpp, sampled once a second
@@ -100,15 +101,15 @@ static const HaSensor k_ha_sensors[] = {
     // Memory telemetry on the health topic. alloc+blocks rising together is a
     // leak; largest decides whether a TLS session still fits (16 KB in one
     // piece); min is the hard low-water mark.
-    { "heap_int_free",       "Heap Internal Free",     HA_HEALTH, "{{ value_json.heap_int_free }}",    "B", "data_size", "measurement" },
-    { "heap_int_largest",    "Heap Internal Largest",  HA_HEALTH, "{{ value_json.heap_int_largest }}", "B", "data_size", "measurement" },
-    { "heap_int_min",        "Heap Internal Low Water",HA_HEALTH, "{{ value_json.heap_int_min }}",     "B", "data_size", "measurement" },
-    { "heap_int_alloc",      "Heap Internal Allocated",HA_HEALTH, "{{ value_json.heap_int_alloc }}",   "B", "data_size", "measurement" },
-    { "heap_int_blocks",     "Heap Internal Blocks",   HA_HEALTH, "{{ value_json.heap_int_blocks }}",  "",  "",          "measurement" },
-    { "psram_free",          "PSRAM Free",             HA_HEALTH, "{{ value_json.psram_free }}",       "B", "data_size", "measurement" },
-    { "lvgl_max_used",       "LVGL Peak Used",         HA_HEALTH, "{{ value_json.lvgl_max_used }}",    "B", "data_size", "measurement" },
-    { "lvgl_frag",           "LVGL Fragmentation",     HA_HEALTH, "{{ value_json.lvgl_frag }}",        "%", "",          "measurement" },
-    { "loop_stack_free",     "Loop Task Stack Free",   HA_HEALTH, "{{ value_json.loop_stack_free }}",  "B", "data_size", "measurement" },
+    { "heap_int_free",       "Memory Internal Free",   HA_HEALTH, "{{ value_json.heap_int_free }}",    "B", "data_size", "measurement" },
+    { "heap_int_largest",    "Memory Internal Largest", HA_HEALTH, "{{ value_json.heap_int_largest }}", "B", "data_size", "measurement" },
+    { "heap_int_min",        "Memory Internal Low Water",HA_HEALTH, "{{ value_json.heap_int_min }}",     "B", "data_size", "measurement" },
+    { "heap_int_alloc",      "Memory Internal Allocated",HA_HEALTH, "{{ value_json.heap_int_alloc }}",   "B", "data_size", "measurement" },
+    { "heap_int_blocks",     "Memory Internal Blocks", HA_HEALTH, "{{ value_json.heap_int_blocks }}",  "",  "",          "measurement" },
+    { "psram_free",          "Memory PSRAM Free",      HA_HEALTH, "{{ value_json.psram_free }}",       "B", "data_size", "measurement" },
+    { "lvgl_max_used",       "Memory LVGL Peak Used",  HA_HEALTH, "{{ value_json.lvgl_max_used }}",    "B", "data_size", "measurement" },
+    { "lvgl_frag",           "Memory LVGL Fragmentation", HA_HEALTH, "{{ value_json.lvgl_frag }}",        "%", "",          "measurement" },
+    { "loop_stack_free",     "Memory Loop Stack Free", HA_HEALTH, "{{ value_json.loop_stack_free }}",  "B", "data_size", "measurement" },
     { "uptime",              "Uptime",                 HA_HEALTH, "{{ value_json.uptime_s }}",         "s", "duration",  "total_increasing" },
 };
 
@@ -164,6 +165,152 @@ static void ha_publish_doc(JsonDocument &doc, const char *ha_type,
     }
     g_loop_breadcrumb = "idle";
     logger.notice("HA discovery: %s", topic);
+}
+
+// ── Zigbee devices as HA entities ───────────────────────────────────────────
+// Entities live under the LibreLinkUp device rather than as devices of their
+// own. State goes to one topic per Zigbee device so the value templates stay
+// trivial and a motion update only republishes that one device.
+
+static void zb_state_topic(char *out, size_t cap, uint16_t addr)
+{
+    snprintf(out, cap, "%s/%s/zigbee/0x%04X",
+             mqtt.mqtt_base.c_str(), mqtt.mqtt_client_name.c_str(), addr);
+}
+
+// Which devices already have HA entities. Discovery runs on MQTT connect,
+// long before the H2 has answered with its device list -- so announcing must
+// also happen later, when devices actually turn up. Tracking what has been
+// announced keeps that from republishing the whole set on every list reply.
+static uint16_t g_zb_announced[H2_MAX_DEVICES] = {0};
+
+static bool zb_already_announced(uint16_t addr)
+{
+    for (size_t i = 0; i < H2_MAX_DEVICES; i++)
+        if (g_zb_announced[i] == addr) return true;
+    return false;
+}
+
+static void zb_mark_announced(uint16_t addr)
+{
+    for (size_t i = 0; i < H2_MAX_DEVICES; i++)
+        if (g_zb_announced[i] == 0) { g_zb_announced[i] = addr; return; }
+}
+
+static void zb_clear_announced(uint16_t addr)
+{
+    for (size_t i = 0; i < H2_MAX_DEVICES; i++)
+        if (g_zb_announced[i] == addr) g_zb_announced[i] = 0;
+}
+
+void mqtt_publish_zigbee_device(uint16_t addr)
+{
+    if (!settings.config.mqtt_mode || !mqtt_client.connected()) return;
+
+    String devices;
+    h2_devices_json(devices);
+    JsonDocument doc;
+    if (deserializeJson(doc, devices) != DeserializationError::Ok) return;
+
+    for (JsonObject d : doc.as<JsonArray>()) {
+        if (d["addr"].as<uint16_t>() != addr) continue;
+
+        JsonDocument out;
+        if (!d["occ"].isNull() && d["occ"].as<int>() >= 0)
+            out["occ"] = d["occ"].as<int>() ? 1 : 0;
+        if (!d["bat"].isNull() && d["bat"].as<int>() >= 0)
+            out["bat"] = d["bat"].as<int>();
+        if (out.size() == 0) return;
+
+        char topic[128];
+        zb_state_topic(topic, sizeof(topic), addr);
+        String payload;
+        serializeJson(out, payload);
+        g_loop_breadcrumb = "mqtt.pub.zigbee";
+        if (!mqtt_client.publish(topic, (const uint8_t *)payload.c_str(), payload.length(), true))
+            logger.warning("MQTT publish zigbee failed (topic=%s, state=%d)", topic, mqtt_client.state());
+        g_loop_breadcrumb = "idle";
+        return;
+    }
+}
+
+void mqtt_remove_zigbee_device(uint16_t addr)
+{
+    if (!settings.config.mqtt_mode || !mqtt_client.connected()) return;
+    const char *dev_id = mqtt.mqtt_client_name.c_str();
+    char topic[144];
+
+    for (const char *kind : {"binary_sensor", "sensor"}) {
+        const char *obj = (strcmp(kind, "binary_sensor") == 0) ? "motion" : "battery";
+        snprintf(topic, sizeof(topic), "homeassistant/%s/%s_zb_%04X_%s/config",
+                 kind, dev_id, addr, obj);
+        mqtt_client.publish(topic, (const uint8_t *)"", 0, true);   // empty = delete
+        logger.notice("HA discovery removed: %s", topic);
+    }
+    zb_state_topic(topic, sizeof(topic), addr);
+    mqtt_client.publish(topic, (const uint8_t *)"", 0, true);
+    zb_clear_announced(addr);
+}
+
+/// Discovery for every registry entry that reports motion or battery.
+static void ha_publish_zigbee_entities(const char *dev_id, const char *dev_name, bool force)
+{
+    String devices;
+    h2_devices_json(devices);
+    JsonDocument list;
+    if (deserializeJson(list, devices) != DeserializationError::Ok) return;
+
+    char state_topic[128];
+    for (JsonObject d : list.as<JsonArray>()) {
+        const uint16_t addr = d["addr"].as<uint16_t>();
+        if (!force && zb_already_announced(addr)) continue;
+        const char *hex     = d["hex"]   | "";
+        // "Zigbee <addr> <kind>" so every Zigbee entity sorts together in HA,
+        // grouped per device. The model is on the Zigbee page, not needed here.
+        const String label  = String("Zigbee ") + hex;
+        zb_state_topic(state_topic, sizeof(state_topic), addr);
+
+        char obj_id[32];
+
+        if (!d["occ"].isNull() && d["occ"].as<int>() >= 0) {
+            JsonDocument doc;
+            doc["name"]            = label + " Motion";
+            doc["unique_id"]       = String(dev_id) + "_zb_" + hex + "_motion";
+            doc["state_topic"]     = state_topic;
+            doc["value_template"]  = "{{ value_json.occ }}";
+            doc["payload_on"]      = 1;
+            doc["payload_off"]     = 0;
+            doc["device_class"]    = "motion";
+            ha_add_device(doc, dev_id, dev_name);
+            snprintf(obj_id, sizeof(obj_id), "zb_%04X_motion", addr);
+            ha_publish_doc(doc, "binary_sensor", dev_id, obj_id);
+        }
+
+        if (!d["bat"].isNull() && d["bat"].as<int>() >= 0) {
+            JsonDocument doc;
+            doc["name"]                = label + " Battery";
+            doc["unique_id"]           = String(dev_id) + "_zb_" + hex + "_battery";
+            doc["state_topic"]         = state_topic;
+            doc["value_template"]      = "{{ value_json.bat }}";
+            doc["unit_of_measurement"] = "%";
+            doc["device_class"]        = "battery";
+            doc["state_class"]         = "measurement";
+            ha_add_device(doc, dev_id, dev_name);
+            snprintf(obj_id, sizeof(obj_id), "zb_%04X_battery", addr);
+            ha_publish_doc(doc, "sensor", dev_id, obj_id);
+        }
+        zb_mark_announced(addr);
+    }
+}
+
+void mqtt_sync_zigbee_entities()
+{
+    if (!settings.config.mqtt_mode || !settings.config.ha_discovery) return;
+    if (!mqtt_client.connected()) return;
+    const char *dev_id = mqtt.mqtt_client_name.c_str();
+    char dev_name[64];
+    snprintf(dev_name, sizeof(dev_name), "LibreLinkUp %s", dev_id);
+    ha_publish_zigbee_entities(dev_id, dev_name, false);
 }
 
 // ── HA discovery: main publish function ─────────────────────────────────────
@@ -275,6 +422,10 @@ void mqtt_publish_ha_discovery()
         doc["payload_press"] = "{\"cmd\":\"fw_check\",\"parameter1\":0}";
         ha_add_device(doc, dev_id, dev_name);
         ha_publish_doc(doc, "button", dev_id, "fw_check");
+    }
+
+    ha_publish_zigbee_entities(dev_id, dev_name, true);
+    {
     }
 }
 

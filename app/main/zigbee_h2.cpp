@@ -10,6 +10,7 @@
 
 #include "app_fsm.h"
 #include "h2_ota.h"
+#include "mqtt_handler.h"
 #include "main.h"
 #include "pin_config.h"
 
@@ -415,6 +416,9 @@ static void h2_handle_message(const String &line)
 
     if (strcmp(type, "list") == 0 || strcmp(type, "join") == 0)
     {
+        // A freshly paired device has no HA entities yet. Republishing the
+        // whole discovery set is idempotent (retained) and joins are rare.
+        const bool is_join = (strcmp(type, "join") == 0);
         JsonArray devices = doc["devices"].as<JsonArray>();
         bool streaming = (line.indexOf("\"idx\"") >= 0);
         int  idx       = streaming ? doc["idx"].as<int>() : 0;
@@ -451,6 +455,11 @@ static void h2_handle_message(const String &line)
             h2_dev_set_zha(d["addr"].as<uint16_t>(), d["zha"] | "");
             h2_dev_set_level(d["addr"].as<uint16_t>(), d["level"] | -1);
         }
+        // Announce devices that are new to the registry -- covers the join
+        // case and the boot ordering, where discovery ran before the H2
+        // had answered at all.
+        (void)is_join;
+        mqtt_sync_zigbee_entities();
     }
     else if (strcmp(type, "ack") == 0)
     {
@@ -550,6 +559,10 @@ static void h2_handle_message(const String &line)
                           doc["temp"].isNull() ? NAN : doc["temp"].as<float>(),
                           doc["bat"].isNull()  ? -1  : doc["bat"].as<int>(), -1,
                           doc["lux"].isNull()  ? -1  : doc["lux"].as<int>());
+        // Straight away, not on the next publish cycle: a motion sensor that
+        // reports once a minute is useless for automations.
+        if (!doc["addr"].isNull())
+            mqtt_publish_zigbee_device(doc["addr"].as<uint16_t>());
         if (occ)
             app_fsm_notify_user_activity(g_fsm);
     }

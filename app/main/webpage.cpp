@@ -2697,6 +2697,7 @@ static void handleH2Remove(AsyncWebServerRequest *request) {
     queued = h2_enqueue(cmd) && queued;
 
     h2_dev_forget((uint16_t)addr);
+    mqtt_remove_zigbee_device((uint16_t)addr);   // no orphaned HA entities
 
     if (!queued) {
         request->send(503, "application/json; charset=utf-8",
