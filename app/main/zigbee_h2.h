@@ -32,8 +32,8 @@ void zigbee_h2_poll_uart();
 struct H2Device {
     uint16_t addr;
     char     ieee[26];
-    char     mfr[24];
-    char     model[24];
+    char     mfr[32];    // matches the H2's own ZbDevice::manufacturer[32]
+    char     model[32];  // matches the H2's own ZbDevice::model[32]
     uint8_t  ep;
     bool     online;
     int8_t   occ;            ///< -1 unknown, else 0/1
