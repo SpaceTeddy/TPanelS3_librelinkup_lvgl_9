@@ -86,6 +86,8 @@ class SETTINGS {
             uint32_t display_dim_timeout_s = 300; /**< Display dim timeout in seconds (0 = disabled, default: 5 min) */
             uint8_t ha_discovery = 1;         /**< Publish Home Assistant MQTT auto-discovery (1=on, 0=off) */
             uint8_t auto_brightness = 0;      /**< Derive display brightness from paired Zigbee illuminance sensors (1=on, 0=off) */
+            uint8_t auto_bri_min = 20;        /**< Auto-brightness floor: level in a dark room (0-255) */
+            uint8_t auto_bri_max = 255;       /**< Auto-brightness ceiling: level in bright surroundings (0-255) */
             uint8_t ota_staging = 0;          /**< Use staging OTA channel (1=staging, 0=release) */
             uint8_t ota_force = 0;            /**< Bypass version check — install any manifest version (enables downgrade) */
         };

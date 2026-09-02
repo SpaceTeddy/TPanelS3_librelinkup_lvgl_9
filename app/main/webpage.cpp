@@ -1933,6 +1933,8 @@ static void handleStatus(AsyncWebServerRequest *request) {
     json_config["brightness_set"]    = g_fsm.brightness_before_dim;
     json_config["dim_active"]        = g_fsm.display_dim_active ? 1 : 0;
     json_config["auto_brightness"]   = settings.config.auto_brightness;
+    json_config["auto_bri_min"]      = settings.config.auto_bri_min;
+    json_config["auto_bri_max"]      = settings.config.auto_bri_max;
 
     String jsonResponse;
     serializeJson(json_config, jsonResponse);
@@ -1990,6 +1992,29 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
 
     settings.saveConfiguration(settings.config_filename, settings.config);
     request->send(200, "application/json", "{\"status\": \"updated\"}");
+}
+
+/// Endpoints of the auto-brightness curve: level in the dark and level in
+/// bright surroundings. Together they set both the floor and the slope.
+static void handleSetAutoBriRange(AsyncWebServerRequest *request) {
+    if (!request->hasParam("min", true) || !request->hasParam("max", true)) {
+        request->send(400, "application/json", "{\"error\": \"Missing min or max\"}");
+        return;
+    }
+    long lo = request->getParam("min", true)->value().toInt();
+    long hi = request->getParam("max", true)->value().toInt();
+    if (lo < 0)   lo = 0;
+    if (hi > 255) hi = 255;
+    if (lo >= hi) {
+        request->send(400, "application/json",
+                      "{\"error\": \"min must be below max\"}");
+        return;
+    }
+    settings.config.auto_bri_min = (uint8_t)lo;
+    settings.config.auto_bri_max = (uint8_t)hi;
+    settings.saveConfiguration(settings.config_filename, settings.config);
+    request->send(200, "application/json",
+                  "{\"auto_bri_min\": " + String(lo) + ", \"auto_bri_max\": " + String(hi) + "}");
 }
 
 static void handleSetDimTimeout(AsyncWebServerRequest *request) {
@@ -2986,6 +3011,7 @@ server.addHandler(&g_ws_telnet);
     server.on("/toggle",             HTTP_POST, handleToggleFeature);
     server.on("/setBrightness",      HTTP_POST, handleSetBrightness);
     server.on("/setDimTimeout",      HTTP_POST, handleSetDimTimeout);
+    server.on("/setAutoBriRange",    HTTP_POST, handleSetAutoBriRange);
     server.on("/configureWireGuard",   HTTP_POST, handleConfigureWireGuard);
     server.on("/configureMQTT",        HTTP_POST, handleConfigureMQTT);
     server.on("/configureWiFiNetworks", HTTP_POST,

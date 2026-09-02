@@ -75,6 +75,8 @@ void SETTINGS::loadConfiguration(const char* filename, Config &config) {
     config.ota_force              = doc["ota_force"]              | (uint8_t)0;
     config.display_dim_timeout_s  = doc["display_dim_timeout_s"]  | (uint32_t)300;
     config.auto_brightness        = doc["auto_brightness"]        | (uint8_t)0;
+    config.auto_bri_min           = doc["auto_bri_min"]           | (uint8_t)20;
+    config.auto_bri_max           = doc["auto_bri_max"]           | (uint8_t)255;
 
     // Load wifi_networks array; migrate legacy fields if missing
     config.wifi_networks.clear();
@@ -151,6 +153,8 @@ void SETTINGS::saveConfiguration(const char *filename, Config &config) {
     doc["ota_force"]             = config.ota_force;
     doc["display_dim_timeout_s"] = config.display_dim_timeout_s;
     doc["auto_brightness"]       = config.auto_brightness;
+    doc["auto_bri_min"]          = config.auto_bri_min;
+    doc["auto_bri_max"]          = config.auto_bri_max;
 
     // Save wifi_networks array; keep legacy fields in sync with first entry
     JsonArray nets = doc["wifi_networks"].to<JsonArray>();

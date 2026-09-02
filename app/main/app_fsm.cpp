@@ -423,17 +423,28 @@ static bool should_dim_display(const AppFsm &fsm)
 // values sensors report) are roughly logarithmic, not linear.
 static const uint16_t AMBIENT_LUX_MIN = 1;      // at or below: minimum brightness
 static const uint16_t AMBIENT_LUX_MAX = 1000;   // at or above: maximum brightness
-static const uint8_t  AMBIENT_BRI_MIN = 20;     // never below this -- stays legible in the dark
-static const uint8_t  AMBIENT_BRI_MAX = 255;
+// Endpoints of the curve are user-settable (settings.config.auto_bri_min /
+// auto_bri_max); these are only the fallbacks when the pair is unusable.
+static const uint8_t  AMBIENT_BRI_MIN_DEFAULT = 20;   // stays legible in the dark
+static const uint8_t  AMBIENT_BRI_MAX_DEFAULT = 255;
 static const uint32_t AMBIENT_STEP_PERIOD_MS = 1000;
 static const uint8_t  AMBIENT_STEP_MAX_DELTA = 4; // brightness units per period -- glides, does not jump
 
 static uint8_t ambient_lux_to_brightness(uint16_t lux)
 {
-    if (lux <= AMBIENT_LUX_MIN) return AMBIENT_BRI_MIN;
-    if (lux >= AMBIENT_LUX_MAX) return AMBIENT_BRI_MAX;
+    uint8_t bri_min = settings.config.auto_bri_min;
+    uint8_t bri_max = settings.config.auto_bri_max;
+    // A reversed or equal pair would make the curve meaningless, so fall back
+    // rather than produce a flat or inverted response.
+    if (bri_min >= bri_max) {
+        bri_min = AMBIENT_BRI_MIN_DEFAULT;
+        bri_max = AMBIENT_BRI_MAX_DEFAULT;
+    }
+
+    if (lux <= AMBIENT_LUX_MIN) return bri_min;
+    if (lux >= AMBIENT_LUX_MAX) return bri_max;
     float t = log10f((float)lux / AMBIENT_LUX_MIN) / log10f((float)AMBIENT_LUX_MAX / AMBIENT_LUX_MIN);
-    return (uint8_t)(AMBIENT_BRI_MIN + t * (AMBIENT_BRI_MAX - AMBIENT_BRI_MIN));
+    return (uint8_t)(bri_min + t * (bri_max - bri_min));
 }
 
 /**

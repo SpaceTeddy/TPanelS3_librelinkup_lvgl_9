@@ -249,10 +249,28 @@ const char index_html[] PROGMEM = R"rawliteral(
     <div class="switch-container" style="margin-top:10px;">
         <span class="switch-label">Auto brightness <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(follows the ambient light reported by a paired Zigbee illuminance sensor; the slider above is ignored while this is on)</span></span>
         <label class="switch">
-            <input type="checkbox" id="autoBrightnessToggle" onchange="toggleFeature('auto_brightness', this.checked); document.getElementById('brightnessSlider').disabled = this.checked;">
+            <input type="checkbox" id="autoBrightnessToggle" onchange="toggleFeature('auto_brightness', this.checked); applyAutoBriUi(this.checked);">
             <span class="slider"></span>
         </label>
     </div>
+    <div id="autoBriRange" style="margin-top:10px;display:none;">
+        <div class="brightness-label">Auto brightness range</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+            <span style="color:var(--muted);font-size:0.9em;">dark room</span>
+            <input type="number" id="autoBriMin" min="0" max="255" value="20"
+                   style="width:80px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);">
+            <span style="color:var(--muted);font-size:0.9em;">bright room</span>
+            <input type="number" id="autoBriMax" min="0" max="255" value="255"
+                   style="width:80px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);">
+            <button type="button" onclick="saveAutoBriRange()">Apply</button>
+            <span id="autoBriStatus" style="color:var(--muted);font-size:0.9em;"></span>
+        </div>
+        <div style="color:var(--muted);font-size:0.85em;margin-top:6px;">
+            Backlight at 1 lux and below, and at 1000 lux and above. In between the curve is
+            logarithmic, matching how the eye perceives brightness.
+        </div>
+    </div>
+
     <div style="margin-top:14px;">
         <div class="brightness-label">Dim timeout: <span id="dimTimeoutDisplay">--</span></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
@@ -553,6 +571,29 @@ const char index_html[] PROGMEM = R"rawliteral(
         setInterval(refreshFirmwareUpdateStatus, 15000);
     });
 
+    // Slider and range fields belong to opposite modes: the slider only means
+    // something with auto off, the range only with auto on.
+    function applyAutoBriUi(on){
+        const sl = document.getElementById('brightnessSlider');
+        const rg = document.getElementById('autoBriRange');
+        if(sl) sl.disabled = !!on;
+        if(rg) rg.style.display = on ? 'block' : 'none';
+    }
+
+    async function saveAutoBriRange(){
+        const lo = parseInt(document.getElementById('autoBriMin').value, 10);
+        const hi = parseInt(document.getElementById('autoBriMax').value, 10);
+        const st = document.getElementById('autoBriStatus');
+        if(!(lo < hi)){ st.textContent = 'dark room must be below bright room';
+                        st.style.color = 'var(--bad)'; return; }
+        const fd = new FormData(); fd.append('min', lo); fd.append('max', hi);
+        try{
+            const r = await fetch('/setAutoBriRange', {method:'POST', body: fd});
+            st.textContent = r.ok ? 'saved' : 'rejected';
+            st.style.color = r.ok ? 'var(--ok)' : 'var(--bad)';
+        }catch(e){ st.textContent = 'network error'; st.style.color = 'var(--bad)'; }
+    }
+
     // --- Brightness readback ----------------------------------------------------
     // settings.config.brightness IS the live backlight value: display_dim_step()
     // and display_ambient_step() write it directly. Reading it back periodically
@@ -572,6 +613,11 @@ const char index_html[] PROGMEM = R"rawliteral(
             // drags the user's setting away. The two only differ while dimming
             // or in auto mode -- say so then, and stay quiet otherwise.
             const set = (d.brightness_set !== undefined) ? d.brightness_set : d.brightness;
+            if(d.auto_brightness !== undefined) applyAutoBriUi(Number(d.auto_brightness) === 1);
+            const lo = document.getElementById('autoBriMin');
+            const hi = document.getElementById('autoBriMax');
+            if(lo && d.auto_bri_min !== undefined && document.activeElement !== lo) lo.value = d.auto_bri_min;
+            if(hi && d.auto_bri_max !== undefined && document.activeElement !== hi) hi.value = d.auto_bri_max;
             if(sl && !brightnessHeld) sl.value = set;
             if(bv) bv.textContent = set;
             if(bn){
@@ -1476,6 +1522,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       setCheck("mqttMasterToggle", cfg.mqtt_master_mode);
       setCheck("haDiscoveryToggle", cfg.ha_discovery !== undefined ? cfg.ha_discovery : 1);
       setCheck("autoBrightnessToggle", cfg.auto_brightness);
+      applyAutoBriUi(Number(cfg.auto_brightness) === 1);
 
       const bs = document.getElementById("brightnessSlider");
       const bv = document.getElementById("brightnessValue");
