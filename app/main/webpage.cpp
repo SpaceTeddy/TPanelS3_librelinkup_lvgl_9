@@ -1935,6 +1935,12 @@ static void handleStatus(AsyncWebServerRequest *request) {
     json_config["auto_brightness"]   = settings.config.auto_brightness;
     json_config["auto_bri_min"]      = settings.config.auto_bri_min;
     json_config["auto_bri_max"]      = settings.config.auto_bri_max;
+    // Whether any paired device currently reports illuminance -- without
+    // one, auto-brightness has nothing to follow.
+    uint16_t ambient_lux = 0;
+    const bool lux_ok = zigbee_h2_ambient_lux(ambient_lux);
+    json_config["lux_available"]     = lux_ok ? 1 : 0;
+    json_config["lux"]               = lux_ok ? (int)ambient_lux : -1;
 
     String jsonResponse;
     serializeJson(json_config, jsonResponse);

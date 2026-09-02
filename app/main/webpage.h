@@ -247,7 +247,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         <input type="range" id="brightnessSlider" min="0" max="255" value="50" oninput="updateBrightness(this.value)">
     </div>
     <div class="switch-container" style="margin-top:10px;">
-        <span class="switch-label">Auto brightness <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(follows the ambient light reported by a paired Zigbee illuminance sensor; the slider above is ignored while this is on)</span></span>
+        <span class="switch-label">Auto brightness <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(follows the ambient light reported by a paired Zigbee illuminance sensor; the slider above is ignored while this is on)</span><span id="autoBriHint" style="color:var(--muted);font-weight:400;font-size:0.9em;"></span></span>
         <label class="switch">
             <input type="checkbox" id="autoBrightnessToggle" onchange="toggleFeature('auto_brightness', this.checked); applyAutoBriUi(this.checked);">
             <span class="slider"></span>
@@ -573,11 +573,22 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     // Slider and range fields belong to opposite modes: the slider only means
     // something with auto off, the range only with auto on.
-    function applyAutoBriUi(on){
+    function applyAutoBriUi(on, luxOk, lux){
         const sl = document.getElementById('brightnessSlider');
         const rg = document.getElementById('autoBriRange');
+        const tg = document.getElementById('autoBrightnessToggle');
+        const nt = document.getElementById('autoBriHint');
         if(sl) sl.disabled = !!on;
         if(rg) rg.style.display = on ? 'block' : 'none';
+
+        if(luxOk === undefined) return;   // status not read yet -- leave as is
+        // Only block switching it ON. If it is already on and the sensor is
+        // gone, the toggle must stay usable -- otherwise the slider is greyed
+        // and there is no way back.
+        if(tg) tg.disabled = (!luxOk && !on);
+        if(nt) nt.textContent = luxOk
+            ? (on ? '  ambient ' + lux + ' lx' : '')
+            : '  no paired sensor reports illuminance';
     }
 
     async function saveAutoBriRange(){
@@ -613,7 +624,9 @@ const char index_html[] PROGMEM = R"rawliteral(
             // drags the user's setting away. The two only differ while dimming
             // or in auto mode -- say so then, and stay quiet otherwise.
             const set = (d.brightness_set !== undefined) ? d.brightness_set : d.brightness;
-            if(d.auto_brightness !== undefined) applyAutoBriUi(Number(d.auto_brightness) === 1);
+            if(d.auto_brightness !== undefined)
+                applyAutoBriUi(Number(d.auto_brightness) === 1,
+                               Number(d.lux_available) === 1, d.lux);
             const lo = document.getElementById('autoBriMin');
             const hi = document.getElementById('autoBriMax');
             if(lo && d.auto_bri_min !== undefined && document.activeElement !== lo) lo.value = d.auto_bri_min;
