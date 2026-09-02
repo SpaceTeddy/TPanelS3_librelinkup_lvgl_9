@@ -1912,8 +1912,12 @@ static void handleConnect(AsyncWebServerRequest *request) {
 }
 
 static void handleStatus(AsyncWebServerRequest *request) {
-    settings.loadConfiguration(settings.config_filename, settings.config);
-
+    // Deliberately does NOT reload from flash. Every setter already updates
+    // settings.config in RAM, so a reload can only lose state -- and it did:
+    // /setBrightness writes RAM only (persisting on every slider step would
+    // hammer the filesystem), so each /status call reverted the backlight to
+    // the last saved value. Restoring from flash belongs in the restore
+    // handler, not in a status read.
     JsonDocument json_config;
     json_config["ota_update"]        = settings.config.ota_update;
     json_config["ota_staging"]       = settings.config.ota_staging;
