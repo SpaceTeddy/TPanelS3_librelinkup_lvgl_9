@@ -630,6 +630,15 @@ const char index_html[] PROGMEM = R"rawliteral(
     // manufacturer-specific extras ZHA does not know about generically --
     // hardcoded for this device family, same reasoning as the H2's
     // local_devices.json override.
+    //
+    // Write-only attributes, no device read-back, and zbLoad() rebuilds every
+    // row's HTML from scratch every 5s -- without remembering what was last
+    // sent here, the controls would keep re-rendering at their hardcoded
+    // defaults and appear to "snap back" a few seconds after every change,
+    // even though the command reached the device. Keyed by addr, cleared
+    // only on a full page reload.
+    let hueState = {};
+
     function isPhilipsMotion(d){
         return (d.mfr === 'Philips' || d.mfr === 'Signify Netherlands B.V.') &&
                ['SML001','SML002','SML003','SML004'].includes(d.model);
@@ -637,12 +646,15 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     function zbHueCell(d){
         if(!isPhilipsMotion(d)) return '<span style="color:var(--muted);">-</span>';
+        const st = hueState[d.addr] || {};
+        const led = st.led === true;
+        const sens = (st.sens !== undefined) ? st.sens : 1;
         return '<label style="margin-right:8px;white-space:nowrap;" title="LED flash on motion trigger">'
-             + '<input type="checkbox" data-zbled="' + d.addr + '" /> LED</label>'
+             + '<input type="checkbox" data-zbled="' + d.addr + '"' + (led ? ' checked' : '') + ' /> LED</label>'
              + '<select data-zbsens="' + d.addr + '" title="PIR sensitivity" style="padding:2px 4px;">'
-             + '<option value="0">Low</option>'
-             + '<option value="1" selected>Medium</option>'
-             + '<option value="2">High</option>'
+             + '<option value="0"' + (sens === 0 ? ' selected' : '') + '>Low</option>'
+             + '<option value="1"' + (sens === 1 ? ' selected' : '') + '>Medium</option>'
+             + '<option value="2"' + (sens === 2 ? ' selected' : '') + '>High</option>'
              + '</select>';
     }
 
@@ -864,21 +876,31 @@ const char index_html[] PROGMEM = R"rawliteral(
             }
             const led = ev.target.closest('input[data-zbled]');
             if(led){
-                const addr = led.dataset.zbled;
+                const addr = led.dataset.zbled, checked = led.checked;
                 led.disabled = true;
-                const r = await zbPost('/api/h2/led', 'addr=' + addr + '&on=' + (led.checked ? 1 : 0));
+                const r = await zbPost('/api/h2/led', 'addr=' + addr + '&on=' + (checked ? 1 : 0));
                 led.disabled = false;
                 if(r.status === 401){ zbSay('login required','bad'); return; }
+                if(r.ok){
+                    // Remembered so the next 5s zbLoad() refresh (rebuilds
+                    // every row from scratch, write-only attribute, no
+                    // device read-back) still shows what was just sent
+                    // instead of snapping back to the hardcoded default.
+                    hueState[addr] = Object.assign({}, hueState[addr], {led: checked});
+                }
                 zbSay(r.ok ? 'LED command sent' : 'LED command rejected', r.ok ? 'ok' : 'bad');
                 return;
             }
             const sens = ev.target.closest('select[data-zbsens]');
             if(sens){
-                const addr = sens.dataset.zbsens;
+                const addr = sens.dataset.zbsens, value = parseInt(sens.value, 10);
                 sens.disabled = true;
-                const r = await zbPost('/api/h2/sensitivity', 'addr=' + addr + '&level=' + sens.value);
+                const r = await zbPost('/api/h2/sensitivity', 'addr=' + addr + '&level=' + value);
                 sens.disabled = false;
                 if(r.status === 401){ zbSay('login required','bad'); return; }
+                if(r.ok){
+                    hueState[addr] = Object.assign({}, hueState[addr], {sens: value});
+                }
                 zbSay(r.ok ? 'sensitivity command sent' : 'sensitivity command rejected', r.ok ? 'ok' : 'bad');
                 return;
             }
