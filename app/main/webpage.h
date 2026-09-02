@@ -582,13 +582,15 @@ const char index_html[] PROGMEM = R"rawliteral(
         if(rg) rg.style.display = on ? 'block' : 'none';
 
         if(luxOk === undefined) return;   // status not read yet -- leave as is
-        // Only block switching it ON. If it is already on and the sensor is
-        // gone, the toggle must stay usable -- otherwise the slider is greyed
-        // and there is no way back.
-        if(tg) tg.disabled = (!luxOk && !on);
+        // Deliberately no longer disabled when no lux is reported. The H2 omits
+        // the field entirely at 0 lux (coordinator_io.cpp sends it only when
+        // illuminance > 0), so a working sensor in a dark room looks identical
+        // to no sensor at all -- and that is exactly when auto-brightness
+        // matters. Warn instead of blocking.
+        if(tg) tg.disabled = false;
         if(nt) nt.textContent = luxOk
             ? (on ? '  ambient ' + lux + ' lx' : '')
-            : '  no paired sensor reports illuminance';
+            : '  no illuminance reported right now (0 lx reads the same as no sensor)';
     }
 
     async function saveAutoBriRange(){
