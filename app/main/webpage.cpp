@@ -2614,6 +2614,38 @@ static void handleFwUploadDone(AsyncWebServerRequest *request) {
 // Write actions go through h2_enqueue(): these run on the AsyncTCP task, and
 // h2_send() writes the UART directly from the loop task.
 
+// Shared plumbing for the H2 write routes. Before this, each handler repeated
+// the same parameter check, the same 400/503 bodies and the same 202 -- and a
+// new one could silently omit a range check. Authentication stays an explicit
+// line in each handler: /poll and /refresh are open on purpose, and hiding
+// that decision inside a helper would make the exception invisible.
+static const char *const H2_JSON = "application/json; charset=utf-8";
+
+static bool h2_reject(AsyncWebServerRequest *request, const String &why) {
+    request->send(400, H2_JSON, "{\"status\":\"rejected\",\"message\":\"" + why + "\"}");
+    return false;
+}
+
+/// Reads a required numeric POST field and range-checks it. Answers on failure.
+static bool h2_param(AsyncWebServerRequest *request, const char *name,
+                     long lo, long hi, long &out) {
+    if (!request->hasParam(name, true))
+        return h2_reject(request, String(name) + " missing");
+    out = request->getParam(name, true)->value().toInt();
+    if (out < lo || out > hi)
+        return h2_reject(request, String(name) + " out of range");
+    return true;
+}
+
+/// Queues one command and answers. Every H2 write route ends here.
+static void h2_dispatch(AsyncWebServerRequest *request, const char *cmd) {
+    if (!h2_enqueue(cmd)) {
+        request->send(503, H2_JSON, "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, H2_JSON, "{\"status\":\"accepted\"}");
+}
+
 static void handleH2Devices(AsyncWebServerRequest *request) {
     String body;
     h2_devices_json(body);
@@ -2634,42 +2666,27 @@ static void handleH2ScanResult(AsyncWebServerRequest *request) {
 /// seconds, during which the coordinator does not serve its devices.
 static void handleH2ScanStart(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
+    // Optional with a default, so it is clamped here rather than rejected.
     long dur = 3;
     if (request->hasParam("dur", true)) dur = request->getParam("dur", true)->value().toInt();
     if (dur < 1) dur = 1;
     if (dur > 5) dur = 5;
     char cmd[48];
     snprintf(cmd, sizeof(cmd), "{\"cmd\":\"scan\",\"dur\":%ld}", dur);
-    if (!h2_enqueue(cmd)) {
-        request->send(503, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
-        return;
-    }
-    request->send(202, "application/json; charset=utf-8",
-                  String("{\"status\":\"accepted\",\"dur\":") + dur + "}");
+    h2_dispatch(request, cmd);
 }
 
 /// Reboots the coordinator. Authenticated -- it takes the Zigbee network down
 /// for a few seconds.
 static void handleH2Reboot(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
-    if (!h2_enqueue("{\"cmd\":\"reboot\"}")) {
-        request->send(503, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
-        return;
-    }
-    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+    h2_dispatch(request, "{\"cmd\":\"reboot\"}");
 }
 
 /// Asks the H2 to re-send its device list; the reply refills the registry.
 static void handleH2Refresh(AsyncWebServerRequest *request) {
     h2_enqueue("{\"cmd\":\"status\"}");
-    if (!h2_enqueue("{\"cmd\":\"list\"}")) {
-        request->send(503, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
-        return;
-    }
-    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+    h2_dispatch(request, "{\"cmd\":\"list\"}");
 }
 
 /// Removes one device: asks it to leave (works only while it is awake), drops
@@ -2678,17 +2695,8 @@ static void handleH2Refresh(AsyncWebServerRequest *request) {
 static void handleH2Remove(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
 
-    if (!request->hasParam("addr", true)) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr missing\"}");
-        return;
-    }
-    long addr = request->getParam("addr", true)->value().toInt();
-    if (addr <= 0 || addr > 0xFFFF) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
-        return;
-    }
+    long addr;
+    if (!h2_param(request, "addr", 1, 0xFFFF, addr)) return;
 
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "{\"cmd\":\"remove\",\"addr\":%ld}", addr);
@@ -2699,37 +2707,25 @@ static void handleH2Remove(AsyncWebServerRequest *request) {
     h2_dev_forget((uint16_t)addr);
     mqtt_remove_zigbee_device((uint16_t)addr);   // no orphaned HA entities
 
+    // Not h2_dispatch(): two commands were queued, and the local entry is
+    // already gone even if the queue could not take them.
     if (!queued) {
-        request->send(503, "application/json; charset=utf-8",
+        request->send(503, H2_JSON,
                       "{\"status\":\"partial\",\"message\":\"queue full, local entry cleared\"}");
         return;
     }
-    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+    request->send(202, H2_JSON, "{\"status\":\"accepted\"}");
 }
 
 /// Asks one device to report its attributes. The H2 ignores this for sleepy
 /// battery devices (pollDevice() bails on !canPoll), so it is safe to offer on
 /// every row -- it just does nothing there.
 static void handleH2Poll(AsyncWebServerRequest *request) {
-    if (!request->hasParam("addr", true)) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr missing\"}");
-        return;
-    }
-    long addr = request->getParam("addr", true)->value().toInt();
-    if (addr <= 0 || addr > 0xFFFF) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
-        return;
-    }
+    long addr;
+    if (!h2_param(request, "addr", 1, 0xFFFF, addr)) return;
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "{\"cmd\":\"poll\",\"addr\":%ld}", addr);
-    if (!h2_enqueue(cmd)) {
-        request->send(503, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
-        return;
-    }
-    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+    h2_dispatch(request, cmd);
 }
 
 /// Switches a device on or off. The H2 uses the endpoint it stored for the
@@ -2740,32 +2736,13 @@ static void handleH2Poll(AsyncWebServerRequest *request) {
 static void handleH2Level(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
 
-    if (!request->hasParam("addr", true) || !request->hasParam("value", true)) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr or value missing\"}");
-        return;
-    }
-    long addr  = request->getParam("addr", true)->value().toInt();
-    long value = request->getParam("value", true)->value().toInt();
-    if (addr <= 0 || addr > 0xFFFF) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
-        return;
-    }
-    if (value < 0 || value > 100) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"value must be 0-100\"}");
-        return;
-    }
+    long addr, value;
+    if (!h2_param(request, "addr", 1, 0xFFFF, addr)) return;
+    if (!h2_param(request, "value", 0, 100, value)) return;
 
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "{\"cmd\":\"level\",\"addr\":%ld,\"value\":%ld}", addr, value);
-    if (!h2_enqueue(cmd)) {
-        request->send(503, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
-        return;
-    }
-    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+    h2_dispatch(request, cmd);
 }
 
 /// Philips/Signify Hue motion sensor extras (SML001-SML004). Both attributes
@@ -2783,30 +2760,17 @@ static const uint16_t PHILIPS_MANUF_CODE = 0x100B;
 static void handleH2Led(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
 
-    if (!request->hasParam("addr", true) || !request->hasParam("on", true)) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr or on missing\"}");
-        return;
-    }
-    long addr = request->getParam("addr", true)->value().toInt();
-    bool on   = request->getParam("on", true)->value().toInt() != 0;
-    if (addr <= 0 || addr > 0xFFFF) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
-        return;
-    }
+    long addr, on_raw;
+    if (!h2_param(request, "addr", 1, 0xFFFF, addr)) return;
+    if (!h2_param(request, "on", 0, 1, on_raw)) return;
+    const bool on = (on_raw != 0);
 
     char cmd[160];
     snprintf(cmd, sizeof(cmd),
              "{\"cmd\":\"write_attr\",\"addr\":%ld,\"ep\":2,\"cluster\":\"0\",\"attr\":\"51\","
              "\"type\":\"bool\",\"value\":%d,\"manuf\":%u}",
              addr, on ? 1 : 0, (unsigned)PHILIPS_MANUF_CODE);
-    if (!h2_enqueue(cmd)) {
-        request->send(503, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
-        return;
-    }
-    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+    h2_dispatch(request, cmd);
 }
 
 /// Sets the Hue motion sensor's PIR sensitivity (Occupancy Sensing cluster
@@ -2815,66 +2779,33 @@ static void handleH2Led(AsyncWebServerRequest *request) {
 static void handleH2Sensitivity(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
 
-    if (!request->hasParam("addr", true) || !request->hasParam("level", true)) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr or level missing\"}");
-        return;
-    }
-    long addr  = request->getParam("addr", true)->value().toInt();
-    long level = request->getParam("level", true)->value().toInt();
-    if (addr <= 0 || addr > 0xFFFF) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
-        return;
-    }
-    if (level < 0 || level > 2) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"level must be 0-2\"}");
-        return;
-    }
+    long addr, level;
+    if (!h2_param(request, "addr", 1, 0xFFFF, addr)) return;
+    if (!h2_param(request, "level", 0, 2, level)) return;
 
     char cmd[160];
     snprintf(cmd, sizeof(cmd),
              "{\"cmd\":\"write_attr\",\"addr\":%ld,\"ep\":2,\"cluster\":\"1030\",\"attr\":\"48\","
              "\"type\":\"uint8\",\"value\":%ld,\"manuf\":%u}",
              addr, level, (unsigned)PHILIPS_MANUF_CODE);
-    if (!h2_enqueue(cmd)) {
-        request->send(503, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
-        return;
-    }
-    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+    h2_dispatch(request, cmd);
 }
 
 static void handleH2Switch(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
 
-    if (!request->hasParam("addr", true) || !request->hasParam("state", true)) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr or state missing\"}");
-        return;
-    }
-    long   addr  = request->getParam("addr", true)->value().toInt();
-    String state = request->getParam("state", true)->value();
-    if (addr <= 0 || addr > 0xFFFF) {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
-        return;
-    }
+    long addr;
+    if (!h2_param(request, "addr", 1, 0xFFFF, addr)) return;
+    if (!request->hasParam("state", true)) { h2_reject(request, "state missing"); return; }
+    const String state = request->getParam("state", true)->value();
     if (state != "on" && state != "off" && state != "toggle") {
-        request->send(400, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"state must be on, off or toggle\"}");
+        h2_reject(request, "state must be on, off or toggle");
         return;
     }
 
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "{\"cmd\":\"%s\",\"addr\":%ld}", state.c_str(), addr);
-    if (!h2_enqueue(cmd)) {
-        request->send(503, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
-        return;
-    }
-    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+    h2_dispatch(request, cmd);
 }
 
 /// Opens the Zigbee network for joining. Authenticated: without it anyone on
@@ -2882,21 +2813,17 @@ static void handleH2Switch(AsyncWebServerRequest *request) {
 static void handleH2Permit(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
 
+    // Optional with a default, so it is clamped rather than rejected.
+    // 0 closes the network again; permit-join is one byte, hence 254.
     long seconds = 120;
     if (request->hasParam("seconds", true))
         seconds = request->getParam("seconds", true)->value().toInt();
-    if (seconds < 0)   seconds = 0;      // 0 closes the network again
-    if (seconds > 254) seconds = 254;    // Zigbee permit-join is one byte
+    if (seconds < 0)   seconds = 0;
+    if (seconds > 254) seconds = 254;
 
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permit\",\"seconds\":%ld}", seconds);
-    if (!h2_enqueue(cmd)) {
-        request->send(503, "application/json; charset=utf-8",
-                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
-        return;
-    }
-    request->send(202, "application/json; charset=utf-8",
-                  String("{\"status\":\"accepted\",\"seconds\":") + seconds + "}");
+    h2_dispatch(request, cmd);
 }
 
 static void handleH2OtaStatus(AsyncWebServerRequest *request)

@@ -8,6 +8,7 @@ Weboberfläche, MQTT-Verteilung, optionalem WireGuard-Tunnel und OTA-Update.
 | [architecture.md](architecture.md) | Task-Aufteilung, Zustandsmaschine, Datenfluss, Module |
 | [build-and-flash.md](build-and-flash.md) | Plattformwahl, `custom_sdkconfig`, Skripte, Upload-Wege |
 | [configuration.md](configuration.md) | `/config.json`, Konsole, Weboberfläche, MQTT |
+| [zigbee-h2.md](zigbee-h2.md) | Zigbee-Koordinator, UART-Protokoll, HTTP-Routen, HA-Entitäten |
 | [pitfalls.md](pitfalls.md) | **Feinheiten und Stolperfallen** |
 
 ## Wo anfangen

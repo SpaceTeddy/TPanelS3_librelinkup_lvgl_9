@@ -59,6 +59,33 @@ LVGL mem: 71% used, max_used 47240/59908 Bytes, frag 2%
   `max_used` oder eine zweistellige Fragmentierung über die Zeit ist der
   Vorbote von Darstellungsproblemen.
 
+### `/status` — der stille Vertrag zur Weboberfläche
+
+`/status` liefert mehr als die gespeicherte Konfiguration; einige Felder sind
+Laufzeitzustand, den die Config-Seite braucht. Wer daran etwas ändert, muss
+beide Seiten anfassen.
+
+| Feld | Bedeutung |
+|---|---|
+| `brightness` | **Ist-Wert** der Hintergrundbeleuchtung. Dimmen und Automatik schreiben ihn laufend. |
+| `brightness_set` | **Sollwert** (`fsm.brightness_before_dim`). Übersteht die Dimmrampe, folgt der Automatik, ist das Ziel beim Aufhellen. **Daran hängt der Regler.** |
+| `dim_active` | ob gerade eine Dimmrampe läuft |
+| `auto_brightness` | Automatik ein/aus |
+| `auto_bri_min` / `auto_bri_max` | Endpunkte der Helligkeitskurve bei 1 lx und 1000 lx |
+| `lux_available` | ob ein gepaartes Zigbee-Gerät Beleuchtungsstärke meldet |
+| `lux` | aktueller Umgebungswert, `-1` wenn keiner |
+
+**Der Regler zeigt den Sollwert, nie den Ist-Wert.** Während einer Dimmrampe
+fällt der Ist-Wert bis auf 0; ein Regler, der ihm folgt, zieht dem Nutzer seine
+Einstellung weg. Der Ist-Wert erscheint nur als Zusatz, und nur wenn er
+abweicht — als `(dimmed to N)` oder `(auto)`.
+
+**`/status` darf die Konfiguration nicht aus dem Flash nachladen.** Das tat es
+bis 2026-09-02 und verwarf damit jeden nicht gespeicherten Laufzeitwert:
+`/setBrightness` schreibt bewusst nur ins RAM, weil bei jedem Reglerschritt zu
+speichern das Dateisystem zermürben würde. Jeder Statusabruf setzte die
+Helligkeit deshalb auf den zuletzt gespeicherten Wert zurück.
+
 ## Weboberfläche
 
 - **Dashboard** mit Glukose-Chart, Cursor beim Überfahren
