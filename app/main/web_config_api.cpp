@@ -84,7 +84,8 @@ String web_get_config_json() {
   out += "\"display_dim_timeout_s\":" + String((unsigned long)settings.config.display_dim_timeout_s) + ",";
   out += "\"ha_discovery\":" + String((int)settings.config.ha_discovery) + ",";
   out += "\"ota_staging\":" + String((int)settings.config.ota_staging) + ",";
-  out += "\"ota_force\":" + String((int)settings.config.ota_force);
+  out += "\"ota_force\":" + String((int)settings.config.ota_force) + ",";
+  out += "\"auto_brightness\":" + String((int)settings.config.auto_brightness);
 
   out += "}";
   return out;

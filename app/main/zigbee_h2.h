@@ -41,6 +41,7 @@ struct H2Device {
     int16_t  level;          ///< -1 not dimmable / unknown, else 0-100 percent
     float    temp;           ///< NAN when unknown
     int16_t  bat;            ///< -1 unknown, else percent
+    int32_t  lux;            ///< -1 unknown, else raw illuminance value
     uint32_t last_seen_ms;
     /// How the coordinator resolved this device against the ZHA database:
     /// "matched" (record applied), "known" (in the database but it carries
@@ -52,6 +53,11 @@ struct H2Device {
 
 /// Serialises the registry as a JSON array. Takes the registry lock.
 void h2_devices_json(String &out);
+
+/// Latest illuminance reading across all paired devices that report one --
+/// the freshest by last_seen_ms, so a stale sensor cannot outvote a live one.
+/// Returns false when no device currently has a lux value.
+bool zigbee_h2_ambient_lux(uint16_t &lux_out);
 
 /// Number of occupied registry slots.
 size_t h2_devices_count();

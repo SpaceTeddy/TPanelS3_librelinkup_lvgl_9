@@ -1922,6 +1922,7 @@ static void handleStatus(AsyncWebServerRequest *request) {
     json_config["mqtt_mode"]         = settings.config.mqtt_mode;
     json_config["mqtt_master_mode"]  = settings.config.mqtt_master_mode;
     json_config["brightness"]        = settings.config.brightness;
+    json_config["auto_brightness"]   = settings.config.auto_brightness;
 
     String jsonResponse;
     serializeJson(json_config, jsonResponse);
@@ -1969,6 +1970,9 @@ static void handleToggleFeature(AsyncWebServerRequest *request) {
         settings.config.ha_discovery = status;
         logger.notice("ha_discovery: %d", settings.config.ha_discovery);
         mqtt_publish_ha_discovery();
+    } else if (feature == "auto_brightness") {
+        settings.config.auto_brightness = status;
+        logger.notice("auto_brightness: %d", settings.config.auto_brightness);
     } else {
         request->send(400, "application/json", "{\"error\": \"Unknown feature\"}");
         return;

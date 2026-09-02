@@ -246,6 +246,13 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div class="brightness-label">Brightness: <span id="brightnessValue">50</span></div>
         <input type="range" id="brightnessSlider" min="0" max="255" value="50" oninput="updateBrightness(this.value)">
     </div>
+    <div class="switch-container" style="margin-top:10px;">
+        <span class="switch-label">Auto brightness <span style="color:var(--muted);font-weight:400;font-size:0.9em;">(follows the ambient light reported by a paired Zigbee illuminance sensor; the slider above is ignored while this is on)</span></span>
+        <label class="switch">
+            <input type="checkbox" id="autoBrightnessToggle" onchange="toggleFeature('auto_brightness', this.checked); document.getElementById('brightnessSlider').disabled = this.checked;">
+            <span class="slider"></span>
+        </label>
+    </div>
     <div style="margin-top:14px;">
         <div class="brightness-label">Dim timeout: <span id="dimTimeoutDisplay">--</span></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
@@ -477,6 +484,7 @@ const char index_html[] PROGMEM = R"rawliteral(
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">State</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Motion</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Temp</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Lux</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Battery</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Switch</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Brightness</th>
@@ -646,6 +654,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                                     : '<span style="color:var(--bad);">offline</span>') +
                     zbCell(d.occ < 0 ? dim : (d.occ ? 'yes' : 'no')) +
                     zbCell(d.temp === null ? dim : d.temp.toFixed(1) + ' &deg;C') +
+                    zbCell((d.lux === undefined || d.lux === null || d.lux < 0) ? dim : d.lux + ' lx') +
                     zbCell(d.bat  <  0    ? dim : d.bat + ' %') +
                     // A device reporting occupancy is a sensor: the H2 mirrors its
                     // motion state into "on" (coordinator_zigbee.cpp), so "on"
@@ -1359,6 +1368,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       setCheck("mqttToggle", cfg.mqtt_mode);
       setCheck("mqttMasterToggle", cfg.mqtt_master_mode);
       setCheck("haDiscoveryToggle", cfg.ha_discovery !== undefined ? cfg.ha_discovery : 1);
+      setCheck("autoBrightnessToggle", cfg.auto_brightness);
 
       const bs = document.getElementById("brightnessSlider");
       const bv = document.getElementById("brightnessValue");
@@ -1366,6 +1376,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         bs.value = String(cfg.brightness);
         if(bv) bv.textContent = String(cfg.brightness);
       }
+      if(bs) bs.disabled = (Number(cfg.auto_brightness) === 1);
       if(cfg.display_dim_timeout_s !== undefined && cfg.display_dim_timeout_s !== null){
         const di = document.getElementById("dimTimeoutInput");
         const dd = document.getElementById("dimTimeoutDisplay");

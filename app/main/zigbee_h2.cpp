@@ -104,7 +104,7 @@ static void h2_copy_field(char *dst, size_t cap, const char *src)
 /// Insert or update one device. Caller must hold g_h2_dev_lock.
 static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mfr,
                                  const char *model, int ep, int online,
-                                 int occ, float temp, int bat, int on)
+                                 int occ, float temp, int bat, int on, int lux)
 {
     int slot = -1;
     for (int i = 0; i < H2_MAX_DEVICES; i++) {
@@ -132,6 +132,7 @@ static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mf
         d.level = -1;
         d.bat   = -1;
         d.temp = NAN;
+        d.lux   = -1;
         d.used = true;
     }
     d.addr = addr;
@@ -143,6 +144,7 @@ static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mf
     if (occ    >= 0) d.occ    = (int8_t)occ;
     if (on     >= 0) d.on     = (int8_t)on;
     if (bat    >= 0) d.bat    = (int16_t)bat;
+    if (lux    >= 0) d.lux    = (int32_t)lux;
     if (!isnan(temp)) d.temp  = temp;
     d.last_seen_ms = millis();
 }
@@ -183,11 +185,11 @@ static void h2_dev_set_level(uint16_t addr, int level)
 
 static void h2_dev_upsert(uint16_t addr, const char *ieee, const char *mfr,
                           const char *model, int ep, int online,
-                          int occ, float temp, int bat, int on)
+                          int occ, float temp, int bat, int on, int lux = -1)
 {
     if (g_h2_dev_lock == nullptr) return;
     if (xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(50)) != pdTRUE) return;
-    h2_dev_upsert_locked(addr, ieee, mfr, model, ep, online, occ, temp, bat, on);
+    h2_dev_upsert_locked(addr, ieee, mfr, model, ep, online, occ, temp, bat, on, lux);
     xSemaphoreGive(g_h2_dev_lock);
 }
 
@@ -199,7 +201,7 @@ void h2_devices_json(String &out)
 
     const uint32_t now = millis();
     bool first = true;
-    char entry[420];
+    char entry[460];
     for (int i = 0; i < H2_MAX_DEVICES; i++) {
         const H2Device &d = g_h2_devices[i];
         if (!d.used) continue;
@@ -209,18 +211,41 @@ void h2_devices_json(String &out)
         snprintf(entry, sizeof(entry),
                  "%s{\"addr\":%u,\"hex\":\"0x%04X\",\"ieee\":\"%s\",\"mfr\":\"%s\","
                  "\"model\":\"%s\",\"ep\":%u,\"online\":%s,\"occ\":%d,"
-                 "\"temp\":%s,\"bat\":%d,\"on\":%d,\"level\":%d,\"zha\":\"%s\","
+                 "\"temp\":%s,\"bat\":%d,\"lux\":%ld,\"on\":%d,\"level\":%d,\"zha\":\"%s\","
                  "\"age_s\":%u}",
                  first ? "" : ",", (unsigned)d.addr, (unsigned)d.addr,
                  d.ieee, d.mfr, d.model, (unsigned)d.ep,
                  d.online ? "true" : "false", (int)d.occ,
-                 temp_buf, (int)d.bat, (int)d.on, (int)d.level, d.zha,
+                 temp_buf, (int)d.bat, (long)d.lux, (int)d.on, (int)d.level, d.zha,
                  (unsigned)((now - d.last_seen_ms) / 1000UL));
         out += entry;
         first = false;
     }
     xSemaphoreGive(g_h2_dev_lock);
     out += "]";
+}
+
+bool zigbee_h2_ambient_lux(uint16_t &lux_out)
+{
+    if (g_h2_dev_lock == nullptr) return false;
+    if (xSemaphoreTake(g_h2_dev_lock, pdMS_TO_TICKS(50)) != pdTRUE) return false;
+
+    bool found = false;
+    uint32_t freshest = 0;
+    int32_t lux = -1;
+    for (int i = 0; i < H2_MAX_DEVICES; i++) {
+        const H2Device &d = g_h2_devices[i];
+        if (!d.used || d.lux < 0) continue;
+        if (!found || d.last_seen_ms > freshest) {
+            found = true;
+            freshest = d.last_seen_ms;
+            lux = d.lux;
+        }
+    }
+    xSemaphoreGive(g_h2_dev_lock);
+
+    if (found) lux_out = (uint16_t)lux;
+    return found;
 }
 
 size_t h2_devices_count()
@@ -421,7 +446,8 @@ static void h2_handle_message(const String &line)
                           d["occ"].isNull()    ? -1 : (int)(d["occ"].as<bool>() ? 1 : 0),
                           d["temp"].isNull()   ? NAN : d["temp"].as<float>(),
                           d["bat"].isNull()    ? -1 : d["bat"].as<int>(),
-                          d["on"].isNull()     ? -1 : (int)(d["on"].as<bool>() ? 1 : 0));
+                          d["on"].isNull()     ? -1 : (int)(d["on"].as<bool>() ? 1 : 0),
+                          d["lux"].isNull()    ? -1 : d["lux"].as<int>());
             h2_dev_set_zha(d["addr"].as<uint16_t>(), d["zha"] | "");
             h2_dev_set_level(d["addr"].as<uint16_t>(), d["level"] | -1);
         }
@@ -522,7 +548,8 @@ static void h2_handle_message(const String &line)
             h2_dev_upsert(doc["addr"].as<uint16_t>(), doc["ieee"] | "", "", "",
                           -1, 1, occ ? 1 : 0,
                           doc["temp"].isNull() ? NAN : doc["temp"].as<float>(),
-                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>(), -1);
+                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>(), -1,
+                          doc["lux"].isNull()  ? -1  : doc["lux"].as<int>());
         if (occ)
             app_fsm_notify_user_activity(g_fsm);
     }
@@ -544,7 +571,8 @@ static void h2_handle_message(const String &line)
             h2_dev_upsert(doc["addr"].as<uint16_t>(), doc["ieee"] | "", "", "",
                           -1, 1, -1,
                           doc["temp"].isNull() ? NAN : doc["temp"].as<float>(),
-                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>(), -1);
+                          doc["bat"].isNull()  ? -1  : doc["bat"].as<int>(), -1,
+                          doc["lux"].isNull()  ? -1  : doc["lux"].as<int>());
         app_fsm_notify_user_activity(g_fsm);
     }
     else

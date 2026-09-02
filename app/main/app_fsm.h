@@ -104,6 +104,7 @@ struct AppFsm
   uint8_t brightness_before_dim = 0;
   uint8_t display_undim_target = 0;
   bool display_dim_active = false;
+  uint32_t last_ambient_step_ms = 0; ///< throttles auto_brightness's ambient-lux polling
 
   uint8_t consecutive_failures = 0;
 

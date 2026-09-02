@@ -18,6 +18,8 @@
 #include "http_update.h"
 #include "ui_display.h"
 #include "tpanels3.h"
+#include "zigbee_h2.h"
+#include <math.h>
 
 
 //------------------------[uuid logger]-----------------------------------
@@ -415,6 +417,64 @@ static bool should_dim_display(const AppFsm &fsm)
     return (millis() - fsm.last_user_activity_ms) >= (uint32_t)settings.config.display_dim_timeout_s * 1000UL;
 }
 
+// Ambient-light auto-brightness (settings.config.auto_brightness). Maps the
+// freshest lux reading from any paired Zigbee illuminance sensor onto a
+// brightness target, log-scaled since perceived brightness (and the lux
+// values sensors report) are roughly logarithmic, not linear.
+static const uint16_t AMBIENT_LUX_MIN = 1;      // at or below: minimum brightness
+static const uint16_t AMBIENT_LUX_MAX = 1000;   // at or above: maximum brightness
+static const uint8_t  AMBIENT_BRI_MIN = 20;     // never below this -- stays legible in the dark
+static const uint8_t  AMBIENT_BRI_MAX = 255;
+static const uint32_t AMBIENT_STEP_PERIOD_MS = 1000;
+static const uint8_t  AMBIENT_STEP_MAX_DELTA = 4; // brightness units per period -- glides, does not jump
+
+static uint8_t ambient_lux_to_brightness(uint16_t lux)
+{
+    if (lux <= AMBIENT_LUX_MIN) return AMBIENT_BRI_MIN;
+    if (lux >= AMBIENT_LUX_MAX) return AMBIENT_BRI_MAX;
+    float t = log10f((float)lux / AMBIENT_LUX_MIN) / log10f((float)AMBIENT_LUX_MAX / AMBIENT_LUX_MIN);
+    return (uint8_t)(AMBIENT_BRI_MIN + t * (AMBIENT_BRI_MAX - AMBIENT_BRI_MIN));
+}
+
+/**
+ * @brief Glides settings.config.brightness toward the ambient-lux target.
+ *
+ * No-op unless auto_brightness is enabled, a sensor currently reports lux,
+ * and the display is awake -- this never fights display_dim_step()/
+ * display_undim_step() during an actual dim/undim transition, and inactivity
+ * dimming still runs on its own schedule regardless of ambient light.
+ *
+ * @param fsm FSM instance; brightness and the ambient step timestamp are
+ *            updated in-place.
+ */
+static void display_ambient_step(AppFsm &fsm)
+{
+    if (!settings.config.auto_brightness) return;
+    if (fsm.display_dim_active) return;
+
+    const uint32_t now = millis();
+    if (fsm.last_ambient_step_ms != 0 && (now - fsm.last_ambient_step_ms) < AMBIENT_STEP_PERIOD_MS)
+        return;
+    fsm.last_ambient_step_ms = now;
+
+    uint16_t lux;
+    if (!zigbee_h2_ambient_lux(lux)) return;
+
+    const uint8_t target = ambient_lux_to_brightness(lux);
+    const int16_t diff = (int16_t)target - (int16_t)settings.config.brightness;
+    if (diff == 0) return;
+
+    const int16_t step = (diff > 0)
+        ? ((diff < AMBIENT_STEP_MAX_DELTA) ? diff : (int16_t)AMBIENT_STEP_MAX_DELTA)
+        : ((diff > -AMBIENT_STEP_MAX_DELTA) ? diff : -(int16_t)AMBIENT_STEP_MAX_DELTA);
+
+    settings.config.brightness = (uint8_t)((int16_t)settings.config.brightness + step);
+    tpanels3.set_backlight_brightness(settings.config.brightness);
+    // Keeps a later real DISPLAY_DIM/UNDIM cycle consistent with the
+    // ambient-adjusted level instead of fading back to a stale one.
+    fsm.brightness_before_dim = settings.config.brightness;
+}
+
 /**
  * @brief Decrement backlight brightness by one step if the step interval has elapsed.
  *
@@ -773,7 +833,11 @@ void app_fsm_poll(AppFsm &fsm)
             enter_state(fsm, AppState::DISPLAY_DIM, "INACTIVITY");
             break;
         }
-    
+
+        // 9) Ambient-light auto-brightness (no state transition -- glides
+        // settings.config.brightness in place while the display is awake).
+        display_ambient_step(fsm);
+
         break;
     }
     case AppState::RUN_FETCH:

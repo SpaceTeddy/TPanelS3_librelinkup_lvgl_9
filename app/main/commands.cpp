@@ -66,13 +66,14 @@ static void h2_pair_task(void* arg) {
 
     char cmd[96];
     snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permit\",\"seconds\":%u}", (unsigned)seconds);
-    SerialPort.print(cmd);
-    SerialPort.print('\n');
+    h2_arm_echo();
+    h2_enqueue(cmd);
     logger.notice("[H2] pair helper: sent permit for %u s", (unsigned)seconds);
 
     vTaskDelay(pdMS_TO_TICKS(seconds * 1000UL));
 
-    SerialPort.print("{\"cmd\":\"list\"}\n");
+    h2_arm_echo();
+    h2_enqueue("{\"cmd\":\"list\"}");
     logger.notice("[H2] pair helper: permit window ended -> requested list");
 
     g_h2_pair_task_active = false;
