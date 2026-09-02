@@ -1925,7 +1925,13 @@ static void handleStatus(AsyncWebServerRequest *request) {
     json_config["wg_mode"]           = settings.config.wg_mode;
     json_config["mqtt_mode"]         = settings.config.mqtt_mode;
     json_config["mqtt_master_mode"]  = settings.config.mqtt_master_mode;
+    // Live backlight value -- dimming and auto-brightness write it directly.
     json_config["brightness"]        = settings.config.brightness;
+    // Setpoint for the slider: survives a dim ramp, follows the
+    // auto-brightness target, and is what undim restores to.
+    extern AppFsm g_fsm;
+    json_config["brightness_set"]    = g_fsm.brightness_before_dim;
+    json_config["dim_active"]        = g_fsm.display_dim_active ? 1 : 0;
     json_config["auto_brightness"]   = settings.config.auto_brightness;
 
     String jsonResponse;

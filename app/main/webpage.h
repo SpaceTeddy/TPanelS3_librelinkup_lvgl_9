@@ -243,7 +243,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <div class="container">
     <h2>Brightness &amp; Display</h2>
     <div class="brightness-container">
-        <div class="brightness-label">Brightness: <span id="brightnessValue">50</span></div>
+        <div class="brightness-label">Brightness: <span id="brightnessValue">--</span><span id="brightnessNote" style="color:var(--muted);font-weight:400;"></span></div>
         <input type="range" id="brightnessSlider" min="0" max="255" value="50" oninput="updateBrightness(this.value)">
     </div>
     <div class="switch-container" style="margin-top:10px;">
@@ -551,6 +551,47 @@ const char index_html[] PROGMEM = R"rawliteral(
     document.addEventListener('DOMContentLoaded', () => {
         refreshFirmwareUpdateStatus();
         setInterval(refreshFirmwareUpdateStatus, 15000);
+    });
+
+    // --- Brightness readback ----------------------------------------------------
+    // settings.config.brightness IS the live backlight value: display_dim_step()
+    // and display_ambient_step() write it directly. Reading it back periodically
+    // makes the slider follow dimming and auto-brightness instead of showing
+    // whatever was current when the page loaded.
+    let brightnessHeld = false;
+
+    async function refreshBrightness(){
+        if(brightnessHeld) return;              // never fight an active drag
+        try{
+            const d = await (await fetch('/status', {cache:'no-store'})).json();
+            const sl = document.getElementById('brightnessSlider');
+            const bv = document.getElementById('brightnessValue');
+            const bn = document.getElementById('brightnessNote');
+            // The slider shows the setpoint, never the live value: during an idle
+            // dim ramp the live value falls to 0, and a slider that follows it
+            // drags the user's setting away. The two only differ while dimming
+            // or in auto mode -- say so then, and stay quiet otherwise.
+            const set = (d.brightness_set !== undefined) ? d.brightness_set : d.brightness;
+            if(sl && !brightnessHeld) sl.value = set;
+            if(bv) bv.textContent = set;
+            if(bn){
+                if(Number(d.auto_brightness) === 1)      bn.textContent = '  (auto)';
+                else if(Number(d.dim_active) === 1)      bn.textContent = '  (dimmed to ' + d.brightness + ')';
+                else if(d.brightness !== set)            bn.textContent = '  (currently ' + d.brightness + ')';
+                else                                    bn.textContent = '';
+            }
+        }catch(e){}
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const sl = document.getElementById('brightnessSlider');
+        if(sl){
+            sl.addEventListener('pointerdown', () => { brightnessHeld = true;  });
+            sl.addEventListener('pointerup',   () => { brightnessHeld = false; });
+            sl.addEventListener('pointercancel', () => { brightnessHeld = false; });
+        }
+        refreshBrightness();
+        setInterval(refreshBrightness, 3000);
     });
 
     // --- S3 manual firmware upload --------------------------------------------
