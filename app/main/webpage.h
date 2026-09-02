@@ -488,6 +488,7 @@ const char index_html[] PROGMEM = R"rawliteral(
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Battery</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Switch</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Brightness</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;" title="Hue motion sensor extras: LED trigger indicator and PIR sensitivity. Write-only -- does not reflect the device's current state.">Hue</th>
           <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:600;">Seen</th>
           <th style="border-bottom:1px solid var(--border);"></th>
         </tr></thead>
@@ -625,6 +626,26 @@ const char index_html[] PROGMEM = R"rawliteral(
              + d.level + '%</span>';
     }
 
+    // Philips/Signify Hue motion sensors (SML001-SML004) support a couple of
+    // manufacturer-specific extras ZHA does not know about generically --
+    // hardcoded for this device family, same reasoning as the H2's
+    // local_devices.json override.
+    function isPhilipsMotion(d){
+        return (d.mfr === 'Philips' || d.mfr === 'Signify Netherlands B.V.') &&
+               ['SML001','SML002','SML003','SML004'].includes(d.model);
+    }
+
+    function zbHueCell(d){
+        if(!isPhilipsMotion(d)) return '<span style="color:var(--muted);">-</span>';
+        return '<label style="margin-right:8px;white-space:nowrap;" title="LED flash on motion trigger">'
+             + '<input type="checkbox" data-zbled="' + d.addr + '" /> LED</label>'
+             + '<select data-zbsens="' + d.addr + '" title="PIR sensitivity" style="padding:2px 4px;">'
+             + '<option value="0">Low</option>'
+             + '<option value="1" selected>Medium</option>'
+             + '<option value="2">High</option>'
+             + '</select>';
+    }
+
     function zbCell(html){
         return '<td style="padding:6px;border-bottom:1px solid var(--border);">' + html + '</td>';
     }
@@ -667,6 +688,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                       + ' style="padding:3px 10px;font-size:0.85em;'
                       + (d.on ? '' : 'border-color:var(--bad);color:var(--bad);font-weight:600;') + '">Off</button>') +
                     zbCell(zbLevelCell(d)) +
+                    zbCell(zbHueCell(d)) +
                     zbCell('<span style="color:var(--muted);">' + zbAge(d.age_s) + '</span>') +
                     zbCell('<button type="button" data-zbpoll="' + d.addr +
                            '" style="padding:4px 10px;font-size:0.85em;margin-right:6px;">Poll</button>' +
@@ -829,15 +851,37 @@ const char index_html[] PROGMEM = R"rawliteral(
         // rather than the optimistic value shown while dragging.
         body.addEventListener('change', async (ev) => {
             const sl = ev.target.closest('input[data-zblevel]');
-            if(!sl) return;
-            const addr = sl.dataset.zblevel, value = sl.value;
-            sl.disabled = true;
-            const r = await zbPost('/api/h2/level', 'addr=' + addr + '&value=' + value);
-            sl.disabled = false;
-            if(r.status === 401){ zbSay('login required','bad'); return; }
-            zbSay(r.ok ? 'brightness set' : 'brightness rejected', r.ok ? 'ok' : 'bad');
-            setTimeout(async () => { await zbPost('/api/h2/refresh');
-                                     setTimeout(zbLoad, 800); }, 400);
+            if(sl){
+                const addr = sl.dataset.zblevel, value = sl.value;
+                sl.disabled = true;
+                const r = await zbPost('/api/h2/level', 'addr=' + addr + '&value=' + value);
+                sl.disabled = false;
+                if(r.status === 401){ zbSay('login required','bad'); return; }
+                zbSay(r.ok ? 'brightness set' : 'brightness rejected', r.ok ? 'ok' : 'bad');
+                setTimeout(async () => { await zbPost('/api/h2/refresh');
+                                         setTimeout(zbLoad, 800); }, 400);
+                return;
+            }
+            const led = ev.target.closest('input[data-zbled]');
+            if(led){
+                const addr = led.dataset.zbled;
+                led.disabled = true;
+                const r = await zbPost('/api/h2/led', 'addr=' + addr + '&on=' + (led.checked ? 1 : 0));
+                led.disabled = false;
+                if(r.status === 401){ zbSay('login required','bad'); return; }
+                zbSay(r.ok ? 'LED command sent' : 'LED command rejected', r.ok ? 'ok' : 'bad');
+                return;
+            }
+            const sens = ev.target.closest('select[data-zbsens]');
+            if(sens){
+                const addr = sens.dataset.zbsens;
+                sens.disabled = true;
+                const r = await zbPost('/api/h2/sensitivity', 'addr=' + addr + '&level=' + sens.value);
+                sens.disabled = false;
+                if(r.status === 401){ zbSay('login required','bad'); return; }
+                zbSay(r.ok ? 'sensitivity command sent' : 'sensitivity command rejected', r.ok ? 'ok' : 'bad');
+                return;
+            }
         });
 
         zbLoad(); zbLoadNets();

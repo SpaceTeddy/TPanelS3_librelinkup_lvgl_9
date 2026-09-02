@@ -2017,8 +2017,11 @@ static void handleSetBrightness(AsyncWebServerRequest *request) {
     // computes its undim target from stale state. The MQTT "brightness"
     // command already does this; this path did not, and was the one setter
     // that could run unauthenticated from anywhere on the network.
+    // Not notify_user_activity() itself: that forces an immediate
+    // wake-to-target whenever brightness reads 0, undoing "value=0" right
+    // back to ~50 on the next poll.
     extern AppFsm g_fsm;
-    app_fsm_notify_user_activity(g_fsm);
+    app_fsm_notify_brightness_set(g_fsm, (uint8_t)brightness);
 
     request->send(200, "application/json", "{\"brightness\": " + String(brightness) + "}");
 }
@@ -2723,6 +2726,84 @@ static void handleH2Level(AsyncWebServerRequest *request) {
     request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
 }
 
+/// Philips/Signify Hue motion sensor extras (SML001-SML004). Both attributes
+/// are manufacturer-specific ZCL extensions -- not part of the ZHA database,
+/// hardcoded here for this one device family rather than generalised, same
+/// as data/local_devices.json on the H2 is a hand-curated exception rather
+/// than something the exporter derives. Endpoint 2 and the cluster/attribute
+/// IDs come from zhaquirks.philips.motion / zhaquirks.philips.PhilipsOccupancySensing.
+/// Write-only: the H2 never reads these back, so the controls do not reflect
+/// the device's actual current state, only the last command sent.
+static const uint16_t PHILIPS_MANUF_CODE = 0x100B;
+
+/// Toggles the Hue motion sensor's LED trigger indicator (Basic cluster
+/// 0x0000, attribute 0x0033, bool, manufacturer-specific).
+static void handleH2Led(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+
+    if (!request->hasParam("addr", true) || !request->hasParam("on", true)) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr or on missing\"}");
+        return;
+    }
+    long addr = request->getParam("addr", true)->value().toInt();
+    bool on   = request->getParam("on", true)->value().toInt() != 0;
+    if (addr <= 0 || addr > 0xFFFF) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
+        return;
+    }
+
+    char cmd[160];
+    snprintf(cmd, sizeof(cmd),
+             "{\"cmd\":\"write_attr\",\"addr\":%ld,\"ep\":2,\"cluster\":\"0\",\"attr\":\"51\","
+             "\"type\":\"bool\",\"value\":%d,\"manuf\":%u}",
+             addr, on ? 1 : 0, (unsigned)PHILIPS_MANUF_CODE);
+    if (!h2_enqueue(cmd)) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+}
+
+/// Sets the Hue motion sensor's PIR sensitivity (Occupancy Sensing cluster
+/// 0x0406, attribute 0x0030, uint8, manufacturer-specific). 0/1/2 mirror the
+/// Low/Medium/High levels Home Assistant's ZHA integration shows for it.
+static void handleH2Sensitivity(AsyncWebServerRequest *request) {
+    if (!ensureConfigAuth(request)) return;
+
+    if (!request->hasParam("addr", true) || !request->hasParam("level", true)) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr or level missing\"}");
+        return;
+    }
+    long addr  = request->getParam("addr", true)->value().toInt();
+    long level = request->getParam("level", true)->value().toInt();
+    if (addr <= 0 || addr > 0xFFFF) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"addr out of range\"}");
+        return;
+    }
+    if (level < 0 || level > 2) {
+        request->send(400, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"level must be 0-2\"}");
+        return;
+    }
+
+    char cmd[160];
+    snprintf(cmd, sizeof(cmd),
+             "{\"cmd\":\"write_attr\",\"addr\":%ld,\"ep\":2,\"cluster\":\"1030\",\"attr\":\"48\","
+             "\"type\":\"uint8\",\"value\":%ld,\"manuf\":%u}",
+             addr, level, (unsigned)PHILIPS_MANUF_CODE);
+    if (!h2_enqueue(cmd)) {
+        request->send(503, "application/json; charset=utf-8",
+                      "{\"status\":\"rejected\",\"message\":\"queue full\"}");
+        return;
+    }
+    request->send(202, "application/json; charset=utf-8", "{\"status\":\"accepted\"}");
+}
+
 static void handleH2Switch(AsyncWebServerRequest *request) {
     if (!ensureConfigAuth(request)) return;
 
@@ -2881,6 +2962,8 @@ server.addHandler(&g_ws_telnet);
     server.on("/api/h2/remove",       HTTP_POST, handleH2Remove);
     server.on("/api/h2/switch",       HTTP_POST, handleH2Switch);
     server.on("/api/h2/level",        HTTP_POST, handleH2Level);
+    server.on("/api/h2/led",          HTTP_POST, handleH2Led);
+    server.on("/api/h2/sensitivity",  HTTP_POST, handleH2Sensitivity);
     server.on("/api/h2/poll",         HTTP_POST, handleH2Poll);
     server.on("/api/h2/ota/status",   HTTP_GET,  handleH2OtaStatus);
     server.on("/api/h2/ota/upload",   HTTP_POST, handleH2OtaUploadDone, handleH2OtaUploadBody);
