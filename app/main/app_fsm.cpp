@@ -593,6 +593,30 @@ void app_fsm_notify_user_activity(AppFsm &fsm)
 }
 
 /**
+ * @brief Record that display brightness was just set directly to an explicit
+ *        value (console/web/MQTT), as opposed to genuine user activity.
+ *
+ * See app_fsm.h for why this must not reuse app_fsm_notify_user_activity():
+ * that function always wakes to a target when brightness reads 0, which
+ * would immediately undo a deliberate "set brightness to 0" command.
+ *
+ * @param fsm   FSM instance to notify.
+ * @param value The brightness the caller just applied (0-255).
+ */
+void app_fsm_notify_brightness_set(AppFsm &fsm, uint8_t value)
+{
+    fsm.last_user_activity_ms = millis();
+    fsm.brightness_before_dim = value;
+    fsm.display_dim_active = false;
+    fsm.last_dim_step_ms = 0;
+    // Cancel an in-progress fade rather than let its next step() overwrite
+    // the value just written -- display_dim_step()/display_undim_step() both
+    // act on settings.config.brightness unconditionally once per tick.
+    if (fsm.state == AppState::DISPLAY_DIM || fsm.state == AppState::DISPLAY_UNDIM)
+        enter_state(fsm, AppState::RUN_IDLE, "BRIGHTNESS SET");
+}
+
+/**
  * @brief Main FSM tick — call once per Arduino loop() iteration.
  *
  * Execution order per tick:

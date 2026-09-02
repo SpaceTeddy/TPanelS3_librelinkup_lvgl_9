@@ -157,3 +157,24 @@ void app_fsm_notify_mqtt_master_rx(AppFsm &fsm);
  * @param fsm Reference to the FSM instance to notify.
  */
 void app_fsm_notify_user_activity(AppFsm &fsm);
+
+/**
+ * @brief Record that display brightness was just set directly to an explicit value.
+ *
+ * Call this from a brightness setter (console command, web endpoint, MQTT)
+ * right after writing settings.config.brightness and the backlight PWM --
+ * NOT app_fsm_notify_user_activity(), which unconditionally forces a
+ * wake-to-target transition whenever brightness reads 0. That is correct for
+ * genuine activity (touch, motion) waking a display the inactivity timer
+ * dimmed, but wrong here: it would immediately fight a deliberate "set
+ * brightness to 0" command by fading back up to the last pre-dim value.
+ *
+ * Still resets the inactivity timer and cancels any in-progress dim/undim
+ * fade so it does not overwrite the just-set value on its next step, and
+ * updates the pre-dim bookmark so a later *genuine* activity event restores
+ * to this value rather than a stale one.
+ *
+ * @param fsm   Reference to the FSM instance to notify.
+ * @param value The brightness the caller just applied (0-255).
+ */
+void app_fsm_notify_brightness_set(AppFsm &fsm, uint8_t value);

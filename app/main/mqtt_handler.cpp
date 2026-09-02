@@ -484,7 +484,10 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         else if (strcmp(cmd, "brightness") == 0)
         {
             settings.config.brightness = tpanels3.set_backlight_brightness(parameter1);
-            app_fsm_notify_user_activity(g_fsm);
+            // Not notify_user_activity(): that forces an immediate
+            // wake-to-target whenever brightness reads 0, undoing an
+            // explicit "brightness 0" command right back to ~50.
+            app_fsm_notify_brightness_set(g_fsm, settings.config.brightness);
             cmd_ok     = true;
             needs_save = true;
         }

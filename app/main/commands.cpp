@@ -574,9 +574,12 @@ void trgbBrightnessCommand(uuid::console::Shell &shell, const std::vector<std::s
     settings.config.brightness = brightness;
     tpanels3.set_backlight_brightness(brightness);
     // Keeps the FSM's dim bookkeeping from going stale relative to a manually
-    // set value -- same reasoning as the /setBrightness fix.
+    // set value -- same reasoning as the /setBrightness fix. Not
+    // notify_user_activity(): that forces an immediate wake-to-target
+    // whenever brightness reads 0, which would undo "brightness 0" right
+    // back to ~50 on the very next poll.
     extern AppFsm g_fsm;
-    app_fsm_notify_user_activity(g_fsm);
+    app_fsm_notify_brightness_set(g_fsm, (uint8_t)brightness);
     shell.printfln(F("Brightness set to %d"), brightness);
 }
 
