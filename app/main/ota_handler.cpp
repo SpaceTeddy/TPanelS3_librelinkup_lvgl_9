@@ -123,7 +123,7 @@ void onOTAEnd(bool success)
         if (ui_Label_FWUpdateTitle != NULL)
             lv_label_set_text(ui_Label_FWUpdateTitle, "Update finished");
         lv_task_handler();
-        delay(255);
+        delay(1000);   // let "100% / Update finished" stand before going dark
         // ElegantOTA.loop() restarts ~2s after this callback returns (see
         // ElegantOTAClass::loop() in the library) -- blank the panel now so
         // nothing is left on screen when that reset happens.

@@ -922,6 +922,12 @@ void ui_warmup_screen()
  */
 void ui_blank_screen_for_reset()
 {
+    // Backlight off before anything is drawn. Painting the overlay first left
+    // the panel visibly redrawing, and whatever the reset leaves in the frame
+    // buffer was on screen until the next boot lit it up again.
+    tpanels3.set_backlight_brightness(0);
+    delay(20);
+
     lv_obj_t *blank = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(blank);
     lv_obj_set_size(blank, LV_PCT(100), LV_PCT(100));
@@ -930,8 +936,5 @@ void ui_blank_screen_for_reset()
     lv_obj_set_style_border_width(blank, 0, 0);
 
     lv_timer_handler();
-    delay(50);
-
-    tpanels3.set_backlight_brightness(0);
     delay(50);
 }

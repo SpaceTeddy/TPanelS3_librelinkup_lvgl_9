@@ -438,7 +438,7 @@ static void fw_update_install_now() {
         }
         fw_ui_finish_success();
         logger.debug("[FW]  %-12s ->  %-12s | took=%6lums", "installing", "updated", (unsigned long)(millis()-t0));
-        delay(500);
+        delay(1000);   // let "100% / Update finished" stand before going dark
         ui_blank_screen_for_reset();
         ESP.restart();
         return;
