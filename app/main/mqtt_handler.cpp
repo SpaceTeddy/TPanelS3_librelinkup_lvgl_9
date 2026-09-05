@@ -456,13 +456,22 @@ void mqtt_publish()
     json_mqtt["fw_installed"]       = fw_update_get_current_version();
     json_mqtt["fw_latest"]          = fw_update_get_latest_version();
 
-    serializeJson(json_mqtt, mqtt.mqtt_buffer);
+    // String, not a fixed buffer -- this JSON has grown past 255 bytes before
+    // (fw_installed/fw_latest version strings, trendStr) and a fixed-size
+    // serializeJson() truncates silently instead of erroring, producing
+    // malformed JSON that HA's value_template can't parse. That looked like
+    // "HA only picks up the value right after a reset": early after boot
+    // fw_latest is still empty (the update check hasn't run yet), so the
+    // payload was short enough to fit -- it only broke once that field
+    // populated a few minutes in.
+    String status_payload;
+    serializeJson(json_mqtt, status_payload);
     json_mqtt.clear();
     g_loop_breadcrumb = "mqtt.pub.status";
-    logger.debug("MQTT publish status: %u bytes", (unsigned)strlen(mqtt.mqtt_buffer));
+    logger.debug("MQTT publish status: %u bytes", (unsigned)status_payload.length());
     if (!mqtt_client.publish(
         (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_client_data).c_str(),
-        mqtt.mqtt_buffer, false))
+        status_payload.c_str(), false))
     {
         logger.warning("MQTT publish status failed (state=%d)", mqtt_client.state());
     }
@@ -500,13 +509,14 @@ void mqtt_publish()
     json_mqtt["SSID"] = WiFi.SSID();
     json_mqtt["RSSI"] = WiFi.RSSI();
 
-    serializeJson(json_mqtt, mqtt.mqtt_buffer);
+    String network_payload;
+    serializeJson(json_mqtt, network_payload);
     json_mqtt.clear();
     g_loop_breadcrumb = "mqtt.pub.network";
-    logger.debug("MQTT publish network: %u bytes", (unsigned)strlen(mqtt.mqtt_buffer));
+    logger.debug("MQTT publish network: %u bytes", (unsigned)network_payload.length());
     if (!mqtt_client.publish(
         (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_client_network).c_str(),
-        mqtt.mqtt_buffer, false))
+        network_payload.c_str(), false))
     {
         logger.warning("MQTT publish network failed (state=%d)", mqtt_client.state());
     }
@@ -534,7 +544,6 @@ void mqtt_publish()
     // Loop task headroom -- shrinking over days means a slow stack overflow.
     json_mqtt["loop_stack_free"]  = (uint32_t)uxTaskGetStackHighWaterMark(NULL);
 
-    // String, not mqtt.mqtt_buffer -- 255 bytes there would truncate silently.
     String health_payload;
     serializeJson(json_mqtt, health_payload);
     json_mqtt.clear();
@@ -687,12 +696,13 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length)
         json_mqtt["parameter1"] = parameter1;
         json_mqtt["parameter2"] = parameter2;
         json_mqtt["cmd_ok"]     = cmd_ok;
-        serializeJson(json_mqtt, mqtt.mqtt_buffer);
+        String cmd_ack_payload;
+        serializeJson(json_mqtt, cmd_ack_payload);
         json_mqtt.clear();
         g_loop_breadcrumb = "mqtt.pub.cmd_ack";
         if (!mqtt_client.publish(
             (mqtt.mqtt_base + "/" + mqtt.mqtt_client_name + mqtt.mqtt_subscibe_rec_toppic).c_str(),
-            mqtt.mqtt_buffer))
+            cmd_ack_payload.c_str()))
         {
             logger.warning("MQTT publish cmd_ack failed (state=%d)", mqtt_client.state());
         }
