@@ -44,7 +44,12 @@ jobs:
           restore-keys: |
             pio-${{ runner.os }}-
       - name: Install PlatformIO Core
-        run: pip install --upgrade platformio
+        # platformio pinned: 6.2.0 ships an SCons in which
+        # SCons.Tool.FortranCommon has moved, and the build then dies at the
+        # link step with "ModuleNotFoundError: No module named
+        # 'SCons.Tool.FortranCommon'". 6.1.19 is what builds locally. Bump this
+        # deliberately once pioarduino works with the newer Core.
+        run: pip install "platformio==6.1.19"
       - name: Build staging firmware
         env:
           FIRMWARE_VERSION: ${{ github.event.inputs.version }}
