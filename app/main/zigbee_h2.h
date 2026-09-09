@@ -56,7 +56,10 @@ void h2_devices_json(String &out);
 
 /// Latest illuminance reading across all paired devices that report one --
 /// the freshest by last_seen_ms, so a stale sensor cannot outvote a live one.
-/// Returns false when no device currently has a lux value.
+/// Devices that are offline or have not been heard from this boot are skipped:
+/// the H2 still lists them with the values it restored from its database, and
+/// those must not drive the backlight. Returns false when no live device has a
+/// lux value.
 bool zigbee_h2_ambient_lux(uint16_t &lux_out);
 
 /// Number of occupied registry slots.

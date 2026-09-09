@@ -147,7 +147,12 @@ static void h2_dev_upsert_locked(uint16_t addr, const char *ieee, const char *mf
     if (bat    >= 0) d.bat    = (int16_t)bat;
     if (lux    >= 0) d.lux    = (int32_t)lux;
     if (!isnan(temp)) d.temp  = temp;
-    d.last_seen_ms = millis();
+    // Only genuine contact counts. "list" replies arrive every 30s whether or
+    // not the device has said anything, so stamping unconditionally here made
+    // a device that has never spoken look seconds-fresh -- and let its stale
+    // cached lux drive the auto-brightness. The H2 marks real traffic with
+    // online=true; "motion" and "sensor" pass online=1 for the same reason.
+    if (online > 0) d.last_seen_ms = millis();
 }
 
 /// Records how the coordinator resolved a device against the ZHA database.
@@ -209,16 +214,22 @@ void h2_devices_json(String &out)
         char temp_buf[16];
         if (isnan(d.temp)) strcpy(temp_buf, "null");
         else               snprintf(temp_buf, sizeof(temp_buf), "%.1f", d.temp);
+        // null, not 0: "never heard from" is not the same as "heard from just
+        // now", and the UI has to be able to tell them apart.
+        char age_buf[16];
+        if (d.last_seen_ms == 0) strcpy(age_buf, "null");
+        else snprintf(age_buf, sizeof(age_buf), "%u",
+                      (unsigned)((now - d.last_seen_ms) / 1000UL));
         snprintf(entry, sizeof(entry),
                  "%s{\"addr\":%u,\"hex\":\"0x%04X\",\"ieee\":\"%s\",\"mfr\":\"%s\","
                  "\"model\":\"%s\",\"ep\":%u,\"online\":%s,\"occ\":%d,"
                  "\"temp\":%s,\"bat\":%d,\"lux\":%ld,\"on\":%d,\"level\":%d,\"zha\":\"%s\","
-                 "\"age_s\":%u}",
+                 "\"age_s\":%s}",
                  first ? "" : ",", (unsigned)d.addr, (unsigned)d.addr,
                  d.ieee, d.mfr, d.model, (unsigned)d.ep,
                  d.online ? "true" : "false", (int)d.occ,
                  temp_buf, (int)d.bat, (long)d.lux, (int)d.on, (int)d.level, d.zha,
-                 (unsigned)((now - d.last_seen_ms) / 1000UL));
+                 age_buf);
         out += entry;
         first = false;
     }
@@ -237,6 +248,9 @@ bool zigbee_h2_ambient_lux(uint16_t &lux_out)
     for (int i = 0; i < H2_MAX_DEVICES; i++) {
         const H2Device &d = g_h2_devices[i];
         if (!d.used || d.lux < 0) continue;
+        // A device that has not spoken this boot still carries the values the
+        // H2 restored from its database. Those must never drive the backlight.
+        if (!d.online || d.last_seen_ms == 0) continue;
         if (!found || d.last_seen_ms > freshest) {
             found = true;
             freshest = d.last_seen_ms;

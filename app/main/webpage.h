@@ -704,6 +704,9 @@ const char index_html[] PROGMEM = R"rawliteral(
     }
 
     function zbAge(s){
+        // null = never heard from since boot; the H2 may still list the device
+        // from its restored database, but nothing about it is live.
+        if(s === null || s === undefined) return 'never';
         if(s < 60)   return s + ' s';
         if(s < 3600) return Math.floor(s/60) + ' min';
         return Math.floor(s/3600) + ' h';
