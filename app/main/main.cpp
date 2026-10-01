@@ -1455,8 +1455,8 @@ void lcd_status_indication(bool on_off, uint8_t color)
  *
  * Automatically switches between modes based on remaining time.
  *
- * @note Remaining time is calculated directly from sensor_activation_time + sensor_runtime,
- *       matching the webpage JavaScript calculation exactly.
+ * @note Remaining time uses the same formula as web_glucose_api.cpp
+ *       (sensor_activation_time + runtime, with fallback to 15 days if runtime==0).
  * @note Calls lv_timer_handler() to update UI immediately
  *
  * @see switch_sensor_valid_progress_bar()
@@ -1464,20 +1464,20 @@ void lcd_status_indication(bool on_off, uint8_t color)
  */
 void draw_chart_sensor_valid()
 {
-    // Calculate remaining sensor lifetime directly from sensor_activation_time + sensor_runtime.
-    // This matches the webpage JavaScript calculation exactly (no +1 adjustment needed).
-    const uint32_t act_ts  = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
-    const uint32_t runtime = (uint32_t)librelinkup.sensor_data().sensor_runtime;
-    const uint32_t now_ts  = (uint32_t)time(nullptr);
+    // Use the same formula as web_glucose_api.cpp so display matches website exactly.
+    const uint32_t act_ts = (uint32_t)librelinkup.sensor_data().sensor_activation_time;
+    uint32_t lifetime_s   = (uint32_t)librelinkup.sensor_data().sensor_runtime;
+    if (lifetime_s == 0) lifetime_s = 15UL * 24UL * 3600UL; // same fallback as web API
+    const uint32_t now_ts = (uint32_t)time(nullptr);
 
     int days    = -1;
     int hours   = -1;
     int minutes = -1;
     bool expired = true;
 
-    if (act_ts > 0 && runtime > 0)
+    if (act_ts > 0 && now_ts > act_ts)
     {
-        const uint32_t end = act_ts + runtime;
+        const uint32_t end = act_ts + lifetime_s;
         if (end > now_ts)
         {
             const uint32_t rem = end - now_ts;
@@ -1503,19 +1503,14 @@ void draw_chart_sensor_valid()
     // --------------------------
     if (days > 0)
     {
-        if (runtime == 14UL * 86400UL)
+        if (lifetime_s == 14UL * 86400UL)
         {
             switch_sensor_valid_progress_bar(&dayBar14);
             update_chart_valid_values(&dayBar14, days);
         }
-        else if (runtime == 15UL * 86400UL)
-        {
-            switch_sensor_valid_progress_bar(&dayBar15);
-            update_chart_valid_values(&dayBar15, days);
-        }
         else
         {
-            // Fallback: runtime unknown
+            // 15-day sensor or fallback
             switch_sensor_valid_progress_bar(&dayBar15);
             update_chart_valid_values(&dayBar15, days);
         }
