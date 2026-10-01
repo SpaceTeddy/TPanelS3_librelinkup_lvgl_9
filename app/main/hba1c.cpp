@@ -806,3 +806,79 @@ void HBA1C::printQuarterlyStats(int year, int quarter) {
     const GlucoseStatsResult r = calculateQuarterlyStats(year, quarter);
     printStats(r, label);
 }
+
+// ---------------------------------------------------------------------------
+// Last-N-days stats (crosses month/year boundaries)
+// ---------------------------------------------------------------------------
+
+static HBA1C::GlucoseStatsResult computeLastNDaysStats(uint16_t n_days,
+                                                        uint32_t min_count)
+{
+    HBA1C::GlucoseStatsResult r{};
+
+    time_t now_t      = time(nullptr);
+    time_t start_t    = now_t - (time_t)n_days * 86400UL;
+
+    struct tm tms, tme;
+    localtime_r(&start_t, &tms);
+    localtime_r(&now_t,   &tme);
+
+    // Date integers for inclusive range comparison
+    const int sy = tms.tm_year + 1900, sm = tms.tm_mon + 1, sd = tms.tm_mday;
+    const int ey = tme.tm_year + 1900, em = tme.tm_mon + 1, ed = tme.tm_mday;
+
+    double   wf_mean = 0.0, wf_M2 = 0.0;
+    uint32_t n = 0, tir_cnt = 0;
+
+    File root = LittleFS.open("/");
+    if (!root || !root.isDirectory()) return r;
+
+    File f = root.openNextFile();
+    while (f) {
+        const String name = f.name();
+        f = root.openNextFile();
+
+        if (!name.endsWith(".json")) continue;
+        if (name == "config.json")  continue;
+
+        int fy, fm, fd;
+        if (sscanf(name.c_str(), "%4d-%2d-%2d.json", &fy, &fm, &fd) != 3) continue;
+        if (fy < 2020) continue;
+
+        // Is this date >= start date AND <= end date?
+        const bool after_start = (fy > sy) || (fy == sy && fm > sm) ||
+                                 (fy == sy && fm == sm && fd >= sd);
+        const bool before_end  = (fy < ey) || (fy == ey && fm < em) ||
+                                 (fy == ey && fm == em && fd <= ed);
+        if (!after_start || !before_end) continue;
+
+        String path = name;
+        if (!path.startsWith("/")) path = "/" + path;
+        accumulateFileStats(path.c_str(), wf_mean, wf_M2, n, tir_cnt);
+        r.days++;
+    }
+
+    if (n == 0) return r;
+
+    r.count      = n;
+    r.mean       = (float)wf_mean;
+    r.std_dev    = (n > 1) ? (float)sqrt(wf_M2 / n) : 0.0f;
+    r.hba1c      = (r.mean + 46.7f) / 28.7f;
+    r.tir        = (float)tir_cnt / n * 100.0f;
+    r.cv         = (r.mean > 0.0f) ? (r.std_dev / r.mean * 100.0f) : 0.0f;
+    r.sufficient = (n >= min_count);
+    return r;
+}
+
+HBA1C::GlucoseStatsResult HBA1C::calculateLastNDaysStats(uint16_t n_days) {
+    // Sufficient = at least 20% coverage (288 readings/day @ 5-min interval)
+    const uint32_t min_count = (uint32_t)n_days * 288u / 5u;
+    return computeLastNDaysStats(n_days, min_count);
+}
+
+void HBA1C::printLastNDaysStats(uint16_t n_days) {
+    char label[20];
+    snprintf(label, sizeof(label), "last %u days", n_days);
+    const GlucoseStatsResult r = calculateLastNDaysStats(n_days);
+    printStats(r, label);
+}

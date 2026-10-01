@@ -238,6 +238,23 @@ public:
    */
   void printQuarterlyStats(int year, int quarter);
 
+  /**
+   * @brief Calculate glucose statistics for the last N calendar days.
+   * @param n_days Number of days back from today (e.g. 7, 14, 30, 90, 365).
+   * @return Computed GlucoseStatsResult.
+   *
+   * Reads all "/YYYY-MM-DD.json" files whose date falls within
+   * [today - n_days, today] (inclusive). Crosses month/year boundaries.
+   * Marked sufficient when count >= n_days * 288 / 5 (≥20% coverage).
+   */
+  GlucoseStatsResult calculateLastNDaysStats(uint16_t n_days);
+
+  /**
+   * @brief Print last-N-days statistics to logger/Telnet.
+   * @param n_days Number of days back from today.
+   */
+  void printLastNDaysStats(uint16_t n_days);
+
 private:
   /**
    * @brief Load JSON data from a file into a document.
