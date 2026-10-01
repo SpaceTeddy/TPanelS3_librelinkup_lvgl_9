@@ -631,3 +631,178 @@ float HBA1C::calculate_coefficient_of_variation(float std_dev, float mean) {
 
     return (std_dev / mean) * 100.0;
 }
+
+// ---------------------------------------------------------------------------
+// Period statistics (monthly / quarterly)
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief Accumulate statistics from one JSON file using Welford's online algorithm.
+ *
+ * Single-pass: computes mean and M2 (for std_dev) without storing all values.
+ * Also counts TIR (70–180 mg/dL).
+ *
+ * @param filename  LittleFS path (e.g. "/2026-09-15.json").
+ * @param wf_mean   Running Welford mean (in/out).
+ * @param wf_M2     Running Welford M2  (in/out).
+ * @param n         Running total count (in/out).
+ * @param tir_count Running TIR count   (in/out).
+ */
+static void accumulateFileStats(const char* filename,
+                                 double&   wf_mean,
+                                 double&   wf_M2,
+                                 uint32_t& n,
+                                 uint32_t& tir_count)
+{
+    File file = LittleFS.open(filename, "r");
+    if (!file) return;
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, file);
+    file.close();
+
+    if (err || !doc.is<JsonArray>()) return;
+
+    for (JsonObject obj : doc.as<JsonArray>()) {
+        if (!obj["glucose"].is<uint16_t>()) continue;
+        const uint16_t g = obj["glucose"].as<uint16_t>();
+        if (g == 0) continue;
+
+        // Welford's online update
+        n++;
+        const double delta  = g - wf_mean;
+        wf_mean            += delta / n;
+        const double delta2 = g - wf_mean;
+        wf_M2              += delta * delta2;
+
+        if (g >= 70 && g <= 180) tir_count++;
+    }
+}
+
+/**
+ * @brief Core period statistics engine.
+ *
+ * Iterates all "/YYYY-MM-DD.json" files on LittleFS and includes those whose
+ * year is @p year and whose month is in [month_from..month_to].
+ * Bogus epoch files (year < 2020) are skipped automatically.
+ */
+static HBA1C::GlucoseStatsResult computePeriodStats(int year,
+                                                     int month_from,
+                                                     int month_to,
+                                                     uint32_t min_count)
+{
+    HBA1C::GlucoseStatsResult r{};
+
+    double   wf_mean  = 0.0;
+    double   wf_M2    = 0.0;
+    uint32_t n        = 0;
+    uint32_t tir_cnt  = 0;
+
+    File root = LittleFS.open("/");
+    if (!root || !root.isDirectory()) return r;
+
+    File f = root.openNextFile();
+    while (f) {
+        const String name = f.name();
+        f = root.openNextFile();          // advance before possible continue
+
+        if (!name.endsWith(".json"))  continue;
+        if (name == "config.json")    continue;
+
+        int fy, fm, fd;
+        if (sscanf(name.c_str(), "%4d-%2d-%2d.json", &fy, &fm, &fd) != 3) continue;
+        if (fy < 2020)                continue;  // skip bogus epoch files
+        if (fy != year)               continue;
+        if (fm < month_from || fm > month_to) continue;
+
+        String path = name;
+        if (!path.startsWith("/")) path = "/" + path;
+
+        accumulateFileStats(path.c_str(), wf_mean, wf_M2, n, tir_cnt);
+        r.days++;
+    }
+
+    if (n == 0) return r;
+
+    r.count      = n;
+    r.mean       = (float)wf_mean;
+    r.std_dev    = (n > 1) ? (float)sqrt(wf_M2 / n) : 0.0f;
+    r.hba1c      = (r.mean + 46.7f) / 28.7f;
+    r.tir        = (float)tir_cnt / n * 100.0f;
+    r.cv         = (r.mean > 0.0f) ? (r.std_dev / r.mean * 100.0f) : 0.0f;
+    r.sufficient = (n >= min_count);
+    return r;
+}
+
+// Minimum readings thresholds
+static constexpr uint32_t MIN_MONTHLY_READINGS   = 500;   // ≈1.7 days continuous
+static constexpr uint32_t MIN_QUARTERLY_READINGS = 4000;  // ≈14 days continuous
+
+HBA1C::GlucoseStatsResult HBA1C::calculateMonthlyStats(int year, int month) {
+    if (month < 1 || month > 12) return {};
+    return computePeriodStats(year, month, month, MIN_MONTHLY_READINGS);
+}
+
+HBA1C::GlucoseStatsResult HBA1C::calculateQuarterlyStats(int year, int quarter) {
+    if (quarter < 1 || quarter > 4) return {};
+    const int m_from = (quarter - 1) * 3 + 1;
+    const int m_to   = m_from + 2;
+    return computePeriodStats(year, m_from, m_to, MIN_QUARTERLY_READINGS);
+}
+
+/**
+ * @brief Format and print a GlucoseStatsResult to logger and Serial.
+ */
+static void printStats(const HBA1C::GlucoseStatsResult& s, const char* label)
+{
+    static uuid::log::Logger log{F("hba1c"), uuid::log::Facility::CONSOLE};
+
+    log.notice("===== Glucose Statistics: %s =====", label);
+    if (s.count == 0) {
+        log.notice("  No data found for this period.");
+        Serial.printf("  No data found for this period.\n\r");
+        log.notice("==========================================");
+        return;
+    }
+    if (!s.sufficient) {
+        log.notice("  WARNING: Low data coverage (%lu readings / %u days).",
+                   (unsigned long)s.count, s.days);
+        Serial.printf("  WARNING: Low data coverage (%lu readings / %u days).\n\r",
+                      (unsigned long)s.count, s.days);
+    }
+    log.notice("  Days with data   : %u", s.days);
+    log.notice("  Readings         : %lu", (unsigned long)s.count);
+    log.notice("  Mean glucose     : %.1f mg/dL", s.mean);
+    log.notice("  Est. HbA1c       : %.2f %%  (ADAG)", s.hba1c);
+    log.notice("  Time In Range    : %.1f %%  (70-180 mg/dL)", s.tir);
+    log.notice("  Std deviation    : %.1f mg/dL", s.std_dev);
+    log.notice("  CV               : %.1f %%", s.cv);
+    log.notice("==========================================");
+
+    Serial.printf("===== Glucose Statistics: %s =====\n\r", label);
+    Serial.printf("  Days with data   : %u\n\r",        s.days);
+    Serial.printf("  Readings         : %lu\n\r",       (unsigned long)s.count);
+    Serial.printf("  Mean glucose     : %.1f mg/dL\n\r",s.mean);
+    Serial.printf("  Est. HbA1c       : %.2f %%\n\r",  s.hba1c);
+    Serial.printf("  Time In Range    : %.1f %%\n\r",  s.tir);
+    Serial.printf("  Std deviation    : %.1f mg/dL\n\r",s.std_dev);
+    Serial.printf("  CV               : %.1f %%\n\r",  s.cv);
+    Serial.printf("==========================================\n\r");
+}
+
+void HBA1C::printMonthlyStats(int year, int month) {
+    char label[20];
+    snprintf(label, sizeof(label), "%04d-%02d", year, month);
+    const GlucoseStatsResult r = calculateMonthlyStats(year, month);
+    printStats(r, label);
+}
+
+void HBA1C::printQuarterlyStats(int year, int quarter) {
+    static const char* qnames[] = {"", "Q1 (Jan-Mar)", "Q2 (Apr-Jun)",
+                                        "Q3 (Jul-Sep)", "Q4 (Oct-Dec)"};
+    char label[30];
+    snprintf(label, sizeof(label), "%04d %s", year,
+             (quarter >= 1 && quarter <= 4) ? qnames[quarter] : "?");
+    const GlucoseStatsResult r = calculateQuarterlyStats(year, quarter);
+    printStats(r, label);
+}

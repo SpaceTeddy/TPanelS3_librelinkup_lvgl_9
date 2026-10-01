@@ -748,6 +748,51 @@ void addGlucoseValueToJsonCommand(uuid::console::Shell &shell, const std::vector
 }
 
 /**
+ * @brief Handler for command: `glucose_stats <monthly|quarterly> <YYYY> <MM|Q>`
+ *
+ * Usage:
+ *   glucose_stats monthly   YYYY MM   – statistics for one calendar month
+ *   glucose_stats quarterly YYYY Q    – statistics for one calendar quarter (1-4)
+ */
+static void glucoseStatsCommand(uuid::console::Shell &shell,
+                                const std::vector<std::string> &arguments)
+{
+    if (arguments.size() < 3) {
+        shell.printfln(F("Usage:"));
+        shell.printfln(F("  glucose_stats monthly   YYYY MM"));
+        shell.printfln(F("  glucose_stats quarterly YYYY Q"));
+        return;
+    }
+
+    const String mode(arguments[0].c_str());
+    const int    year = atoi(arguments[1].c_str());
+    const int    num  = atoi(arguments[2].c_str());
+
+    if (year < 2020 || year > 2100) {
+        shell.printfln(F("Error: invalid year (use YYYY >= 2020)"));
+        return;
+    }
+
+    if (mode.equalsIgnoreCase("monthly")) {
+        if (num < 1 || num > 12) {
+            shell.printfln(F("Error: month must be 1..12"));
+            return;
+        }
+        shell.printfln(F("Calculating monthly statistics, please wait..."));
+        hba1c.printMonthlyStats(year, num);
+    } else if (mode.equalsIgnoreCase("quarterly")) {
+        if (num < 1 || num > 4) {
+            shell.printfln(F("Error: quarter must be 1..4"));
+            return;
+        }
+        shell.printfln(F("Calculating quarterly statistics, please wait..."));
+        hba1c.printQuarterlyStats(year, num);
+    } else {
+        shell.printfln(F("Error: unknown mode. Use 'monthly' or 'quarterly'."));
+    }
+}
+
+/**
  * @brief Handler for command: `delete_json_file <filename>`
  * @param shell Shell output.
  * @param arguments arguments[0] = filename
@@ -1670,6 +1715,9 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("create_json_week_files")}, create_json_week_files_Command);
     commands->add_command(uuid::flash_string_vector{F("add_glucosevalue_to_json")}, addGlucoseValueToJsonCommand);
     commands->add_command(uuid::flash_string_vector{F("list_json_files")}, printJsonFileListCommand);
+    commands->add_command(uuid::flash_string_vector{F("glucose_stats")},
+        uuid::flash_string_vector{F("<monthly|quarterly>"), F("<YYYY>"), F("<MM|Q>")},
+        glucoseStatsCommand);
 
     commands->add_command(uuid::flash_string_vector{F("screens")},
         uuid::flash_string_vector{F("<next|prev>")},

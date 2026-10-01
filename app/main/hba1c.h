@@ -189,6 +189,55 @@ public:
    */
   float calculate_coefficient_of_variation(float std_dev, float mean);
 
+  /**
+   * @brief Result of a period-based glucose statistics calculation.
+   */
+  struct GlucoseStatsResult {
+    float    mean;       ///< Mean glucose (mg/dL)
+    float    hba1c;      ///< Estimated HbA1c via ADAG formula (%)
+    float    tir;        ///< Time In Range 70–180 mg/dL (%)
+    float    std_dev;    ///< Standard deviation (mg/dL)
+    float    cv;         ///< Coefficient of variation (%)
+    uint32_t count;      ///< Total data points used
+    uint16_t days;       ///< Number of day-files included
+    bool     sufficient; ///< true if enough data for a reliable estimate
+  };
+
+  /**
+   * @brief Calculate glucose statistics for a calendar month.
+   * @param year  Four-digit year (e.g. 2026).
+   * @param month Month 1–12.
+   * @return Computed GlucoseStatsResult.
+   *
+   * Reads all matching "/YYYY-MM-DD.json" files from LittleFS.
+   * Marked sufficient when count >= 500 (≈1.7 days of continuous readings).
+   */
+  GlucoseStatsResult calculateMonthlyStats(int year, int month);
+
+  /**
+   * @brief Calculate glucose statistics for a calendar quarter.
+   * @param year    Four-digit year (e.g. 2026).
+   * @param quarter Quarter 1–4  (Q1=Jan–Mar, Q2=Apr–Jun, Q3=Jul–Sep, Q4=Oct–Dec).
+   * @return Computed GlucoseStatsResult.
+   *
+   * Marked sufficient when count >= 4000 (≈14 days of continuous readings).
+   */
+  GlucoseStatsResult calculateQuarterlyStats(int year, int quarter);
+
+  /**
+   * @brief Print monthly statistics to logger/Telnet.
+   * @param year  Four-digit year.
+   * @param month Month 1–12.
+   */
+  void printMonthlyStats(int year, int month);
+
+  /**
+   * @brief Print quarterly statistics to logger/Telnet.
+   * @param year    Four-digit year.
+   * @param quarter Quarter 1–4.
+   */
+  void printQuarterlyStats(int year, int quarter);
+
 private:
   /**
    * @brief Load JSON data from a file into a document.
