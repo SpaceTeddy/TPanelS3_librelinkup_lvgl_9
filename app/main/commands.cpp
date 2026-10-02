@@ -820,7 +820,8 @@ void debugRawFileContentsCommand(uuid::console::Shell &shell, const std::vector<
  * Subcommands currently supported:
  * - value, user_id, user_token, auth, tou
  * - sensor_id, sensor_sn, sensor_type, sensor_expiry
- * - timestamp, history, graphdata, graph_redraw, get_graphdata, statistics
+ * - timestamp, history, graphdata, graph_redraw, get_graphdata
+ * - statistics [last <7|14|30|90|365> | monthly <YYYY> <MM> | quarterly <YYYY> <1-4>]
  */
 void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arguments) {
     if (!arguments.empty()) {
@@ -968,39 +969,80 @@ void lluCommand(uuid::console::Shell &shell, const std::vector<std::string> &arg
             shell.printfln("Historical data: [%d/%d]", data_count, librelinkup.GRAPHDATAARRAYSIZE);
         }
         else if ((llu_argument == "statistics")) {
-            shell.println(F("LLU print glucose statistics..."));
-            //glucose_statistics();
-            uint8_t data_count = librelinkup.check_graphdata();
+            if (arguments.size() < 2) {
+                // Live statistics from current sensor history
+                uint8_t data_count = librelinkup.check_graphdata();
+                float mean_hist = hba1c.calculateGlucoseMeanFromHistory(
+                    librelinkup.sensor_history_data().graph_data, data_count);
+                float std_dev = hba1c.calculate_standard_deviation(
+                    librelinkup.sensor_history_data().graph_data, data_count, mean_hist);
+                shell.println("========== Live Glucose Statistics ========");
+                shell.printfln("Current glucose              : %d mg/dl",
+                    librelinkup.glucose_data().glucoseMeasurement);
+                shell.printfln("Mean (sensor history)        : %.0f mg/dl", mean_hist);
+                shell.printfln("HbA1c (sensor history)       : %.2f %%",
+                    hba1c.calculate_hba1c(mean_hist));
+                shell.printfln("TIR   (sensor history)       : %.2f %%",
+                    hba1c.calculate_time_in_range(
+                        librelinkup.sensor_history_data().graph_data, data_count, 70, 180));
+                shell.printfln("Std-Dev (sensor history)     : %.2f mg/dl", std_dev);
+                shell.printfln("CV      (sensor history)     : %.2f %%",
+                    hba1c.calculate_coefficient_of_variation(std_dev, mean_hist));
+                shell.println("===========================================");
+                shell.println(F(""));
+                shell.println(F("Period statistics (from LittleFS):"));
+                shell.println(F("  llu statistics last <7|14|30|90|365>"));
+                shell.println(F("  llu statistics monthly <YYYY> <MM>"));
+                shell.println(F("  llu statistics quarterly <YYYY> <1-4>"));
+                return;
+            }
 
-            float mean_glucose_value_from_history = hba1c.calculateGlucoseMeanFromHistory(
-                librelinkup.sensor_history_data().graph_data, data_count);
-            float mean_glucose_value_from_json = hba1c.calculateGlucoseMeanFromJson(
-                today_json_filename);
-            float mean_glucose_weekly_value_from_json = hba1c.calculateGlucoseMeanForLast7Days();
-            float std_dev = hba1c.calculate_standard_deviation(
-                librelinkup.sensor_history_data().graph_data, data_count,
-                mean_glucose_value_from_history);
+            const String sub(arguments[1].c_str());
 
-            shell.println("========== Glucose Statistics =============");
-            shell.printfln("Current glucose value        : %d mg/dl",
-                        librelinkup.glucose_data().glucoseMeasurement);
-            shell.printfln("Mean of history glucose value: %.0f mg/dl",
-                        mean_glucose_value_from_history);
-            shell.printfln("Mean of daily JSON value     : %.0f mg/dl",
-                        mean_glucose_value_from_json);
-            shell.printfln("Mean of weekly glucose value : %.0f mg/dl",
-                        mean_glucose_weekly_value_from_json);
-            shell.printfln("HbA1c-Value of history data  : %.2f %%",
-                        hba1c.calculate_hba1c(mean_glucose_value_from_history));
-            shell.printfln("TIR-Value of history data    : %.2f %%",
-                        hba1c.calculate_time_in_range(
-                            librelinkup.sensor_history_data().graph_data,
-                            data_count, 70, 180));
-            shell.printfln("Std-Dev of history data      : %.2f σ", std_dev);
-            shell.printfln("Glucose variability (CV)     : %.2f %%",
-                        hba1c.calculate_coefficient_of_variation(std_dev,
-                                                                mean_glucose_value_from_history));
-            shell.println("===========================================");
+            if (sub == "last") {
+                if (arguments.size() < 3) {
+                    shell.println(F("Usage: llu statistics last <7|14|30|90|365>"));
+                    return;
+                }
+                const int n = atoi(arguments[2].c_str());
+                if (n != 7 && n != 14 && n != 30 && n != 90 && n != 365) {
+                    shell.println(F("Valid periods: 7, 14, 30, 90, 365"));
+                    return;
+                }
+                hba1c.printLastNDaysStats((uint16_t)n);
+            }
+            else if (sub == "monthly") {
+                if (arguments.size() < 4) {
+                    shell.println(F("Usage: llu statistics monthly <YYYY> <MM>"));
+                    return;
+                }
+                const int year  = atoi(arguments[2].c_str());
+                const int month = atoi(arguments[3].c_str());
+                if (year < 2020 || year > 2100 || month < 1 || month > 12) {
+                    shell.println(F("Error: invalid year or month"));
+                    return;
+                }
+                hba1c.printMonthlyStats(year, month);
+            }
+            else if (sub == "quarterly") {
+                if (arguments.size() < 4) {
+                    shell.println(F("Usage: llu statistics quarterly <YYYY> <1-4>"));
+                    return;
+                }
+                const int year    = atoi(arguments[2].c_str());
+                const int quarter = atoi(arguments[3].c_str());
+                if (year < 2020 || year > 2100 || quarter < 1 || quarter > 4) {
+                    shell.println(F("Error: invalid year or quarter"));
+                    return;
+                }
+                hba1c.printQuarterlyStats(year, quarter);
+            }
+            else {
+                shell.println(F("Usage:"));
+                shell.println(F("  llu statistics last <7|14|30|90|365>"));
+                shell.println(F("  llu statistics monthly <YYYY> <MM>"));
+                shell.println(F("  llu statistics quarterly <YYYY> <1-4>"));
+            }
         }
         else if (llu_argument == "sim") {
             if (arguments.size() < 2) {
@@ -1670,7 +1712,6 @@ void registerCommands(std::shared_ptr<uuid::console::Commands> commands) {
     commands->add_command(uuid::flash_string_vector{F("create_json_week_files")}, create_json_week_files_Command);
     commands->add_command(uuid::flash_string_vector{F("add_glucosevalue_to_json")}, addGlucoseValueToJsonCommand);
     commands->add_command(uuid::flash_string_vector{F("list_json_files")}, printJsonFileListCommand);
-
     commands->add_command(uuid::flash_string_vector{F("screens")},
         uuid::flash_string_vector{F("<next|prev>")},
         switch_screensCommand,
