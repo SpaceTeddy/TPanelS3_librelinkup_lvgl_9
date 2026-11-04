@@ -20,6 +20,10 @@
 #include <uuid/telnet.h>
 #include <uuid/log.h>
 
+/// Debug print macro with timestamp and function name. Shared by all app
+/// modules so every serial line carries the same "[uptime ms][file][func]" prefix.
+#define DBGprint Serial.printf("[%09lu ms][%s][%s] ", (unsigned long)millis(), __FILE__, __func__)
+
 /**
  * @struct Json_Buffer_Info
  * @brief Structure containing information about the JSON buffer usage.
