@@ -54,6 +54,20 @@ jobs:
         # deliberately once pioarduino works with the newer Core.
         run: pip install "platformio==6.1.19" intelhex
 
+      - name: Pin pioarduino Core in the platform's penv
+        # The pioarduino platform builds the Arduino part in a second, nested
+        # `pio run` from its own venv (~/.platformio/penv), into which it
+        # installs "pioarduino>=6.2.0" from PyPI -- so the pin above does not
+        # reach it. 6.2.0.post1 breaks that nested run: PlatformIO reads the
+        # version as the prerelease "6.2.0-post.1" < 6.2.0 and rejects the
+        # platform ("IncompatiblePlatform ... depends on PlatformIO Core
+        # >=6.2.0"). The platform reuses an existing penv with a matching
+        # Python and only installs packages that are missing, so seeding it
+        # with 6.2.0 here keeps post1 out. Drop once pioarduino ships a fix.
+        run: |
+          python -m venv ~/.platformio/penv
+          ~/.platformio/penv/bin/pip install "pioarduino==6.2.0"
+
       - name: Show PlatformIO version
         run: pio --version
 
