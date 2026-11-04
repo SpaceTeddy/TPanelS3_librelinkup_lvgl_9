@@ -13,6 +13,7 @@
  */
 
 #include "ota_handler.h"
+#include "helper.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -46,6 +47,7 @@ void setup_OTA(bool mode)
     ElegantOTA.onProgress(onOTAProgress);
     ElegantOTA.onEnd(onOTAEnd);
     server.begin();
+    DBGprint;
     Serial.println("HTTP server started");
 }
 
@@ -63,6 +65,7 @@ uint8_t update_ota_progress_screen(int progress)
 
 void onOTAStart()
 {
+    DBGprint;
     Serial.println("OTA update started!");
     logger.notice("OTA Update Progress has started");
 

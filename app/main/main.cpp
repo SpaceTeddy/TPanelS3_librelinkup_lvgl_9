@@ -66,11 +66,6 @@ uint8_t esp_status_counter_llu_reauth = 0;   ///< LibreLinkUp re-authentication 
 uint8_t esp_status_counter_llu_retou = 0;    ///< LibreLinkUp terms of use acceptance counter
 /// @}
 
-///////////////////// DEBUG MACROS ////////////////////
-
-/// Debug print macro with timestamp and function name
-#define DBGprint Serial.printf("[%09lu ms][%s][%s] ", (unsigned long)millis(), __FILE__, __func__)
-
 ///////////////////// TPanelS3 SELECTION ////////////////////
 
 #include "tpanels3.h"
@@ -1906,6 +1901,7 @@ static const uint32_t LOOP_HANG_LOG_REPEAT_MS = 60000;
 
 void LoopTask(void *pvParameters)
 {
+    DBGprint;
     Serial.println("Loop Task started...");
 
     uint32_t last_hang_check_ms = 0;
@@ -2221,6 +2217,19 @@ void setup_wifi()
         lv_timer_handler();
         delay(300);
 
+        // Must run BEFORE configTime(). The first WiFi.hostByName() after an
+        // IP change calls lwIP dns_clear_cache() without the TCPIP core lock
+        // (arduino-esp32 NetworkManager.cpp). If SNTP has a DNS query in
+        // flight at that moment, the cleared entry fires SNTP's callback,
+        // which starts the next server lookup -> udp_new() unlocked ->
+        // "assert failed: udp_new_ip_type ... Required to lock TCPIP core".
+        // Seen at boot via LIBRELINKUP::begin(). Doing the first lookup here,
+        // while SNTP is not running yet, takes the cache clear out of that race.
+        {
+            IPAddress ntp_ip;
+            WiFi.hostByName("pool.ntp.org", ntp_ip);
+        }
+
         DBGprint;
         Serial.println("Adjusting system time from ntp server..");
         configTime(0, 0, "pool.ntp.org", "ntp.nict.jp", "time.google.com");
@@ -2455,6 +2464,7 @@ bool setup_wg(bool enable, bool force_reinit)
         logger.notice("[setup_wg] peer did NOT come up within %ums -- interface is "
                       "created but no traffic will pass yet", (unsigned)wg_peer_wait_ms);
 
+    DBGprint;
     Serial.printf("[setup_wg] post-begin: wg.begin ok=%d, peer_up=%d after %ums\n",
                   (int)ok, (int)peer_up, (unsigned)waited_ms);
 
@@ -2624,6 +2634,7 @@ void setup()
         if (reset_reason == ESP_RST_TASK_WDT || reset_reason == ESP_RST_PANIC ||
             reset_reason == ESP_RST_INT_WDT)
         {
+            DBGprint;
             Serial.printf("[BOOT] Last reset was caused by a watchdog/panic (reason=%d) -- "
                           "the main loop was likely stuck. See the coredump partition for a backtrace.\r\n",
                           (int)reset_reason);

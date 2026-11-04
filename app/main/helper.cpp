@@ -56,6 +56,7 @@ void HELPER::printFile(const char *filename) {
 
   File file = LittleFS.open(filename, "r");
   if (!file) {
+    DBGprint;
     Serial.println("Failed to open data file");
     return;
   }
@@ -77,10 +78,12 @@ void HELPER::printFile(const char *filename) {
 void HELPER::printLocalTime(bool mode){
     struct tm timeinfo;
     if(!getLocalTime(&timeinfo)){
+        DBGprint;
         Serial.println("Failed to obtain time");
         return;
     }
     if(mode == 0){
+        DBGprint;
         Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
         return;
     }else if(mode == 1){
@@ -137,6 +140,7 @@ long HELPER::convertStrToUnixTime(const String& datetime) {
     int month, day, year, hour, minute, second;
     char meridian[3];
     if (sscanf(datetime.c_str(), "%d/%d/%d %d:%d:%d %2s", &month, &day, &year, &hour, &minute, &second, meridian) != 7) {
+        DBGprint;
         Serial.println("Error parsing date/time");
         return -1;
     }
@@ -303,6 +307,7 @@ String HELPER::get_esp_time_date(){
 
     // get local time as int ------------------
     if(!getLocalTime(&timeinfo)){
+        DBGprint;
         Serial.println("Failed to obtain time");
         return "null";
     }

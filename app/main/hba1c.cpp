@@ -21,6 +21,7 @@
  */
 
 #include "hba1c.h"
+#include "helper.h"
 
 #include <librelinkup.h>
 extern LIBRELINKUP librelinkup;
@@ -158,11 +159,13 @@ void HBA1C::printJsonFileTelnet(const char* filename) {
     }
 
     logger.notice("Debug: opening file %s", filename);
+    DBGprint;
     Serial.printf("Debug: opening file %s\n\r", filename);
 
     File file = LittleFS.open(path.c_str(), "r");
     if (!file) {
         logger.notice("Error: file %s not found!", filename);
+        DBGprint;
         Serial.printf("Error: file %s not found!\n\r", filename);
         return;
     }
@@ -175,12 +178,14 @@ void HBA1C::printJsonFileTelnet(const char* filename) {
 
     if (error) {
         logger.notice("Error reading %s: %s", filename, error.c_str());
+        DBGprint;
         Serial.printf("Error reading %s: %s\n\r", filename, error.c_str());
         return;
     }
 
     if (!globalJsonDoc.is<JsonArray>()) {
         logger.notice("Error: JSON file %s is not an array!", filename);
+        DBGprint;
         Serial.printf("Error: JSON file %s is not an array!\n\r", filename);
         return;
     }
@@ -369,6 +374,7 @@ void HBA1C::checkNewDay() {
     struct tm *last_timeinfo = localtime(&last_timestamp);
 
     if (last_timeinfo->tm_mday != timeinfo->tm_mday) {
+        DBGprint;
         Serial.println("New day detected, switching file...");
         logger.notice("New day detected, switching file...");
         updateFilename();

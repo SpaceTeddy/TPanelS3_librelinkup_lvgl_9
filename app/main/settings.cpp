@@ -6,6 +6,7 @@
 #include <Arduino.h>
 
 #include "settings.h"
+#include "helper.h"
 #include <FS.h>
 #include <LittleFS.h>
 #include <string.h>
@@ -38,6 +39,7 @@ void SETTINGS::loadConfiguration(const char* filename, Config &config) {
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, file);
     if (error) {
+        DBGprint;
         Serial.println(F("Failed to read file, using default configuration"));
     }
 
@@ -121,6 +123,7 @@ void SETTINGS::saveConfiguration(const char *filename, Config &config) {
     // Open file for writing
     File file = LittleFS.open(filename, FILE_WRITE);
     if (!file) {
+        DBGprint;
         Serial.println(F("Failed to create file"));
         return;
     }
@@ -170,6 +173,7 @@ void SETTINGS::saveConfiguration(const char *filename, Config &config) {
 
     // Serialize JSON to file
     if (serializeJson(doc, file) == 0) {
+        DBGprint;
         Serial.println(F("Failed to write to file"));
     }
 

@@ -16,6 +16,7 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <StreamUtils.h>
+#include "helper.h"
 
 /**
  * @def VERSION_MQTT_LIB
@@ -27,7 +28,7 @@
  * @def DBGprint_MQTT
  * @brief Debug print macro for MQTT module.
  */
-#define DBGprint_MQTT Serial.printf("[%08d][%s][%s] ", millis(), __FILE__, __func__);
+#define DBGprint_MQTT DBGprint;
 
 /**
  * @def MQTT_DEBUG

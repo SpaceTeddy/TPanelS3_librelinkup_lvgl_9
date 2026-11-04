@@ -12,6 +12,7 @@
 #include "h2_ota.h"
 #include "mqtt_handler.h"
 #include "main.h"
+#include "helper.h"
 #include "pin_config.h"
 
 HardwareSerial SerialPort(2);
@@ -39,6 +40,7 @@ void h2_reset_chip()
     digitalWrite(ESP32H2_EN, LOW);
     delay(50);
     digitalWrite(ESP32H2_EN, HIGH);
+    DBGprint;
     Serial.println(F("[H2] EN toggled - chip reset"));
 }
 
@@ -347,7 +349,7 @@ void setup_UART_IPC()
     SerialPort.setRxBufferSize(4096);
     SerialPort.begin(460800, SERIAL_8N1, ESP32H2_RX, ESP32H2_TX);
     Serial.println();
-    Serial.printf("[%09lu ms][%s][%s] ", (unsigned long)millis(), __FILE__, __func__);
+    DBGprint;
     Serial.println(F("Init SerialPort for IPC"));
 
     if (g_h2_dev_lock == nullptr)  g_h2_dev_lock  = xSemaphoreCreateMutex();
