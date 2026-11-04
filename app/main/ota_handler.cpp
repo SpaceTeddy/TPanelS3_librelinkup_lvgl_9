@@ -85,25 +85,36 @@ void onOTAStart()
 
 void onOTAProgress(size_t current, size_t final)
 {
+    if (ota_in_progress != 1 || final == 0)
+        return;
+
+    const float progress = ((float)current / (float)final) * 100.0f;
+
+    // Redraw on every whole percent so the ring advances in 1 % steps. Only
+    // the logging and heap sampling below stay rate-limited to once a second.
+    static int last_percent = -1;
+    const int percent = (int)progress;
+    if (percent != last_percent)
+    {
+        last_percent = percent;
+        update_ota_progress_screen(percent);
+    }
+
     if (millis() - ota_progress_millis > 1000)
     {
         ota_progress_millis = millis();
-        const float progress = ((float)current / (float)final) * 100.0f;
-        if (ota_in_progress == 1)
-        {
-            // Sample the internal heap here too. The low-water tracker in
-            // main.cpp only runs per fetch, and there are no fetches during
-            // OTA_MODE -- so it missed exactly the load case it exists for:
-            // TLS download, web server, MQTT and display all at once, on top
-            // of a continuous flash write.
-            const size_t internal_free =
-                heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            if (internal_free < g_internal_min_runtime)
-                g_internal_min_runtime = internal_free;
 
-            update_ota_progress_screen((int)progress);
-            logger.notice("FWUpdate Progress: %.2f%% (%d / %d Bytes)", progress, current, final);
-        }
+        // Sample the internal heap here too. The low-water tracker in
+        // main.cpp only runs per fetch, and there are no fetches during
+        // OTA_MODE -- so it missed exactly the load case it exists for:
+        // TLS download, web server, MQTT and display all at once, on top
+        // of a continuous flash write.
+        const size_t internal_free =
+            heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (internal_free < g_internal_min_runtime)
+            g_internal_min_runtime = internal_free;
+
+        logger.notice("FWUpdate Progress: %.2f%% (%d / %d Bytes)", progress, current, final);
     }
 }
 
