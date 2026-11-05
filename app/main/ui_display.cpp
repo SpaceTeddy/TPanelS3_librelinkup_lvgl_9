@@ -485,17 +485,17 @@ void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
     if (mode == 0)
     {
         if (_glucose_measurement_color == 1)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
         else if (_glucose_measurement_color == 2)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFF00), LV_PART_MAIN);
         else if (_glucose_measurement_color == 3)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFA500), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFA500), LV_PART_MAIN);
         else if (_glucose_measurement_color == 4)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFF0000), LV_PART_MAIN);
         else if (_glucose_measurement_color == 5)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0x0000FF), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0x0000FF), LV_PART_MAIN);
         else
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
 
         lv_label_set_text(ui_Label_GlucoseValue, "---");
         lv_label_set_text(ui_Label_GlucoseDelta, "--- mg/dL");
@@ -504,17 +504,17 @@ void draw_labels(uint8_t mode, uint8_t _glucose_measurement_color,
     else if (mode == 1)
     {
         if (_glucose_measurement_color == 1)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
         else if (_glucose_measurement_color == 2)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFF00), LV_PART_MAIN);
         else if (_glucose_measurement_color == 3)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFA500), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFA500), LV_PART_MAIN);
         else if (_glucose_measurement_color == 4)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFF0000), LV_PART_MAIN);
         else if (_glucose_measurement_color == 5)
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0x0000FF), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0x0000FF), LV_PART_MAIN);
         else
-            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(ui_Label_GlucoseValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
 
         char buf_label1[4];
         snprintf(buf_label1, 4, "%d", _glucose_value);
@@ -616,7 +616,7 @@ void ui_fwinfo_refresh()
         {
             lv_obj_set_style_text_color(caption,
                                         lv_color_hex(enabled ? UI_COLOR_ACCENT : UI_COLOR_DIMMED),
-                                        LV_PART_MAIN | LV_STATE_DEFAULT);
+                                        LV_PART_MAIN);
         }
     }
 }
