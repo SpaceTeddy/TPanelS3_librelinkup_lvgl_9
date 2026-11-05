@@ -2159,18 +2159,42 @@ void setup_wifi()
     // Rebuild wifiMulti from scratch each call so we can skip the failing network.
     wifiMulti = WiFiMulti();
 
+    // Fallback passwords for networks that are open today but will get a
+    // password later. Used only when no password is configured for the SSID.
+    // WiFiMulti passes the passphrase only to secured networks (open networks
+    // get NULL), so one entry covers both: open -> connects without password,
+    // secured -> connects with the fallback.
+    struct WifiFallback { const char* ssid; const char* password; };
+    static const WifiFallback kWifiFallbacks[] = {
+        { "Leica-Guest", "leicaguest" },
+    };
+
+    auto add_ap = [&](const String& ssid, const String& password) {
+        const char* pw = password.c_str();
+        if (password.length() == 0) {
+            for (const auto& fb : kWifiFallbacks) {
+                if (ssid == fb.ssid) {
+                    pw = fb.password;
+                    logger.notice("WiFi: '%s' has no password, using fallback "
+                                  "(open network still works)", ssid.c_str());
+                    break;
+                }
+            }
+        }
+        wifiMulti.addAP(ssid.c_str(), pw);
+    };
+
     auto add_networks = [&](bool skip_bad) {
         int added = 0;
         if (!settings.config.wifi_networks.empty()) {
             for (const auto& net : settings.config.wifi_networks) {
                 if (skip_bad && net.ssid == g_wifi_skip_ssid) continue;
-                wifiMulti.addAP(net.ssid.c_str(), net.password.c_str());
+                add_ap(net.ssid, net.password);
                 added++;
             }
         } else {
             if (!skip_bad || settings.config.wifi_bssid != g_wifi_skip_ssid) {
-                wifiMulti.addAP(settings.config.wifi_bssid.c_str(),
-                                settings.config.wifi_password.c_str());
+                add_ap(settings.config.wifi_bssid, settings.config.wifi_password);
                 added++;
             }
         }
