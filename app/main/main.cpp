@@ -2644,10 +2644,43 @@ void setup_task()
  *
  * @note This function mirrors your original startup sequence without changing behavior.
  */
+// --- DEBUG: heap corruption watcher (temporary) ------------------------------
+// Walks all heaps every 20 ms. Light poisoning already puts canaries around each
+// block, so an overflow is caught here shortly after it happens instead of at
+// some later, unrelated malloc(). Reports the breadcrumbs active at that time.
+// Remove once the StoreProhibited-in-tlsf_malloc panic is found.
+#define HEAP_WATCH 1
+#if HEAP_WATCH
+#include <esp_heap_caps.h>
+static void heap_watch_task(void *)
+{
+    for (;;)
+    {
+        const char *loop_bc = (const char *)g_loop_breadcrumb;
+        const char *llu_bc  = librelinkup.breadcrumb();
+        if (!heap_caps_check_integrity_all(true))
+        {
+            Serial.printf("\n!!! HEAP CORRUPT at %lu ms  loop_bc(before)=%s llu_bc(before)=%s"
+                          "  loop_bc(now)=%s llu_bc(now)=%s fsm=%s\n",
+                          (unsigned long)millis(), loop_bc, llu_bc,
+                          (const char *)g_loop_breadcrumb, librelinkup.breadcrumb(),
+                          app_fsm_state_name(g_fsm.state));
+            Serial.flush();
+            vTaskDelay(pdMS_TO_TICKS(200));
+            abort(); // panic here, with this task's view, before malloc trips over it
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+#endif
+
 void setup()
 {
     // --- Serial / UART -------------------------------------------------------
     setup_serial(); ///< Initialize USB CDC serial (logging etc.)
+#if HEAP_WATCH
+    xTaskCreatePinnedToCore(heap_watch_task, "heap_watch", 4096, nullptr, 2, nullptr, 0);
+#endif
 
     // Report why we rebooted, in case it was the task watchdog below recovering
     // from a stuck main loop. On a WDT/panic reset, ESP-IDF also writes a full
