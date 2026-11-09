@@ -30,6 +30,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <freertos/semphr.h>
+#include <esp_task_wdt.h>
 
 #include <uuid/log.h>
 #include "ui.h"
@@ -208,6 +209,10 @@ static void fw_ui_progress_update(int current, int total) {
     // returning to its top. Feed the hang-detector heartbeat here so it
     // doesn't mistake this legitimate multi-second block for a stall.
     feed_loop_heartbeat();
+    // The install runs inside loop(), which feeds the 90 s task watchdog only
+    // once per iteration. A download slower than ~28 KB/s (weak Wi-Fi) ran into
+    // it at ~80 % and rebooted the device. Progress means we are not hung.
+    esp_task_wdt_reset();
 
     if (total <= 0) return;
 
@@ -470,6 +475,7 @@ static void fw_update_install_now() {
                         if (!http.connected() || (uint32_t)(millis() - last_data) > 15000) {
                             fail = "download interrupted";
                         }
+                        esp_task_wdt_reset();
                         delay(1);
                         continue;
                     }
