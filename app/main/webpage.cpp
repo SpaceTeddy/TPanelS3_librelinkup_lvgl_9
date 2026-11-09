@@ -41,6 +41,7 @@
 #include "mqtt.h"
 #include "mqtt_handler.h"
 #include "h2_ota.h"
+#include "fw_signature.h"
 #include "zigbee_h2.h"
 #include "app_fsm.h"
 #include <Update.h>
@@ -2418,6 +2419,11 @@ static bool     g_h2_upload_ok  = false;
 // progress screen and ota_in_progress gates the main loop as usual.
 
 static bool g_fw_upload_ok = false;
+static FwTrailerStream g_fw_upload_stream;   // splits image / signature trailer
+
+static bool fwUploadSink(const uint8_t *d, size_t n, void *) {
+    return Update.write(const_cast<uint8_t *>(d), n) == n;
+}
 
 static void fw_restart_task(void *) {
     vTaskDelay(pdMS_TO_TICKS(1500));   // let the response reach the browser
@@ -2440,12 +2446,14 @@ static void handleFwUploadBody(AsyncWebServerRequest *request, const String& fil
             logger.err("[FW] Update.begin failed: %s", Update.errorString());
             return;
         }
+        g_fw_upload_stream.begin(fwUploadSink, nullptr);
         onOTAStart();
     }
 
     if (!Update.isRunning()) return;
 
-    if (Update.write(data, len) != len) {
+    // The signature trailer is held back by the stream and never reaches flash.
+    if (!g_fw_upload_stream.push(data, len)) {
         logger.err("[FW] write failed: %s", Update.errorString());
         Update.abort();
         onOTAEnd(false);
@@ -2454,6 +2462,13 @@ static void handleFwUploadBody(AsyncWebServerRequest *request, const String& fil
     onOTAProgress(index + len, request->contentLength());
 
     if (final) {
+        // Verify BEFORE Update.end(): end() is what makes the slot bootable.
+        if (!g_fw_upload_stream.finish()) {
+            logger.err("[FW] upload rejected: signature check failed");
+            Update.abort();
+            onOTAEnd(false);
+            return;
+        }
         g_fw_upload_ok = Update.end(true);
         if (!g_fw_upload_ok)
             logger.err("[FW] Update.end failed: %s", Update.errorString());
@@ -2882,6 +2897,14 @@ static void handleH2OtaUploadBody(AsyncWebServerRequest *request,
         uint8_t* buf   = g_h2_upload_buf;
         g_h2_upload_buf = nullptr; // ownership passes to h2_ota
         g_h2_upload_pos = 0;
+        size_t img_size = 0;
+        if (!fw_sig_verify_signed_buffer(buf, fw_size, &img_size)) {
+            logger.err("[H2-OTA] upload rejected: signature check failed");
+            heap_caps_free(buf);
+            g_h2_upload_ok = false;
+            return;
+        }
+        fw_size = img_size;   // without the trailer
         g_h2_upload_ok  = h2_ota_start_from_buffer(buf, fw_size);
         if (!g_h2_upload_ok) heap_caps_free(buf);
         logger.notice("[H2-OTA] upload done: %u bytes, started=%d", (unsigned)fw_size, g_h2_upload_ok);
@@ -2890,6 +2913,21 @@ static void handleH2OtaUploadBody(AsyncWebServerRequest *request,
 
 void register_webpage_routes(AsyncWebServer& server) {
     g_server = &server;
+
+    // The ElegantOTA page (/update) is kept as the UI only. Its own /ota/start
+    // and /ota/upload handlers call Update.end() inside the library, before
+    // anything could check a signature. These two routes are registered first
+    // and therefore win; they feed the same signature-checking writer as
+    // /api/fw/upload (expects a *.signed.bin).
+    server.on("/ota/start", HTTP_GET, [](AsyncWebServerRequest *request) {
+        if (request->hasParam("mode") && request->getParam("mode")->value() == "fs") {
+            request->send(400, "text/plain",
+                          "Filesystem OTA is disabled; use /api/fs/upload");
+            return;
+        }
+        request->send(200, "text/plain", "OK");   // Update.begin() runs on the first body chunk
+    });
+    server.on("/ota/upload", HTTP_POST, handleFwUploadDone, handleFwUploadBody);
 
     // Register OTA endpoints once. Do NOT stop the webserver at runtime.
     ElegantOTA.begin(g_server);

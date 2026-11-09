@@ -1,4 +1,5 @@
 #include "h2_ota.h"
+#include "fw_signature.h"
 
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
@@ -322,9 +323,26 @@ struct HttpSource : ChunkSource {
 static void url_ota_task(void* /*arg*/)
 {
     logger.notice("[H2-OTA] URL OTA: %s", g_ota_url);
+    // The whole image is buffered first: it must be verified before the first
+    // byte goes to the H2, which cannot be done while streaming.
     HttpSource src;
-    if (src.begin(g_ota_url))
-        flash_to_h2(src, src.total);
+    if (src.begin(g_ota_url) && src.total <= 1536 * 1024) {
+        uint8_t* buf = (uint8_t*)heap_caps_malloc(src.total, MALLOC_CAP_SPIRAM);
+        size_t got = 0;
+        while (buf && got < (size_t)src.total) {
+            int r = src.read(buf + got, min<size_t>(4096, src.total - got));
+            if (r <= 0) break;
+            got += r;
+        }
+        size_t img = 0;
+        if (buf && got == (size_t)src.total && fw_sig_verify_signed_buffer(buf, got, &img)) {
+            BufSource bs(buf, img);
+            flash_to_h2(bs, img);
+        } else {
+            logger.warning("[H2-OTA] URL image rejected (download or signature)");
+        }
+        if (buf) heap_caps_free(buf);
+    }
 
     g_ota_active = false;
     vTaskDelete(nullptr);

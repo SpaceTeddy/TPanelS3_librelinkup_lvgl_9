@@ -54,9 +54,23 @@ jobs:
         env:
           FIRMWARE_VERSION: ${{ github.event.inputs.version }}
         run: pio run -e "${{ github.event.inputs.environment }}"
+      - name: Sign staging firmware
+        id: sign
+        shell: bash
+        env:
+          FW_SIGNING_KEY: ${{ secrets.FW_SIGNING_KEY }}
+          ENV_NAME: ${{ github.event.inputs.environment }}
+        run: |
+          set -e
+          if [ -z "$FW_SIGNING_KEY" ]; then echo "Secret FW_SIGNING_KEY is not set"; exit 1; fi
+          pip install cryptography
+          SIG=$(python3 tools/fw_sign.py sign ".pio/build/${ENV_NAME}/firmware.bin")
+          echo "signature=$SIG" >> "$GITHUB_OUTPUT"
+
       - name: Prepare OTA pages
         shell: bash
         env:
+          SIGNATURE: ${{ steps.sign.outputs.signature }}
           ENV_NAME: ${{ github.event.inputs.environment }}
           VERSION: ${{ github.event.inputs.version }}
           OWNER: ${{ github.repository_owner }}
@@ -78,13 +92,13 @@ jobs:
           else
             echo "No existing prod channel found — using this build as prod fallback"
             cp "$FW" dist/ota/firmware.bin
-            printf '{\n  "version": "%s",\n  "url": "%s/ota/firmware.bin"\n}\n' \
-              "$VERSION" "$BASE_URL" > dist/ota/manifest.json
+            printf '{\n  "version": "%s",\n  "url": "%s/ota/firmware.bin",\n  "signature": "%s"\n}\n' \
+              "$VERSION" "$BASE_URL" "$SIGNATURE" > dist/ota/manifest.json
             PROD_VERSION="$VERSION (fallback)"
           fi
           cp "$FW" dist/ota/staging/firmware.bin
-          printf '{\n  "version": "%s",\n  "url": "%s/ota/staging/firmware.bin"\n}\n' \
-            "$VERSION" "$BASE_URL" > dist/ota/staging/manifest.json
+          printf '{\n  "version": "%s",\n  "url": "%s/ota/staging/firmware.bin",\n  "signature": "%s"\n}\n' \
+            "$VERSION" "$BASE_URL" "$SIGNATURE" > dist/ota/staging/manifest.json
           echo ""
           echo "PROD    → v${PROD_VERSION}  (${BASE_URL}/ota/manifest.json)"
           echo "STAGING → v${VERSION}  (${BASE_URL}/ota/staging/manifest.json)"

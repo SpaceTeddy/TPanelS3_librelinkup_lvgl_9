@@ -165,6 +165,23 @@ jobs:
           ls -lh "$FW"
           echo "path=$FW" >> "$GITHUB_OUTPUT"
 
+      - name: Sign firmware
+        id: sign
+        shell: bash
+        env:
+          FW_SIGNING_KEY: ${{ secrets.FW_SIGNING_KEY }}
+          FW_PATH: ${{ steps.fw.outputs.path }}
+        run: |
+          set -e
+          if [ -z "$FW_SIGNING_KEY" ]; then
+            echo "Secret FW_SIGNING_KEY is not set - devices would reject this release"
+            exit 1
+          fi
+          pip install cryptography
+          SIG=$(python3 tools/fw_sign.py sign "$FW_PATH" --signed-out "${FW_PATH%.bin}.signed.bin")
+          echo "signature=$SIG" >> "$GITHUB_OUTPUT"
+          echo "signed_path=${FW_PATH%.bin}.signed.bin" >> "$GITHUB_OUTPUT"
+
       - name: Create or update GitHub release
         shell: bash
         env:
@@ -174,12 +191,14 @@ jobs:
           PRERELEASE: ${{ github.event.inputs.prerelease }}
           GENERATE_NOTES: ${{ github.event.inputs.generate_notes }}
           FW_PATH: ${{ steps.fw.outputs.path }}
+          SIGNED_PATH: ${{ steps.sign.outputs.signed_path }}
         run: |
           ASSET_NAME="firmware-${ENV_NAME}.bin"
+          SIGNED_ASSET="firmware-${ENV_NAME}.signed.bin"   # for manual uploads
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists, updating asset..."
-            gh release upload "$TAG" "${FW_PATH}#${ASSET_NAME}" --clobber
+            gh release upload "$TAG" "${FW_PATH}#${ASSET_NAME}" "${SIGNED_PATH}#${SIGNED_ASSET}" --clobber
           else
             EXTRA_ARGS=()
             [ "$PRERELEASE" = "true" ] && EXTRA_ARGS+=("--prerelease")
@@ -188,7 +207,7 @@ jobs:
             else
               EXTRA_ARGS+=("--notes" "Automated release for ${TAG}")
             fi
-            gh release create "$TAG" "${FW_PATH}#${ASSET_NAME}" \
+            gh release create "$TAG" "${FW_PATH}#${ASSET_NAME}" "${SIGNED_PATH}#${SIGNED_ASSET}" \
               --target "$GITHUB_SHA" \
               --title "$TAG" \
               "${EXTRA_ARGS[@]}"
@@ -205,13 +224,14 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
           FW_PATH: ${{ steps.fw.outputs.path }}
+          SIGNATURE: ${{ steps.sign.outputs.signature }}
         run: |
           BASE_URL="https://${OWNER}.github.io/${REPO}"
           for OTA_DIR in "ota" "ota/staging"; do
             mkdir -p "dist/${OTA_DIR}"
             cp "$FW_PATH" "dist/${OTA_DIR}/firmware.bin"
-            printf '{\n  "version": "%s",\n  "url": "%s/%s/firmware.bin"\n}\n' \
-              "$VERSION" "$BASE_URL" "$OTA_DIR" > "dist/${OTA_DIR}/manifest.json"
+            printf '{\n  "version": "%s",\n  "url": "%s/%s/firmware.bin",\n  "signature": "%s"\n}\n' \
+              "$VERSION" "$BASE_URL" "$OTA_DIR" "$SIGNATURE" > "dist/${OTA_DIR}/manifest.json"
           done
           echo "PROD    manifest: ${BASE_URL}/ota/manifest.json → v${VERSION}"
           echo "STAGING manifest: ${BASE_URL}/ota/staging/manifest.json → v${VERSION}"

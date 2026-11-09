@@ -25,7 +25,8 @@
 
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
-#include <HTTPUpdate.h>
+#include <Update.h>
+#include "fw_signature.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <freertos/semphr.h>
@@ -76,6 +77,7 @@ struct FirmwareUpdateState {
     uint32_t last_check_ms = 0;
     String latest_version = "";
     String binary_url = "";
+    String signature = "";   ///< base64 ECDSA signature from the manifest
     String last_error = "";
     String status = "idle";
 };
@@ -337,6 +339,7 @@ static void fw_update_check_manifest_now() {
 
     const String latest = String((const char*)(doc["version"] | ""));
     const String url = String((const char*)(doc["url"] | ""));
+    const String sig = String((const char*)(doc["signature"] | ""));
     if (latest.isEmpty() || url.isEmpty()) {
         if (fw_update_lock()) {
             fw_set_status_locked("error", "manifest missing version/url");
@@ -347,6 +350,19 @@ static void fw_update_check_manifest_now() {
         return;
     }
 
+#if FW_SIGNATURE_ENFORCE
+    if (sig.isEmpty()) {
+        if (fw_update_lock()) {
+            g_fw_update.update_available = false;
+            fw_set_status_locked("error", "manifest not signed");
+            g_fw_update.checking = false;
+            fw_update_unlock();
+        }
+        logger.warning("[FW]  %-12s ->  %-12s | %-22s | took=%6lums", "checking", "error", "manifest not signed", (unsigned long)(millis()-t0));
+        return;
+    }
+#endif
+
     const bool available = settings.config.ota_force
         ? true
         : (fw_compare_versions(String(latest), String(APP_FIRMWARE_VERSION)) > 0);
@@ -354,6 +370,7 @@ static void fw_update_check_manifest_now() {
     if (fw_update_lock()) {
         g_fw_update.latest_version = latest;
         g_fw_update.binary_url = url;
+        g_fw_update.signature = sig;
         g_fw_update.update_available = available;
         g_fw_update.last_check_ms = millis();
         fw_set_status_locked(available ? "update_available" : "up_to_date");
@@ -370,7 +387,8 @@ static void fw_update_check_manifest_now() {
 /**
  * @brief Blocking firmware installation — downloads and flashes the binary.
  *
- * Uses ESP Arduino httpUpdate with the Mozilla root CA bundle for TLS.
+ * Streams the image into the OTA slot over TLS (Mozilla root CA bundle) and
+ * only commits it if the manifest signature verifies (see fw_signature.h).
  * Progress is reported via fw_ui_progress_update(). On success the device
  * restarts automatically (ESP.restart). On failure ota_in_progress is
  * cleared so normal operation can resume.
@@ -380,9 +398,10 @@ static void fw_update_check_manifest_now() {
  */
 static void fw_update_install_now() {
     const uint32_t t0 = millis();
-    String url;
+    String url, sig;
     if (fw_update_lock()) {
         url = g_fw_update.binary_url;
+        sig = g_fw_update.signature;
         g_fw_update.installing = true;
         fw_set_status_locked("installing");
         fw_update_unlock();
@@ -418,18 +437,69 @@ static void fw_update_install_now() {
     client.setCACertBundle(x509_crt_bundle_start);
 #endif
 
-    httpUpdate.onStart([]() {});
-    httpUpdate.onProgress([](int current, int total) {
-        fw_ui_progress_update(current, total);
-    });
-    httpUpdate.onEnd([]() {});
-    httpUpdate.onError([](int err) {
-        logger.warning("[FW]  %-12s | callback error=%d", "installing", err);
-    });
-    httpUpdate.rebootOnUpdate(false);
-    t_httpUpdate_return ret = httpUpdate.update(client, url, String(APP_FIRMWARE_VERSION));
-
-    if (ret == HTTP_UPDATE_OK) {
+    // Own download loop instead of httpUpdate.update(): the image is hashed
+    // while it streams to flash, and the signature is checked BEFORE
+    // Update.end() -- which is what makes the new slot bootable. A rejected
+    // image is aborted and the running firmware keeps its boot partition.
+    String fail;
+    bool ok = false;
+    {
+        HTTPClient http;
+        http.setTimeout(15000);
+        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+        if (!http.begin(client, url)) {
+            fail = "download begin failed";
+        } else {
+            const int code = http.GET();
+            const int total = http.getSize();
+            if (code != HTTP_CODE_OK) {
+                fail = String("download http ") + String(code);
+            } else if (total <= 0) {
+                fail = "unknown image size";
+            } else if (!Update.begin((size_t)total)) {
+                fail = String("Update.begin: ") + Update.errorString();
+            } else {
+                FwSigVerifier ver;
+                WiFiClient* stream = http.getStreamPtr();
+                static uint8_t buf[2048];
+                int done = 0;
+                uint32_t last_data = millis();
+                while (done < total && fail.isEmpty()) {
+                    const size_t avail = stream->available();
+                    if (avail == 0) {
+                        if (!http.connected() || (uint32_t)(millis() - last_data) > 15000) {
+                            fail = "download interrupted";
+                        }
+                        delay(1);
+                        continue;
+                    }
+                    const size_t want = min(min(avail, sizeof(buf)), (size_t)(total - done));
+                    const int n = stream->readBytes(buf, want);
+                    if (n <= 0) continue;
+                    last_data = millis();
+                    ver.update(buf, n);
+                    if (Update.write(buf, n) != (size_t)n) {
+                        fail = String("flash write: ") + Update.errorString();
+                        break;
+                    }
+                    done += n;
+                    fw_ui_progress_update(done, total);
+                }
+                if (fail.isEmpty() && !ver.verifyBase64(sig.c_str())) {
+                    fail = "signature invalid";
+                }
+                if (!fail.isEmpty()) {
+                    Update.abort();
+                } else if (!Update.end(true)) {
+                    fail = String("Update.end: ") + Update.errorString();
+                } else {
+                    ok = true;
+                }
+            }
+            http.end();
+        }
+    }
+    if (ok) {
         if (fw_update_lock()) {
             g_fw_update.installing = false;
             g_fw_update.update_available = false;
@@ -444,9 +514,7 @@ static void fw_update_install_now() {
         return;
     }
 
-    String err;
-    if (ret == HTTP_UPDATE_NO_UPDATES) err = "no update";
-    else err = String("install failed: ") + httpUpdate.getLastErrorString();
+    const String err = String("install failed: ") + fail;
 
     if (fw_update_lock()) {
         g_fw_update.installing = false;
