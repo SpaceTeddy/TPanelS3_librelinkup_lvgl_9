@@ -2419,6 +2419,7 @@ static bool     g_h2_upload_ok  = false;
 // progress screen and ota_in_progress gates the main loop as usual.
 
 static bool g_fw_upload_ok = false;
+static String g_fw_upload_error;   // reason for the last failure, returned in the 500 body
 static FwTrailerStream g_fw_upload_stream;   // splits image / signature trailer
 
 static bool fwUploadSink(const uint8_t *d, size_t n, void *) {
@@ -2440,10 +2441,12 @@ static void handleFwUploadBody(AsyncWebServerRequest *request, const String& fil
         if (!ensureConfigAuth(request)) return;
 
         g_fw_upload_ok = false;
+        g_fw_upload_error = "no data";
         const size_t total = request->contentLength();
         logger.notice("[FW] upload start: %s (%u bytes)", filename.c_str(), (unsigned)total);
         if (!Update.begin(total ? total : UPDATE_SIZE_UNKNOWN)) {
             logger.err("[FW] Update.begin failed: %s", Update.errorString());
+            g_fw_upload_error = String("Update.begin: ") + Update.errorString();
             return;
         }
         g_fw_upload_stream.begin(fwUploadSink, nullptr);
@@ -2455,6 +2458,7 @@ static void handleFwUploadBody(AsyncWebServerRequest *request, const String& fil
     // The signature trailer is held back by the stream and never reaches flash.
     if (!g_fw_upload_stream.push(data, len)) {
         logger.err("[FW] write failed: %s", Update.errorString());
+        g_fw_upload_error = String("flash write: ") + Update.errorString();
         Update.abort();
         onOTAEnd(false);
         return;
@@ -2465,13 +2469,16 @@ static void handleFwUploadBody(AsyncWebServerRequest *request, const String& fil
         // Verify BEFORE Update.end(): end() is what makes the slot bootable.
         if (!g_fw_upload_stream.finish()) {
             logger.err("[FW] upload rejected: signature check failed");
+            g_fw_upload_error = "signature check failed (use the *.signed.bin)";
             Update.abort();
             onOTAEnd(false);
             return;
         }
         g_fw_upload_ok = Update.end(true);
-        if (!g_fw_upload_ok)
+        if (!g_fw_upload_ok) {
             logger.err("[FW] Update.end failed: %s", Update.errorString());
+            g_fw_upload_error = String("Update.end: ") + Update.errorString();
+        }
         logger.notice("[FW] upload done: %u bytes, ok=%d",
                       (unsigned)(index + len), (int)g_fw_upload_ok);
         onOTAEnd(g_fw_upload_ok);
@@ -2613,10 +2620,11 @@ static void handleFsUploadDone(AsyncWebServerRequest *request) {
 }
 
 static void handleFwUploadDone(AsyncWebServerRequest *request) {
+    const String body = g_fw_upload_ok
+        ? String("{\"status\":\"ok\",\"message\":\"rebooting\"}")
+        : String("{\"status\":\"failed\",\"error\":\"") + g_fw_upload_error + "\"}";
     AsyncWebServerResponse *resp = request->beginResponse(
-        g_fw_upload_ok ? 200 : 500, "application/json; charset=utf-8",
-        g_fw_upload_ok ? "{\"status\":\"ok\",\"message\":\"rebooting\"}"
-                       : "{\"status\":\"failed\"}");
+        g_fw_upload_ok ? 200 : 500, "application/json; charset=utf-8", body);
     resp->addHeader("Connection", "close");
     request->send(resp);
 
