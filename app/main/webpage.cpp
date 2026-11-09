@@ -2438,7 +2438,9 @@ static void handleFwUploadBody(AsyncWebServerRequest *request, const String& fil
     if (index == 0) {
         // Checked here, not in the completion handler: the body arrives first,
         // and an unauthenticated upload would already be in flash by then.
-        if (!ensureConfigAuth(request)) return;
+        // /ota/upload (ElegantOTA page, PlatformIO upload) stays without login
+        // as on main; the signature check below applies to both routes.
+        if (request->url() != "/ota/upload" && !ensureConfigAuth(request)) return;
 
         g_fw_upload_ok = false;
         g_fw_upload_error = "no data";

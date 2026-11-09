@@ -4,12 +4,13 @@
   keygen  create a key pair; writes the private PEM and include/fw_pubkey.h
   sign    sign a firmware image; prints the base64 signature (for manifest.json)
           and optionally writes <image><sig 64B><"FWS1"> (for manual uploads)
-  verify  check an image + signature against a public key (sanity test)
+  verify    check an image + signature (or a *.signed.bin) against a public key
+  checkkey  check that a private key belongs to include/fw_pubkey.h
 
 The private key belongs in the CI secret FW_SIGNING_KEY (PEM text) and nowhere
 in the repository. Needs: pip install cryptography
 """
-import argparse, base64, hashlib, os, sys
+import argparse, base64, hashlib, os, re, sys
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import (
@@ -68,12 +69,36 @@ def cmd_sign(a):
     print(base64.b64encode(sig).decode())
 
 
+def load_header_pub(path):
+    """Public key from a generated fw_pubkey.h (the key compiled into the firmware)."""
+    raw = bytes(int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", open(path).read()))
+    if len(raw) != 65:
+        sys.exit("%s: expected 65 key bytes, found %d" % (path, len(raw)))
+    return ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), raw)
+
+
+def cmd_checkkey(a):
+    pub = load_private(a).public_key()
+    if pubkey_header(pub) != open(a.header).read():
+        sys.exit("MISMATCH: key does not belong to %s" % a.header)
+    print("MATCH: key belongs to %s" % a.header)
+
+
 def cmd_verify(a):
     from cryptography.exceptions import InvalidSignature
-    pub = serialization.load_pem_public_key(open(a.pub, "rb").read()) if a.pub \
-        else load_private(a).public_key()
+    if a.header:
+        pub = load_header_pub(a.header)
+    elif a.pub:
+        pub = serialization.load_pem_public_key(open(a.pub, "rb").read())
+    else:
+        pub = load_private(a).public_key()
     data = open(a.image, "rb").read()
-    sig = base64.b64decode(a.sig)
+    if a.sig:
+        sig = base64.b64decode(a.sig)
+    else:   # *.signed.bin: <image><sig 64B><"FWS1">
+        if len(data) < 68 or data[-4:] != MAGIC:
+            sys.exit("INVALID: no signature given and no FWS1 trailer in %s" % a.image)
+        data, sig = data[:-68], data[-68:-4]
     try:
         pub.verify(encode_dss_signature(int.from_bytes(sig[:32], "big"),
                                         int.from_bytes(sig[32:], "big")),
@@ -98,9 +123,15 @@ def main():
     s.add_argument("--signed-out", help="write image+signature trailer file")
     s.set_defaults(fn=cmd_sign)
     v = sub.add_parser("verify")
-    v.add_argument("image"); v.add_argument("sig")
+    v.add_argument("image")
+    v.add_argument("sig", nargs="?", help="base64 signature; omit for a *.signed.bin")
+    v.add_argument("--header", help="public key from fw_pubkey.h (what the device checks)")
     v.add_argument("--pub"); v.add_argument("--key"); v.add_argument("--key-env", default="FW_SIGNING_KEY")
     v.set_defaults(fn=cmd_verify)
+    c = sub.add_parser("checkkey")
+    c.add_argument("--key"); c.add_argument("--key-env", default="FW_SIGNING_KEY")
+    c.add_argument("--header", default="include/fw_pubkey.h")
+    c.set_defaults(fn=cmd_checkkey)
     a = p.parse_args()
     a.fn(a)
 

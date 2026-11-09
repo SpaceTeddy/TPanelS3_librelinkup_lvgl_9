@@ -11,7 +11,16 @@
 # An example of an upload URL:
 #                custom_upload_url = http://192.168.1.123/update
 # also possible: custom_upload_url = http://domainname/update
+#
+# Firmware signing (see docs/firmware-signing.md): the device only accepts
+# "<image><signature><FWS1>". The image is signed here before the upload with
+#   custom_signing_key = ~/path/to/fw_signing_key.pem     (platformio.ini)
+# or the PEM text in the env var FW_SIGNING_KEY (same as CI).
+# Without a key the plain image is sent -- only accepted by firmware built
+# with -DFW_SIGNATURE_ENFORCE=0 or by pre-signing firmware.
 
+import io
+import os
 import sys
 import time
 import requests
@@ -20,6 +29,32 @@ from urllib.parse import urlparse
 from requests.auth import HTTPDigestAuth
 
 Import("env")
+
+
+def _sign_image(data: bytes) -> bytes:
+    """Append the signature trailer, or return data unchanged if no key is configured."""
+    key_path = env.GetProjectOption("custom_signing_key", "").strip()
+    pem = None
+    if key_path:
+        key_path = os.path.expanduser(key_path)
+        if not os.path.isfile(key_path):
+            sys.exit(f"custom_signing_key: file not found: {key_path}")
+        with open(key_path, "rb") as f:
+            pem = f.read()
+    elif os.environ.get("FW_SIGNING_KEY"):
+        pem = os.environ["FW_SIGNING_KEY"].encode()
+
+    if pem is None:
+        print("WARNING: no signing key (custom_signing_key / FW_SIGNING_KEY) -- "
+              "uploading UNSIGNED image, a signature-enforcing device will reject it")
+        return data
+
+    sys.path.insert(0, os.path.join(env["PROJECT_DIR"], "tools"))
+    import fw_sign
+    from cryptography.hazmat.primitives import serialization
+    key = serialization.load_pem_private_key(pem, password=None)
+    print("Signing image (ECDSA P-256) ...")
+    return data + fw_sign.sign_bytes(key, data) + fw_sign.MAGIC
 
 try:
     from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
@@ -112,8 +147,11 @@ def on_upload(source, target, env):
 
     print("Starting OTA upload…")
 
-    with open(firmware_path, "rb") as firmware:
-        md5 = hashlib.md5(firmware.read()).hexdigest()
+    with open(firmware_path, "rb") as f:
+        payload = _sign_image(f.read())
+
+    with io.BytesIO(payload) as firmware:
+        md5 = hashlib.md5(payload).hexdigest()
 
         parsed_url = urlparse(upload_url)
         host_ip = parsed_url.netloc

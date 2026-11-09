@@ -339,7 +339,12 @@ Beide Zeilen auskommentiert lassen, `extra_scripts` aber aktiv. `pio run -t uplo
 ```ini
 upload_protocol = custom
 custom_upload_url = http://<geraete-ip>/update
+custom_signing_key = ~/.keys/fw_signing_key.pem
 ```
+
+Das Gerät nimmt nur signierte Images an. `platformio_upload.py` signiert vor
+dem Upload mit `custom_signing_key` (oder dem PEM-Text in `FW_SIGNING_KEY`).
+Einrichtung und Prüfung: [firmware-signing.md](firmware-signing.md).
 
 **Vom GitHub-Manifest** — das Gerät prüft selbständig alle zehn Minuten:
 

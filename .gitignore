@@ -10,3 +10,5 @@ sdkconfig.main
 # build, absent with the classic espressif32 platform.
 CMakeLists.txt
 dependencies.lock
+
+__pycache__/
