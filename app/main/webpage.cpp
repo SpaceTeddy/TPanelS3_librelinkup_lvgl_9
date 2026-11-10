@@ -2622,9 +2622,16 @@ static void handleFsUploadDone(AsyncWebServerRequest *request) {
 }
 
 static void handleFwUploadDone(AsyncWebServerRequest *request) {
-    const String body = g_fw_upload_ok
-        ? String("{\"status\":\"ok\",\"message\":\"rebooting\"}")
-        : String("{\"status\":\"failed\",\"error\":\"") + g_fw_upload_error + "\"}";
+    JsonDocument doc;
+    if (g_fw_upload_ok) {
+        doc["status"] = "ok";
+        doc["message"] = "rebooting";
+    } else {
+        doc["status"] = "failed";
+        doc["error"] = g_fw_upload_error;   // serializer escapes quotes etc.
+    }
+    String body;
+    serializeJson(doc, body);
     AsyncWebServerResponse *resp = request->beginResponse(
         g_fw_upload_ok ? 200 : 500, "application/json; charset=utf-8", body);
     resp->addHeader("Connection", "close");

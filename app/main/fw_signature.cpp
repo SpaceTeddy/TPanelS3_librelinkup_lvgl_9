@@ -82,6 +82,11 @@ bool FwSigVerifier::verifyBase64(const char* sig_b64) {
 
 // ---------------------------------------------------------------------------
 
+/** @brief True if the FW_SIG_TRAILER_LEN bytes at @p trailer end in the magic. */
+static bool trailerValid(const uint8_t* trailer) {
+    return memcmp(trailer + FW_SIG_LEN, FW_SIG_MAGIC, sizeof(FW_SIG_MAGIC)) == 0;
+}
+
 void FwTrailerStream::begin(FwSinkFn sink, void* user) {
     ver_.reset();
     sink_ = sink;
@@ -114,8 +119,7 @@ bool FwTrailerStream::push(const uint8_t* data, size_t len) {
 }
 
 bool FwTrailerStream::finish() {
-    if (tail_len_ != FW_SIG_TRAILER_LEN ||
-        memcmp(tail_ + FW_SIG_LEN, FW_SIG_MAGIC, sizeof(FW_SIG_MAGIC)) != 0) {
+    if (tail_len_ != FW_SIG_TRAILER_LEN || !trailerValid(tail_)) {
         logger.warning("[SIG] signature trailer missing (unsigned image?)");
 #if !FW_SIGNATURE_ENFORCE
         // Unsigned dev image: the held-back bytes are image data after all.
@@ -132,8 +136,7 @@ bool FwTrailerStream::finish() {
 // ---------------------------------------------------------------------------
 
 bool fw_sig_verify_signed_buffer(const uint8_t* data, size_t size, size_t* image_size) {
-    if (size <= FW_SIG_TRAILER_LEN ||
-        memcmp(data + size - sizeof(FW_SIG_MAGIC), FW_SIG_MAGIC, sizeof(FW_SIG_MAGIC)) != 0) {
+    if (size <= FW_SIG_TRAILER_LEN || !trailerValid(data + size - FW_SIG_TRAILER_LEN)) {
         logger.warning("[SIG] signature trailer missing (unsigned image?)");
         if (!FW_SIGNATURE_ENFORCE && image_size) *image_size = size;
         return !FW_SIGNATURE_ENFORCE;
