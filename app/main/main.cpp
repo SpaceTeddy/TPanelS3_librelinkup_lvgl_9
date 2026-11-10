@@ -2649,7 +2649,10 @@ void setup_task()
 // block, so an overflow is caught here shortly after it happens instead of at
 // some later, unrelated malloc(). Reports the breadcrumbs active at that time.
 // Remove once the StoreProhibited-in-tlsf_malloc panic is found.
-#define HEAP_WATCH 1
+// Off by default. Enable with -DHEAP_WATCH=1 (build_flags) while debugging.
+#ifndef HEAP_WATCH
+#define HEAP_WATCH 0
+#endif
 #if HEAP_WATCH
 #include <esp_heap_caps.h>
 static void heap_watch_task(void *)
